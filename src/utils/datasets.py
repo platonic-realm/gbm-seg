@@ -121,10 +121,10 @@ class TrainingDataset(Dataset):
                                       collagen4.shape[1],
                                       collagen4.shape[2])
 
-        labels = nephrin.reshape(1,
-                                 labels.shape[0],
-                                 labels.shape[1],
-                                 labels.shape[2])
+        labels = labels.reshape(1,
+                                labels.shape[0],
+                                labels.shape[1],
+                                labels.shape[2])
 
         return {
             'nephrin': torch.from_numpy(nephrin),

@@ -32,37 +32,39 @@ class Unet3DME(nn.Module):
         self.feature_maps = _feature_maps
         self.conv_layer_type = _conv_layer_type
 
-        logging.info("Initializing Unet3D with multiple encoders")
-        logging.info("input channels: %s", _input_channels)
-        logging.info("kernel size: %s", _kernel_size)
-        logging.info("feature maps: %s", _feature_maps)
-        logging.info("convolution layer type: %s", _conv_layer_type)
+        logging.debug("######################")
+        logging.debug("Initializing Unet3D with multiple encoders")
+        logging.debug("input channels: %s", _input_channels)
+        logging.debug("kernel size: %s", _kernel_size)
+        logging.debug("feature maps: %s", _feature_maps)
+        logging.debug("convolution layer type: %s", _conv_layer_type)
 
-        logging.info("Creating encoder for nephrin stain")
+        logging.debug("Creating encoder for nephrin stain")
         self.x_encoder_layers = create_encoder_layers(_input_channels,
                                                       _feature_maps,
                                                       _kernel_size,
                                                       _conv_layer_type)
 
-        logging.info("Creating encoder for WGA stain")
+        logging.debug("Creating encoder for WGA stain")
         self.y_encoder_layers = create_encoder_layers(_input_channels,
                                                       _feature_maps,
                                                       _kernel_size,
                                                       _conv_layer_type)
 
-        logging.info("Creating encoder for Collagen IV stain")
+        logging.debug("Creating encoder for Collagen IV stain")
         self.z_encoder_layers = create_encoder_layers(_input_channels,
                                                       _feature_maps,
                                                       _kernel_size,
                                                       _conv_layer_type)
 
-        logging.info("Creating the decoder layer")
+        logging.debug("Creating the decoder layer")
         self.decoder_layers = create_decoder_layers(_feature_maps,
                                                     _kernel_size,
                                                     _conv_layer_type)
 
-        logging.info("Creating the last layer")
+        logging.debug("Creating the last layer")
         self.last_layer = nn.Conv3d(_feature_maps[0], 1, 1)
+        self.final_activation = nn.Softmax(dim=1)
 
     def forward(self, _x, _y, _z):
         x_encoder_features = []
@@ -99,6 +101,7 @@ class Unet3DME(nn.Module):
             results = decoder(encoder_features, results)
 
         results = self.last_layer(results)
+        results = self.final_activation(results)
 
         return results
 
@@ -114,4 +117,3 @@ class Unet3DME(nn.Module):
             decoder.to(*args, **kwargs)
 
         return self
-

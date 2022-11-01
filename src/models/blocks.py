@@ -141,6 +141,7 @@ def create_encoder_layers(_input_channels,
                           _conv_layer_type):
     encoder_layers = []
 
+    logging.debug("######################")
     logging.debug("Entered into create_encoder_layers")
     logging.debug("Length of feature map: %s", len(_feature_maps))
 
@@ -177,6 +178,7 @@ def create_decoder_layers(_feature_maps,
                           _conv_layer_type):
     decoder_layers = []
 
+    logging.debug("######################")
     logging.debug("Entered into create_decoder_layers")
     logging.debug("Length of feature map: %s", len(_feature_maps))
 
@@ -188,7 +190,8 @@ def create_decoder_layers(_feature_maps,
             input_channels = 3*reverse_feature_maps[i]
             x_channels = input_channels
         else:
-            input_channels = reverse_feature_maps[i] + 3*reverse_feature_maps[i+1]
+            input_channels = reverse_feature_maps[i] + \
+                             3*reverse_feature_maps[i+1]
             x_channels = reverse_feature_maps[i]
 
         output_channels = reverse_feature_maps[i+1]
