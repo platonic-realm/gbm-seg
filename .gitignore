@@ -2,3 +2,4 @@ tags
 *.swo
 *.swp
 *.log
+**/__pycache__/

@@ -15,7 +15,7 @@ import numpy as np
 import tifffile
 
 
-class TrainingDataset(Dataset):
+class GBMDataset(Dataset):
     # pylint: disable=too-many-instance-attributes
 
     def __init__(self, _source_directory, _sample_dimension, _pixel_per_step):
