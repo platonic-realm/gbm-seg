@@ -29,27 +29,26 @@ if __name__ == '__main__':
 
     training_dataset = GBMDataset(
         _source_directory='/data/afatehi/data/GBM-Train-DS',
-        _sample_dimension=(12, 128, 128),
+        _sample_dimension=(6, 256, 256),
         _pixel_per_step=(1, 16, 16)
     )
 
     validation_dataset = GBMDataset(
         _source_directory='/data/afatehi/data/GBM-Valid-DS',
-        _sample_dimension=(12, 128, 128),
+        _sample_dimension=(6, 256, 256),
         _pixel_per_step=(1, 16, 16)
     )
 
     training_loader = DataLoader(training_dataset,
-                                 batch_size=5,
+                                 batch_size=20,
                                  shuffle=False)
-
     validation_loader = DataLoader(validation_dataset,
-                                   batch_size=5,
+                                   batch_size=20,
                                    shuffle=True)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    unet_3d = Unet3DME(1, _feature_maps=(128, 256, 512, 1024))
+    unet_3d = Unet3DME(1, _feature_maps=(32, 64, 128))
     optimizer = torch.optim.SGD(unet_3d.parameters(), lr=0.0001, momentum=0.9)
     loss_function = DiceLoss()
 
@@ -111,11 +110,12 @@ if __name__ == '__main__':
                       _training_dataloader=training_loader,
                       _validation_function=validation_function,
                       _validation_dataloader=validation_loader,
-                      _validation_no_of_batches=100,
+                      _validation_no_of_batches=500,
                       _optimizer=optimizer,
                       _loss_function=loss_function,
                       _device=device,
-                      _number_of_gpus=1)
+                      _data_parallelism=True,
+                      _number_of_gpus=2)
 
     trainer.train(_epochs=10)
 

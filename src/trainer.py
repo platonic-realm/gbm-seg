@@ -83,10 +83,6 @@ class Trainer():
         if self.tensorboard_support:
             assert self.tensorboard_path is None, \
                 "ternsorboard_path can not be None if you " \
-                "want tensorboard support"
-
-        if self.device == 'gpu':
-            self.data_parallelism = True
 
         if self.log_to_file:
             # ToDo: add log handler
@@ -113,12 +109,13 @@ class Trainer():
         if self.validation_step is None:
             pass
 
+        self.model.to(self.device)
         process_bar = tqdm(self.valiation_dataloader,
                            file=sys.stdout,
                            total=self.validation_no_of_batches)
 
         for index, data in enumerate(process_bar):
-            if index > self.validation_no_of_batches:
+            if index >= self.validation_no_of_batches:
                 break
             index += 1
 
@@ -158,7 +155,7 @@ class Trainer():
                                            self.optimizer,
                                            self.loss_function)
 
-                process_bar.set_description(f"Epoch: {epoch}")
+                process_bar.set_description(f"Epoch {epoch+1}/{_epochs}")
 
                 postfix = {}
                 for key in losses:
@@ -171,55 +168,3 @@ class Trainer():
             self.validate()
 
 
-def train_3d_unet(_model, _dataloader, _device, _optimizer, _loss_function):
-
-    logging.debug("######################")
-    logging.debug("Using device: %s", _device)
-
-    if _device == 'cuda':
-        logging.debug("Using data prallel paradigm")
-        _model = nn.DataParallel(_model)
-
-    logging.debug("Moving model to device: %s", _device)
-    _model.to(_device)
-
-    process_bar = tqdm(_dataloader,
-                       file=sys.stdout,
-                       disable=LOG_LEVEL == logging.DEBUG)
-
-    for _ in range(10):
-        for index, data in enumerate(process_bar):
-            logging.debug("**********************")
-            logging.debug("Batch no: %d", index)
-
-            nephrin = data['nephrin'].to(_device)
-            wga = data['wga'].to(_device)
-            collagen4 = data['collagen4'].to(_device)
-            labels = data['labels'].to(_device)
-
-            if index == 0:
-                logging.debug("input channel shape: %s", nephrin.shape)
-
-            logging.debug("Clearing out optimizer's gradients.")
-            _optimizer.zero_grad()
-
-            logging.debug("Inference...")
-            outputs = _model(nephrin, wga, collagen4)
-
-            logging.debug("Calculating the loss.")
-            loss = _loss_function(outputs, labels)
-
-            logging.debug("Backpropagation...")
-            loss.backward()
-            _optimizer.step()
-
-            loss_value = loss.item()
-            logging.debug("Loss: %.5f", loss_value)
-
-            corrects = (outputs == labels).float().sum().item()
-
-            logging.debug("Corrects: %d", corrects)
-            logging.debug("Accuracy: %.4f", corrects/torch.numel(outputs))
-
-            process_bar.set_description(f"Batch-{index}")
-            process_bar.set_postfix({'Loss:': loss_value})

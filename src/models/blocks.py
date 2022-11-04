@@ -41,6 +41,11 @@ class ConvLayer(nn.Module):
         _x = self.activation(_x)
         return _x
 
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.convolution.to(*args, **kwargs)
+        self.batch_normalization.to(*args, **kwargs)
+
 
 class EncoderLayer(nn.Module):
     def __init__(self,
@@ -79,6 +84,12 @@ class EncoderLayer(nn.Module):
         _x = self.convolution_2(_x)
 
         return _x
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.pooling_layer.to(*args, **kwargs)
+        self.convolution_1.to(*args, **kwargs)
+        self.convolution_2.to(*args, **kwargs)
 
 
 class DecoderLayer(nn.Module):
@@ -134,12 +145,17 @@ class DecoderLayer(nn.Module):
 
         return _x
 
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.convolution_1.to(*args, **kwargs)
+        self.convolution_2.to(*args, **kwargs)
+
 
 def create_encoder_layers(_input_channels,
                           _feature_maps,
                           _kernel_size,
                           _conv_layer_type):
-    encoder_layers = []
+    encoder_layers = nn.ModuleList([])
 
     logging.debug("######################")
     logging.debug("Entered into create_encoder_layers")
@@ -176,7 +192,7 @@ def create_encoder_layers(_input_channels,
 def create_decoder_layers(_feature_maps,
                           _kernel_size,
                           _conv_layer_type):
-    decoder_layers = []
+    decoder_layers = nn.ModuleList([])
 
     logging.debug("######################")
     logging.debug("Entered into create_decoder_layers")

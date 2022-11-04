@@ -115,5 +115,6 @@ class Unet3DME(nn.Module):
             encoder.to(*args, **kwargs)
         for decoder in self.decoder_layers:
             decoder.to(*args, **kwargs)
+        self.last_layer.to(*args, **kwargs)
 
         return self
