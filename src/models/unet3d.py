@@ -53,10 +53,10 @@ class Unet3D(nn.Module):
         self.last_layer = nn.Conv3d(_feature_maps[0], 1, 1)
         self.final_activation = nn.Softmax(dim=1)
 
-    def forward(self, _x, _y, _z):
+    def forward(self, _x):
         encoder_features = []
 
-        for encoder in self.x_encoder_layers:
+        for encoder in self.encoder_layers:
             _x = encoder(_x)
             encoder_features.insert(0, _x)
 
@@ -65,11 +65,11 @@ class Unet3D(nn.Module):
         for i, decoder in enumerate(self.decoder_layers):
 
             if i == 0:
-                encoder_features = None
+                encoder_feature = None
             else:
-                encoder_features = encoder_features[i+1]
+                encoder_feature = encoder_features[i+1]
 
-            results = decoder(encoder_features, results)
+            results = decoder(encoder_feature, results)
 
         results = self.last_layer(results)
         results = self.final_activation(results)
@@ -78,11 +78,7 @@ class Unet3D(nn.Module):
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
-        for encoder in self.x_encoder_layers:
-            encoder.to(*args, **kwargs)
-        for encoder in self.y_encoder_layers:
-            encoder.to(*args, **kwargs)
-        for encoder in self.z_encoder_layers:
+        for encoder in self.encoder_layers:
             encoder.to(*args, **kwargs)
         for decoder in self.decoder_layers:
             decoder.to(*args, **kwargs)

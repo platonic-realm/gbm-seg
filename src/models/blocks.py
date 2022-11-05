@@ -203,6 +203,46 @@ def create_decoder_layers(_feature_maps,
     for i in range(len(reverse_feature_maps) - 1):
 
         if i == 0:
+            input_channels = reverse_feature_maps[i]
+            x_channels = input_channels
+        else:
+            input_channels = reverse_feature_maps[i] + \
+                             reverse_feature_maps[i+1]
+            x_channels = reverse_feature_maps[i]
+
+        output_channels = reverse_feature_maps[i+1]
+
+        logging.debug("Creating layer: %s", i)
+        logging.debug("input_channels: %s", input_channels)
+        logging.debug("ouput_channels: %s", output_channels)
+
+        decoder_layers.append(
+                DecoderLayer(input_channels,
+                             output_channels,
+                             x_channels,
+                             _kernel_size=(2, 2, 2),
+                             _conv_layer_type=_conv_layer_type,
+                             _upsampling=True,
+                             _padding='same',
+                             _scale_factor=(2, 2, 2)))
+
+    return decoder_layers
+
+
+def create_decoder_layers_me(_feature_maps,
+                             _kernel_size,
+                             _conv_layer_type):
+    decoder_layers = nn.ModuleList([])
+
+    logging.debug("######################")
+    logging.debug("Entered into create_decoder_layers")
+    logging.debug("Length of feature map: %s", len(_feature_maps))
+
+    reverse_feature_maps = list(reversed(_feature_maps))
+
+    for i in range(len(reverse_feature_maps) - 1):
+
+        if i == 0:
             input_channels = 3*reverse_feature_maps[i]
             x_channels = input_channels
         else:

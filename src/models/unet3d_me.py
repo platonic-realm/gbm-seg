@@ -12,7 +12,7 @@ import torch
 from torch import nn
 
 # Local Imports
-from src.models.blocks import create_encoder_layers, create_decoder_layers
+from src.models.blocks import create_encoder_layers, create_decoder_layers_me
 
 
 class Unet3DME(nn.Module):
@@ -58,9 +58,9 @@ class Unet3DME(nn.Module):
                                                       _conv_layer_type)
 
         logging.debug("Creating the decoder layer")
-        self.decoder_layers = create_decoder_layers(_feature_maps,
-                                                    _kernel_size,
-                                                    _conv_layer_type)
+        self.decoder_layers = create_decoder_layers_me(_feature_maps,
+                                                       _kernel_size,
+                                                       _conv_layer_type)
 
         logging.debug("Creating the last layer")
         self.last_layer = nn.Conv3d(_feature_maps[0], 1, 1)
