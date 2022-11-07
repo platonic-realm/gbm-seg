@@ -12,3 +12,5 @@ import logging
 # Local Imports
 
 LOG_LEVEL = logging.DEBUG
+
+VISUAL_OUTPUT_PATH = '/home/afatehi/tmp'

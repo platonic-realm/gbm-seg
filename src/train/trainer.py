@@ -10,13 +10,10 @@ import sys
 import logging
 
 # Library Imports
-import torch
 from torch import nn
 from tqdm import tqdm
 
 # Local Imports
-from src.configs import LOG_LEVEL
-
 
 class Trainer():
     def __init__(self,
@@ -166,5 +163,3 @@ class Trainer():
                 process_bar.set_postfix(postfix)
 
             self.validate()
-
-

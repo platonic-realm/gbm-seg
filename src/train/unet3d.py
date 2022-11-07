@@ -4,6 +4,7 @@ Date:   05.11.2022
 File:   train_unet3d.py
 """
 # Python Imprts
+import os
 
 # Library Imports
 import torch
@@ -14,8 +15,9 @@ from src.models.unet3d import Unet3D
 from src.models.unet3d_me import Unet3DME
 from src.models.losses import DiceLoss
 from src.utils.datasets import GBMDataset
+from src.utils.visual import visualize_predictions
 from src.train.trainer import Trainer
-
+from src.configs import VISUAL_OUTPUT_PATH
 
 def train_undet3d(_epochs,
                   _no_of_channles,
@@ -25,7 +27,8 @@ def train_undet3d(_epochs,
                   _training_ds_path,
                   _validation_ds_path,
                   _validation_no_of_batches,
-                  _pixel_per_step):
+                  _pixel_per_step,
+                  _learning_rate):
 
     training_dataset = GBMDataset(
         _source_directory=_training_ds_path,
@@ -49,7 +52,8 @@ def train_undet3d(_epochs,
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     unet_3d = Unet3D(_no_of_channles, _feature_maps=_feature_maps)
-    optimizer = torch.optim.SGD(unet_3d.parameters(), lr=0.001, momentum=0.9)
+    optimizer = torch.optim.Adam(unet_3d.parameters(), lr=_learning_rate)
+
     loss_function = DiceLoss()
 
     def training_funtion(_model,
@@ -99,7 +103,7 @@ def train_undet3d(_epochs,
 
         with torch.no_grad():
 
-            outputs = _model(nephrin, wga, collagen4)
+            outputs = _model(sample)
 
             loss = _loss_function(outputs, labels)
 
@@ -134,7 +138,8 @@ def train_undet3d_me(_epochs,
                      _training_ds_path,
                      _validation_ds_path,
                      _validation_no_of_batches,
-                     _pixel_per_step):
+                     _pixel_per_step,
+                     _learning_rate):
 
     training_dataset = GBMDataset(
         _source_directory=_training_ds_path,
@@ -158,7 +163,7 @@ def train_undet3d_me(_epochs,
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     unet_3d = Unet3DME(_no_of_channles, _feature_maps=_feature_maps)
-    optimizer = torch.optim.SGD(unet_3d.parameters(), lr=0.001, momentum=0.9)
+    optimizer = torch.optim.Adam(unet_3d.parameters(), lr=_learning_rate)
     loss_function = DiceLoss()
 
     def training_funtion(_model,

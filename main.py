@@ -22,10 +22,11 @@ if __name__ == '__main__':
 
     train_undet3d(_epochs=50,
                   _no_of_channles=3,
-                  _feature_maps=(64, 128, 256, 512),
-                  _batch_size=20,
+                  _feature_maps=(64, 128, 256),
+                  _batch_size=16,
                   _sample_dimension=(12, 256, 256),
                   _training_ds_path='/home/afatehi/gbm/data/GBM-Train-DS',
                   _validation_ds_path='/home/afatehi/gbm/data/GBM-Valid-DS',
                   _validation_no_of_batches=500,
-                  _pixel_per_step=(1, 16, 16))
+                  _pixel_per_step=(1, 16, 16),
+                  _learning_rate=0.01)

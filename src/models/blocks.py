@@ -92,7 +92,7 @@ class EncoderLayer(nn.Module):
         self.convolution_2.to(*args, **kwargs)
 
 
-class DecoderLayer(nn.Module):
+class DecoderLayerME(nn.Module):
     def __init__(self,
                  _input_channels,
                  _output_channels,
@@ -151,6 +151,68 @@ class DecoderLayer(nn.Module):
         self.convolution_2.to(*args, **kwargs)
 
 
+class DecoderLayer(nn.Module):
+    def __init__(self,
+                 _input_channels,
+                 _output_channels,
+                 _x_channels,
+                 _kernel_size,
+                 _conv_layer_type,
+                 _padding,
+                 _upsampling,
+                 _scale_factor):
+
+        super().__init__()
+
+        self.scale_factor = _scale_factor
+        self.upsampling = _upsampling
+
+#        self.upsampling_layer = nn.ConvTranspose3d(_x_channels,
+#                                                   _x_channels,
+#                                                   kernel_size=_kernel_size,
+#                                                   stride=_scale_factor,
+#                                                   padding=_padding)
+#
+        self.convolution_1 = ConvLayer(_input_channels,
+                                       _input_channels,
+                                       _kernel_size,
+                                       _conv_layer_type,
+                                       _padding)
+
+        self.convolution_2 = ConvLayer(_input_channels,
+                                       _output_channels,
+                                       _kernel_size,
+                                       _conv_layer_type,
+                                       _padding)
+
+    def forward(self, _encoder_features, _x):
+
+        if self.upsampling:
+            if _encoder_features is not None:
+                _x = Fn.interpolate(_x,
+                                    size=(_encoder_features.shape[2],
+                                          _encoder_features.shape[3],
+                                          _encoder_features.shape[4]))
+
+                _x = torch.cat((_encoder_features, _x), dim=1)
+            else:
+                # _x = self.upsampling_layer(_x)
+                _x = Fn.interpolate(_x,
+                                    size=(_x.shape[2],
+                                          _x.shape[3]*2,
+                                          _x.shape[4]*2))
+
+        _x = self.convolution_1(_x)
+        _x = self.convolution_2(_x)
+
+        return _x
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.convolution_1.to(*args, **kwargs)
+        self.convolution_2.to(*args, **kwargs)
+
+
 def create_encoder_layers(_input_channels,
                           _feature_maps,
                           _kernel_size,
@@ -184,7 +246,7 @@ def create_encoder_layers(_input_channels,
                              _conv_layer_type,
                              _padding='same',
                              _pooling=pooling,
-                             _pool_kernel_size=(2, 2, 2)))
+                             _pool_kernel_size=(1, 2, 2)))
 
     return encoder_layers
 
@@ -224,7 +286,7 @@ def create_decoder_layers(_feature_maps,
                              _conv_layer_type=_conv_layer_type,
                              _upsampling=True,
                              _padding='same',
-                             _scale_factor=(2, 2, 2)))
+                             _scale_factor=(1, 2, 2)))
 
     return decoder_layers
 
@@ -257,13 +319,13 @@ def create_decoder_layers_me(_feature_maps,
         logging.debug("ouput_channels: %s", output_channels)
 
         decoder_layers.append(
-                DecoderLayer(input_channels,
-                             output_channels,
-                             x_channels,
-                             _kernel_size=(2, 2, 2),
-                             _conv_layer_type=_conv_layer_type,
-                             _upsampling=True,
-                             _padding='same',
-                             _scale_factor=(2, 2, 2)))
+                DecoderLayerME(input_channels,
+                               output_channels,
+                               x_channels,
+                               _kernel_size=(2, 2, 2),
+                               _conv_layer_type=_conv_layer_type,
+                               _upsampling=True,
+                               _padding='same',
+                               _scale_factor=(2, 2, 2)))
 
     return decoder_layers
