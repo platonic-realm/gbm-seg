@@ -7,11 +7,16 @@ File:   visual.py
 import os
 
 # Library Imports
+import torch
+import torch.nn.functional as Fn
 import numpy as np
+import matplotlib.pyplot as plt
 import tifffile
 import imageio
 from skimage import measure
 
+# Local Imports
+from src.utils.misc import to_numpy
 
 def visualize_predictions(_inputs,
                           _labels,
@@ -23,6 +28,10 @@ def visualize_predictions(_inputs,
 
     assert _output_dir is not None, \
             "Output directory is None, where should I save the result?"
+
+    _inputs = to_numpy(_inputs)
+    _labels = to_numpy(_labels)
+    _predictions = to_numpy(_predictions)
 
     if _produce_tif_files:
         prediction_to_tif(_inputs=_inputs,
@@ -36,10 +45,14 @@ def visualize_predictions(_inputs,
                           _prediction=_predictions,
                           _output_dir=_output_dir)
 
+    #if _produce_scatter_plot:
+    #    prediction_to_scatter_plot(_inputs=_inputs,
+    #                               _label=_labels,
+    #                               _prediction=_predictions,
+    #                               _output_dir=_output_dir)
+
     if _produce_3d_model:
-        prediction_to_verticies(_inputs=_inputs,
-                                _label=_labels,
-                                _prediction=_predictions,
+        prediction_to_verticies(_prediction=_predictions,
                                 _output_dir=_output_dir)
 
 
@@ -90,6 +103,29 @@ def prediction_to_gif(_inputs=None,
                        os.path.join(_output_dir,
                                     "label.gif"))
 
+def prediction_to_scatter_plot(_inputs=None,
+                               _label=None,
+                               _prediction=None,
+                               _output_dir=None):
+
+    assert _output_dir is not None, \
+            "Output directory is None, where should I save the result?"
+
+    if _inputs is not None:
+        for index, _input in enumerate(_inputs):
+            tile_3d_to_scatter_plot(_input,
+                                    os.path.join(_output_dir,
+                                                 f"channel_{index}.png"))
+
+    if _prediction is not None:
+        tile_3d_to_scatter_plot(_prediction[0],
+                                os.path.join(_output_dir,
+                                             "prediction.png"))
+
+    if _label is not None:
+        tile_3d_to_scatter_plot(_label[0],
+                                os.path.join(_output_dir,
+                                             "label.png"))
 
 def prediction_to_verticies(_inputs=None,
                             _label=None,
@@ -100,13 +136,16 @@ def prediction_to_verticies(_inputs=None,
 
     if _inputs is not None:
         for index, _input in enumerate(_inputs):
-            tile_3d_to_verticies(_input, f"channel_{index}")
+            tile_3d_to_verticies(_input, os.path.join(_output_dir,
+                                                      f"channel_{index}"))
 
     if _prediction is not None:
-        tile_3d_to_verticies(_prediction[0], "prediction")
+        tile_3d_to_verticies(_prediction[0], os.path.join(_output_dir,
+                                                          "prediction"))
 
     if _label is not None:
-        tile_3d_to_verticies(_label[0], "label")
+        tile_3d_to_verticies(_label[0], os.path.join(_output_dir,
+                                                "label"))
 
 def tile_3d_to_tif(_input, _output_file_path):
     tifffile.imwrite(_output_file_path,
@@ -115,17 +154,32 @@ def tile_3d_to_tif(_input, _output_file_path):
                      imagej=True,
                      metadata={'spacing': _input.shape[0],
                                'unit': 'um',
-                               'axes': 'ZYX',
+                               'axes': 'TYX',
                                })
 
 def tile_3d_to_gif(_input, _output_file_path):
-    image = _input.astype(np.uint8) * 255
+    image = _input * 255
+    image = image.astype(np.uint8)
     with imageio.get_writer(_output_file_path, mode='I') as writer:
         for index in range(_input.shape[0]):
             writer.append_data(image[index])
 
+def tile_3d_to_scatter_plot(_input, _output_file_name):
+    # pylint: disable=invalid-name
+    image = _input * 255
+    image = image.astype(np.uint8)
+
+    figure = plt.figure()
+    ax = figure.gca(projection='3d')
+    ax.set_aspect('auto')
+
+    ax.voxels(image, edgecolor='k')
+
+    plt.savefig(_output_file_name)
+
 def tile_3d_to_verticies(_input, _output_file_name):
-    return
+    _input = Fn.pad(torch.from_numpy(_input), (1, 1, 1, 1, 1, 1), "constant", 0)
+    _input = to_numpy(_input)
     verts, faces, _, _ = measure.marching_cubes(_input, 0.1)
     np.save(f"{_output_file_name}_verts.npy", verts)
     np.save(f"{_output_file_name}_faces.npy", faces)

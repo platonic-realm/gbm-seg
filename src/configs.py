@@ -13,4 +13,4 @@ import logging
 
 LOG_LEVEL = logging.DEBUG
 
-VISUAL_OUTPUT_PATH = '/home/afatehi/tmp'
+VISUAL_OUTPUT_PATH = '/home/afatehi/gbm/tmp/'

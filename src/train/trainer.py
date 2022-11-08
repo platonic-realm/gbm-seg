@@ -119,7 +119,8 @@ class Trainer():
             losses, metrics = self.validation_step(self.model,
                                                    data,
                                                    self.device,
-                                                   self.loss_function)
+                                                   self.loss_function,
+                                                   index)
 
             postfix = {}
             for key in losses:

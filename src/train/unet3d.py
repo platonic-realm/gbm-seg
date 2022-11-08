@@ -15,9 +15,10 @@ from src.models.unet3d import Unet3D
 from src.models.unet3d_me import Unet3DME
 from src.models.losses import DiceLoss
 from src.utils.datasets import GBMDataset
-from src.utils.visual import visualize_predictions
 from src.train.trainer import Trainer
 from src.configs import VISUAL_OUTPUT_PATH
+from src.utils.visual import visualize_predictions
+
 
 def train_undet3d(_epochs,
                   _no_of_channles,
@@ -86,12 +87,13 @@ def train_undet3d(_epochs,
         accuracy = corrects/torch.numel(outputs)
 
         return {'loss': f"{loss_value:.4f}"}, \
-               {'corrects': corrects, 'accuracy': f"{accuracy:.3f}"}
+               {'corrects': corrects, 'accuracy': f"{accuracy:.4f}"}
 
     def validation_function(_model,
                             _data,
                             _device,
-                            _loss_function):
+                            _loss_function,
+                            _batch_id=None):
 
         nephrin = _data['nephrin'].to(_device)
         wga = _data['wga'].to(_device)
@@ -104,6 +106,16 @@ def train_undet3d(_epochs,
         with torch.no_grad():
 
             outputs = _model(sample)
+
+            if _batch_id is not None:
+                output_dir = os.path.join(VISUAL_OUTPUT_PATH, f"{_batch_id:02d}/")
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+
+                visualize_predictions(_inputs=sample[0],
+                                      _labels=labels[0],
+                                      _predictions=outputs[0],
+                                      _output_dir=output_dir)
 
             loss = _loss_function(outputs, labels)
 

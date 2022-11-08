@@ -10,17 +10,29 @@ import torch
 from torch.utils.data import DataLoader
 
 # Local Imports
+from src.models.unet3d import Unet3D
 from src.configs import VISUAL_OUTPUT_PATH
 from src.utils.datasets import GBMDataset
 from src.utils.visual import visualize_predictions
 from src.utils.misc import to_numpy
 
-def test_visualiztion_functinos(_model,
-                                _validation_ds_path,
-                                _sample_dimension,
-                                _pixel_per_step,
-                                _batch_size,
-                                _device):
+
+def test_visualization_3dunet():
+    model = Unet3D(3).to('cuda')
+    test_visualization_functinos(model,
+                                '/home/afatehi/gbm/data/GBM-Valid-DS',
+                                (12, 256, 256),
+                                (1, 16, 16),
+                                4,
+                                'cuda')
+
+
+def test_visualization_functinos(_model,
+                                 _validation_ds_path,
+                                 _sample_dimension,
+                                 _pixel_per_step,
+                                 _batch_size,
+                                 _device):
 
     validation_dataset = GBMDataset(
         _source_directory=_validation_ds_path,
