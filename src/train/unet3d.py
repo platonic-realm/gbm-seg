@@ -28,8 +28,10 @@ def train_undet3d(_epochs,
                   _training_ds_path,
                   _validation_ds_path,
                   _validation_no_of_batches,
+                  _validation_visulization,
                   _pixel_per_step,
-                  _learning_rate):
+                  _learning_rate,
+                  _data_parallelism):
 
     training_dataset = GBMDataset(
         _source_directory=_training_ds_path,
@@ -93,6 +95,7 @@ def train_undet3d(_epochs,
                             _data,
                             _device,
                             _loss_function,
+                            _epoch=None,
                             _batch_id=None):
 
         nephrin = _data['nephrin'].to(_device)
@@ -107,8 +110,11 @@ def train_undet3d(_epochs,
 
             outputs = _model(sample)
 
-            if _batch_id is not None:
-                output_dir = os.path.join(VISUAL_OUTPUT_PATH, f"{_batch_id:02d}/")
+            if _validation_visulization is not None:
+                output_dir = os.path.join(VISUAL_OUTPUT_PATH, f"{_epoch:02d}/")
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+                output_dir = os.path.join(output_dir, f"{_batch_id:02d}/")
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
 
@@ -136,7 +142,7 @@ def train_undet3d(_epochs,
                       _optimizer=optimizer,
                       _loss_function=loss_function,
                       _device=device,
-                      _data_parallelism=True)
+                      _data_parallelism=_data_parallelism)
 
     trainer.train(_epochs=_epochs)
 

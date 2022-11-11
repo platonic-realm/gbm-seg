@@ -100,7 +100,7 @@ class Trainer():
     def __initialize_wights__(self):
         pass
 
-    def validate(self):
+    def validate(self, _epoch):
         if self.valiation_dataloader is None:
             pass
         if self.validation_step is None:
@@ -120,6 +120,7 @@ class Trainer():
                                                    data,
                                                    self.device,
                                                    self.loss_function,
+                                                   _epoch,
                                                    index)
 
             postfix = {}
@@ -163,4 +164,4 @@ class Trainer():
 
                 process_bar.set_postfix(postfix)
 
-            self.validate()
+            self.validate(epoch)

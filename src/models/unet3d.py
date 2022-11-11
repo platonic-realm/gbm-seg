@@ -12,7 +12,7 @@ from torch import nn
 
 # Local Imports
 from src.models.blocks import create_encoder_layers, create_decoder_layers
-
+from src.utils.misc import to_numpy
 
 class Unet3D(nn.Module):
     # pylint: disable=too-many-instance-attributes
@@ -51,7 +51,7 @@ class Unet3D(nn.Module):
 
         logging.debug("Creating the last layer")
         self.last_layer = nn.Conv3d(_feature_maps[0], 1, 1)
-        self.final_activation = nn.Softmax(dim=1)
+        self.final_activation = nn.Sigmoid()
 
     def forward(self, _x):
         encoder_features = []
@@ -72,7 +72,12 @@ class Unet3D(nn.Module):
             results = decoder(encoder_feature, results)
 
         results = self.last_layer(results)
+
+        _results = to_numpy(results)
+
         results = self.final_activation(results)
+
+        _results = to_numpy(results)
 
         return results
 
