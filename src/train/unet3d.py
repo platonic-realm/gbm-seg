@@ -20,42 +20,44 @@ from src.configs import VISUAL_OUTPUT_PATH
 from src.utils.visual import visualize_predictions
 
 
-def train_undet3d(_epochs,
-                  _no_of_channles,
-                  _feature_maps,
-                  _batch_size,
-                  _sample_dimension,
-                  _training_ds_path,
-                  _validation_ds_path,
-                  _validation_no_of_batches,
-                  _validation_visulization,
-                  _pixel_per_step,
-                  _learning_rate,
-                  _data_parallelism):
+def train_undet3d(_args):
+
+    epochs =_args.epochs
+    no_of_channles = len(_args.channels)
+    feature_maps = _args.feature_maps
+    batch_size = _args.batch_size
+    sample_dimension = _args.sample_dimension
+    training_ds_path = _args.tds
+    validation_ds_path = _args.vds
+    validation_no_of_batches = _args.validation_batch_no
+    validation_visulization = _args.validation_visualization
+    pixel_per_step = _args.pixel_stride
+    learning_rate = _args.learning_rate
+    data_parallelism = _args.data_parallelism
 
     training_dataset = GBMDataset(
-        _source_directory=_training_ds_path,
-        _sample_dimension=_sample_dimension,
-        _pixel_per_step=_pixel_per_step
+        _source_directory=training_ds_path,
+        _sample_dimension=sample_dimension,
+        _pixel_per_step=pixel_per_step
     )
 
     validation_dataset = GBMDataset(
-        _source_directory=_validation_ds_path,
-        _sample_dimension=_sample_dimension,
-        _pixel_per_step=_pixel_per_step
+        _source_directory=validation_ds_path,
+        _sample_dimension=sample_dimension,
+        _pixel_per_step=pixel_per_step
     )
 
     training_loader = DataLoader(training_dataset,
-                                 batch_size=_batch_size,
+                                 batch_size=batch_size,
                                  shuffle=False)
     validation_loader = DataLoader(validation_dataset,
-                                   batch_size=_batch_size,
+                                   batch_size=batch_size,
                                    shuffle=True)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    unet_3d = Unet3D(_no_of_channles, _feature_maps=_feature_maps)
-    optimizer = torch.optim.Adam(unet_3d.parameters(), lr=_learning_rate)
+    unet_3d = Unet3D(no_of_channles, _feature_maps=feature_maps)
+    optimizer = torch.optim.Adam(unet_3d.parameters(), lr=learning_rate)
 
     loss_function = DiceLoss()
 
@@ -110,7 +112,7 @@ def train_undet3d(_epochs,
 
             outputs = _model(sample)
 
-            if _validation_visulization is not None:
+            if validation_visulization:
                 output_dir = os.path.join(VISUAL_OUTPUT_PATH, f"{_epoch:02d}/")
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
@@ -138,13 +140,13 @@ def train_undet3d(_epochs,
                       _training_dataloader=training_loader,
                       _validation_function=validation_function,
                       _validation_dataloader=validation_loader,
-                      _validation_no_of_batches=_validation_no_of_batches,
+                      _validation_no_of_batches=validation_no_of_batches,
                       _optimizer=optimizer,
                       _loss_function=loss_function,
                       _device=device,
-                      _data_parallelism=_data_parallelism)
+                      _data_parallelism=data_parallelism)
 
-    trainer.train(_epochs=_epochs)
+    trainer.train(_epochs=epochs)
 
 
 
