@@ -10,7 +10,6 @@ import logging
 
 # Library Imports
 from src.args import parse_arguments, summerize_args
-from src.configs import LOG_LEVEL
 from src.train.unet3d import train_undet3d
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 # Local Imports
 
+
 class Trainer():
     def __init__(self,
                  _model,
