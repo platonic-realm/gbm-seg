@@ -1,13 +1,46 @@
 """
 Author: Arash Fatehi
 Date:   01.11.2022
-File:   misc.py
 """
 
 # Python Imports
+import logging
+import sys
+import os
 
 # Library Imports
 import torch
+
+
+def configure_logger(_configs: dict) -> None:
+    LOG_LEVEL = _configs['logging']['log_level']
+    log_file = _configs['logging']['log_file']
+    log_std = _configs['logging']['log_std']
+    ddp = _configs['trainer']['ddp']
+
+    handlers = []
+    if log_file is not None:
+        handlers.append(logging.FileHandler(log_file))
+    if log_std:
+        handlers.append(logging.StreamHandler(sys.stdout))
+
+    # Adding node and rank info to log format if dpp is enabled
+    try:
+        rank = int(os.environ["RANK"])
+        node = int(os.environ["GROUP_RANK"])
+    except KeyError:
+        ddp = False
+
+    if ddp:
+        rank = int(os.environ["RANK"])
+        node = int(os.environ["GROUP_RANK"])
+        log_format = f"%(asctime)s [%(levelname)s] [{node},{rank}] %(message)s"
+    else:
+        log_format = "%(asctime)s [%(levelname)s] %(message)s"
+
+    logging.basicConfig(level=LOG_LEVEL,
+                        format=log_format,
+                        handlers=handlers)
 
 
 def to_numpy(_gpu_tensor):

@@ -5,6 +5,8 @@ disable=
     too-many-instance-attributes,
     too-many-statements,
     too-many-locals,
+    too-few-public-methods,
+    invalid-name,
 
 [MASTER]
 init-hook="from pylint.config import find_pylintrc; import os, sys; sys.path.append(os.path.dirname(find_pylintrc()))"

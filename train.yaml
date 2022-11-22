@@ -3,18 +3,22 @@ trainer:
     name: unet_3d
     feture_map: [64, 128, 256, 512]
     channels: [0, 1, 2]
-  
+
   optim:
     name: adam
     lr : 0.01
-  
+
   loss: DiceLoss
+  metrics: [accuracy, ]
+
+  epochs: 50
 
   train_ds:
     path: ../data/gbm_train_ds/
     batch_size: 4
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
+    pin_memory: False
     shuffle: False
 
   valid_ds:
@@ -22,28 +26,21 @@ trainer:
     batch_size: 4
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
+    pin_memory: False
     shuffle: True
     batch_limit: 300
 
-  metrics: [accuracy, ]
-
   visualization: True
   visualization_path: /tmp/gbm-vv/
-  epochs: 50
 
   device: gpu
-  
-  dp:
-    enabled: False
-    no_of_gpus: 1
-  
-  dpp:
-    enabled: False
-    use_torchrun: False
+  mixed_precision: False
+
+  ddp: True
 
 logging:
-  log_level: ERROR
-  log_file: null
+  log_level: INFO
+  log_file: train.log
   log_std: False
-  tdqm: True
+  tqdm: True
 
