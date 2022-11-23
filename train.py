@@ -9,6 +9,7 @@ Date:   22.11.2022
 
 # Local Imports
 import src.train.args as args
+from src.train.unet3d import Unet3DTrainer
 from src.utils.misc import configure_logger
 
 if __name__ == '__main__':
@@ -17,4 +18,5 @@ if __name__ == '__main__':
     configure_logger(configs)
     args.summerize(configs)
 
-#    train_undet3d(_args=args)
+    trainer = Unet3DTrainer(configs)
+    trainer.train()

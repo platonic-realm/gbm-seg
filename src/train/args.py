@@ -4,6 +4,7 @@ Date:   22.11.2022
 """
 
 # Python Imprts
+import os
 import logging
 from argparse import ArgumentParser
 from io import StringIO
@@ -39,7 +40,35 @@ def sanity_check(_configs: dict) -> dict:
     if _configs['logging']['log_std']:
         _configs['logging']['tqdm'] = False
 
-    # Adding  
+    # Checking if script has been run via torchrun
+    # and add the environment variables to configs
+    try:
+        local_rank = int(os.environ["LOCAL_RANK"])
+        _configs['trainer']['ddp']['local_rank'] = local_rank
+
+        rank = int(os.environ["RANK"])
+        _configs['trainer']['ddp']['rank'] = rank
+
+        node = int(os.environ["GROUP_RANK"])
+        _configs['trainer']['ddp']['node'] = node
+
+        local_size = int(os.environ["LOCAL_WORLD_SIZE"])
+        _configs['trainer']['ddp']['local_size'] = local_size
+
+        world_size = int(os.environ["WORLD_SIZE"])
+        _configs['trainer']['ddp']['world_size'] = world_size
+
+        master_address = os.environ["MASTER_ADDR"]
+        _configs['trainer']['ddp']['master_address'] = master_address
+
+        master_port = int(os.environ["MASTER_PORT"])
+        _configs['trainer']['ddp']['master_port'] = master_port
+
+        ddp = True
+    except KeyError:
+        ddp = False
+
+    _configs['trainer']['ddp']['enabled'] = ddp
 
     return _configs
 

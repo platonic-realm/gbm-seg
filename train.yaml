@@ -1,7 +1,7 @@
 trainer:
   model:
     name: unet_3d
-    feture_map: [64, 128, 256, 512]
+    feature_maps: [64, 128, 256, 512]
     channels: [0, 1, 2]
 
   optim:
@@ -12,6 +12,7 @@ trainer:
   metrics: [accuracy, ]
 
   epochs: 50
+  save_interval: 10
 
   train_ds:
     path: ../data/gbm_train_ds/
@@ -33,10 +34,11 @@ trainer:
   visualization: True
   visualization_path: /tmp/gbm-vv/
 
-  device: gpu
+  device: cuda
   mixed_precision: False
 
-  ddp: True
+  ddp: 
+    enabled: True
 
 logging:
   log_level: INFO

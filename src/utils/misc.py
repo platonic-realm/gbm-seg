@@ -16,7 +16,7 @@ def configure_logger(_configs: dict) -> None:
     LOG_LEVEL = _configs['logging']['log_level']
     log_file = _configs['logging']['log_file']
     log_std = _configs['logging']['log_std']
-    ddp = _configs['trainer']['ddp']
+    ddp = _configs['trainer']['ddp']['enabled']
 
     handlers = []
     if log_file is not None:
@@ -28,12 +28,11 @@ def configure_logger(_configs: dict) -> None:
     try:
         rank = int(os.environ["RANK"])
         node = int(os.environ["GROUP_RANK"])
+        ddp = True
     except KeyError:
         ddp = False
 
     if ddp:
-        rank = int(os.environ["RANK"])
-        node = int(os.environ["GROUP_RANK"])
         log_format = f"%(asctime)s [%(levelname)s] [{node},{rank}] %(message)s"
     else:
         log_format = "%(asctime)s [%(levelname)s] %(message)s"
@@ -41,6 +40,8 @@ def configure_logger(_configs: dict) -> None:
     logging.basicConfig(level=LOG_LEVEL,
                         format=log_format,
                         handlers=handlers)
+
+    logging.info("Log Level: %s", LOG_LEVEL)
 
 
 def to_numpy(_gpu_tensor):
