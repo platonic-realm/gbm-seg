@@ -12,6 +12,9 @@ from abc import ABC, abstractmethod
 # Local Imports
 
 
+# Tip for using abstract methods in python... dont use
+# double __ for the abstract method as python name
+# mangeling will mess them and you are going to have a hard time
 class Trainer(ABC):
     def __init__(self, _configs: dict):
         self.configs: dict = _configs['trainer']
@@ -39,41 +42,44 @@ class Trainer(ABC):
 
     def train(self):
         for epoch in range(self.epoch_resume, self.epochs):
-            _, _ = self.__training_step(epoch)
-            _, _ = self.__validate_step(epoch)
+            self._train_epoch(epoch)
             # I should later use validation metrics to
             # decide whether overwite to the snapshop or not
             if epoch % self.save_interval == 0:
-                self.__save_sanpshot()
+                self._save_sanpshot()
 
     @abstractmethod
-    def __save_sanpshot(self) -> None:
+    def _save_sanpshot(self) -> None:
         pass
 
     @abstractmethod
-    def __load_snapshot(self) -> None:
+    def _load_snapshot(self) -> None:
         pass
 
     @abstractmethod
-    def __log_tensorboard(self) -> None:
+    def _log_tensorboard(self) -> None:
         pass
 
     @abstractmethod
-    def __prepare_data(self) -> None:
+    def _prepare_data(self) -> None:
         pass
 
     @abstractmethod
-    def __prepare_optimizer(self) -> None:
+    def _prepare_optimizer(self) -> None:
         pass
 
     @abstractmethod
-    def __prepare_loss(self) -> None:
+    def _prepare_loss(self) -> None:
         pass
 
     @abstractmethod
-    def __training_step(self, epoch: int) -> (dict, dict):
+    def _training_step(self, _data: dict) -> (dict, dict):
         pass
 
     @abstractmethod
-    def __validate_step(self, epoch: int) -> (dict, dict):
+    def _validate_step(self, _data: dict) -> (dict, dict):
+        pass
+
+    @abstractmethod
+    def _train_epoch(self, _epoch: int) -> None:
         pass
