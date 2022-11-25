@@ -5,10 +5,15 @@ Date:   23.11.2022
 
 # Python Imports
 import sys
+import logging
+import os
 
 # Library Imports
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
 from tqdm import tqdm
 
 # Local Imports
@@ -33,22 +38,55 @@ class Unet3DTrainer(Trainer):
         self.visualization_path = self.configs['visualization_path']
 
         self.validation_limit = self.configs['valid_ds']['batch_limit']
-
         self.model = Unet3D(len(self.channels),
                             _feature_maps=self.feature_maps)
 
-        self.model.to(self.device)
+        if self.ddp:
+            init_process_group(backend="nccl")
+
+        self._load_snapshot()
+
+        if self.device == 'cuda':
+            self.model.to(self.device_id)
+            logging.info("Moving model to gpu %d", self.device_id)
+        else:
+            self.model.to(self.device)
+
+        if self.ddp:
+            self.model = DDP(self.model, device_ids=[self.local_rank])
 
         self._prepare_data()
-        self._load_snapshot()
         self._prepare_optimizer()
         self._prepare_loss()
 
-    def _save_sanpshot(self) -> None:
-        print('dummy')
+    def __del__(self):
+        if self.ddp:
+            destroy_process_group()
+
+    def _save_sanpshot(self, epoch: int) -> None:
+        if self.snapshot_path is None:
+            return
+        if self.local_rank > 0:
+            return
+
+        snapshot = {}
+        snapshot['EPOCHS'] = epoch
+        if self.ddp:
+            snapshot['MODEL_STATE'] = self.model.module.state_dict()
+        else:
+            snapshot['MODEL_STATE'] = self.model.state_dict()
+
+        torch.save(snapshot, self.snapshot_path)
+        logging.info("Snapshot saved on epoch %d", epoch)
 
     def _load_snapshot(self) -> None:
-        print('dummy')
+        if not os.path.exists(self.snapshot_path):
+            return
+
+        snapshot = torch.load(self.snapshot_path)
+        self.model.load_state_dict(snapshot['MODEL_STATE'])
+        self.epoch_resume = snapshot['EPOCHS']
+        logging.info("Resuming training at epoch: %d", self.epoch_resume)
 
     def _log_tensorboard(self) -> None:
         print('dummy')
@@ -75,17 +113,26 @@ class Unet3DTrainer(Trainer):
                 _sample_dimension=validation_sample_dimension,
                 _pixel_per_step=validation_pixel_stride)
 
+        if self.ddp:
+            train_sampler = DistributedSampler(training_dataset)
+            valid_sampler = DistributedSampler(validation_dataset)
+        else:
+            train_sampler = None
+            valid_sampler = None
+
         training_batch_size: int = self.configs['train_ds']['batch_size']
         training_shuffle: bool = self.configs['train_ds']['shuffle']
         self.training_loader = DataLoader(training_dataset,
                                           batch_size=training_batch_size,
-                                          shuffle=training_shuffle)
+                                          shuffle=training_shuffle,
+                                          sampler=train_sampler)
 
         validation_batch_size: int = self.configs['valid_ds']['batch_size']
         validation_shuffle: bool = self.configs['valid_ds']['shuffle']
         self.validation_loader = DataLoader(validation_dataset,
                                             batch_size=validation_batch_size,
-                                            shuffle=validation_shuffle)
+                                            shuffle=validation_shuffle,
+                                            sampler=valid_sampler)
 
     def _prepare_optimizer(self) -> None:
         optimizer_name: str = self.configs['optim']['name']
@@ -101,10 +148,15 @@ class Unet3DTrainer(Trainer):
 
     def _training_step(self, _data: dict) -> (dict, dict):
 
-        nephrin = _data['nephrin'].to(self.device)
-        wga = _data['wga'].to(self.device)
-        collagen4 = _data['collagen4'].to(self.device)
-        labels = _data['labels'].to(self.device)
+        if self.ddp:
+            device = self.device_id
+        else:
+            device = self.device
+
+        nephrin = _data['nephrin'].to(device)
+        wga = _data['wga'].to(device)
+        collagen4 = _data['collagen4'].to(device)
+        labels = _data['labels'].to(device)
 
         sample = torch.cat((nephrin, wga, collagen4),
                            dim=1)
@@ -128,10 +180,15 @@ class Unet3DTrainer(Trainer):
 
     def _validate_step(self, _data: dict) -> (dict, dict):
 
-        nephrin = _data['nephrin'].to(self.device)
-        wga = _data['wga'].to(self.device)
-        collagen4 = _data['collagen4'].to(self.device)
-        labels = _data['labels'].to(self.device)
+        if self.ddp:
+            device = self.device_id
+        else:
+            device = self.device
+
+        nephrin = _data['nephrin'].to(device)
+        wga = _data['wga'].to(device)
+        collagen4 = _data['collagen4'].to(device)
+        labels = _data['labels'].to(device)
 
         sample = torch.cat((nephrin, wga, collagen4),
                            dim=1)
@@ -154,6 +211,7 @@ class Unet3DTrainer(Trainer):
         if self.tqdm:
             train_enum = tqdm(self.training_loader,
                               file=sys.stdout)
+            train_enum.set_description(f"Epoch {_epoch+1}/{self.epochs}")
         else:
             train_enum = self.training_loader
 
@@ -167,14 +225,13 @@ class Unet3DTrainer(Trainer):
                 for key in metrics:
                     postfix[key] = metrics[key]
 
-                train_enum.set_description(
-                        f"Epoch {_epoch+1}/{self.epochs}")
                 train_enum.set_postfix(postfix)
 
         if self.tqdm:
             valid_enum = tqdm(self.validation_loader,
                               file=sys.stdout,
                               total=self.validation_limit)
+            valid_enum.set_description("Validation")
         else:
             valid_enum = self.validation_loader
 
@@ -192,5 +249,5 @@ class Unet3DTrainer(Trainer):
                 for key in metrics:
                     postfix[key] = metrics[key]
 
-                valid_enum.set_description("Validation")
                 valid_enum.set_postfix(postfix)
+

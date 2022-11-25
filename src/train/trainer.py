@@ -8,8 +8,10 @@ Date:   22.11.2022
 from abc import ABC, abstractmethod
 
 # Libary Imports
+import torch
 
 # Local Imports
+from src.utils.misc import create_dirs_recursively
 
 
 # Tip for using abstract methods in python... dont use
@@ -24,6 +26,7 @@ class Trainer(ABC):
         self.epochs: int = self.configs['epochs']
         self.epoch_resume = 0
         self.save_interval = self.configs['save_interval']
+        self.snapshot_path = self.configs['snapshot_path']
         self.device: str = self.configs['device']
         self.mixed_precision: bool = self.configs['mixed_precision']
 
@@ -40,16 +43,22 @@ class Trainer(ABC):
         self.world_size: int = \
             self.configs['ddp']['world_size'] if self.ddp else 1
 
+        if self.device == 'cuda':
+            self.device_id: int = self.local_rank % torch.cuda.device_count()
+
+        if self.snapshot_path is not None:
+            create_dirs_recursively(self.snapshot_path)
+
     def train(self):
         for epoch in range(self.epoch_resume, self.epochs):
             self._train_epoch(epoch)
             # I should later use validation metrics to
             # decide whether overwite to the snapshop or not
             if epoch % self.save_interval == 0:
-                self._save_sanpshot()
+                self._save_sanpshot(epoch)
 
     @abstractmethod
-    def _save_sanpshot(self) -> None:
+    def _save_sanpshot(self, epoch: int) -> None:
         pass
 
     @abstractmethod

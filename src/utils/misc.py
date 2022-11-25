@@ -7,6 +7,7 @@ Date:   01.11.2022
 import logging
 import sys
 import os
+from pathlib import Path
 
 # Library Imports
 import torch
@@ -18,12 +19,6 @@ def configure_logger(_configs: dict) -> None:
     log_std = _configs['logging']['log_std']
     ddp = _configs['trainer']['ddp']['enabled']
 
-    handlers = []
-    if log_file is not None:
-        handlers.append(logging.FileHandler(log_file))
-    if log_std:
-        handlers.append(logging.StreamHandler(sys.stdout))
-
     # Adding node and rank info to log format if dpp is enabled
     try:
         rank = int(os.environ["RANK"])
@@ -31,6 +26,15 @@ def configure_logger(_configs: dict) -> None:
         ddp = True
     except KeyError:
         ddp = False
+
+    handlers = []
+    if log_file is not None:
+        if ddp:
+            log_file = Path(log_file).stem
+            log_file = f"{log_file}-{rank}.log"
+        handlers.append(logging.FileHandler(log_file))
+    if log_std:
+        handlers.append(logging.StreamHandler(sys.stdout))
 
     if ddp:
         log_format = f"%(asctime)s [%(levelname)s] [{node},{rank}] %(message)s"
@@ -42,6 +46,12 @@ def configure_logger(_configs: dict) -> None:
                         handlers=handlers)
 
     logging.info("Log Level: %s", LOG_LEVEL)
+
+
+def create_dirs_recursively(_path: str):
+    dir_path = os.path.dirname(_path)
+    path: Path = Path(dir_path)
+    path.mkdir(parents=True, exist_ok=True)
 
 
 def to_numpy(_gpu_tensor):

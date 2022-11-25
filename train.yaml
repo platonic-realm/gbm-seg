@@ -13,6 +13,7 @@ trainer:
 
   epochs: 50
   save_interval: 10
+  snapshot_path: ./snapshots/unet3d.pt
 
   train_ds:
     path: ../data/gbm_train_ds/
@@ -28,7 +29,7 @@ trainer:
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: False
-    shuffle: True
+    shuffle: False
     batch_limit: 300
 
   visualization: True
