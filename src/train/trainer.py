@@ -10,7 +10,6 @@ from pathlib import Path
 
 # Libary Imports
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from torch.distributed import init_process_group, destroy_process_group
 
 # Local Imports
@@ -23,7 +22,6 @@ from src.utils.misc import create_dirs_recursively
 class Trainer(ABC):
     def __init__(self, _configs: dict):
         self.configs: dict = _configs['trainer']
-        self.tqdm: bool = _configs['logging']['tqdm']
 
         # Note we are using self.config here ...
         self.epochs: int = self.configs['epochs']
@@ -32,6 +30,10 @@ class Trainer(ABC):
         self.snapshot_path = self.configs['snapshot_path']
         self.device: str = self.configs['device']
         self.mixed_precision: bool = self.configs['mixed_precision']
+        if self.mixed_precision:
+            # Needed for gradient scaling
+            # https://pytorch.org/docs/stable/notes/amp_examples.html
+            self.scaler = torch.cuda.amp.GradScaler()
 
         # Distributed Data Parallelism Configurations
         self.ddp: bool = self.configs['ddp']['enabled']

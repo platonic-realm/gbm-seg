@@ -4,7 +4,6 @@ Date:   23.11.2022
 """
 
 # Python Imports
-import sys
 import logging
 import os
 import random
@@ -16,7 +15,6 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 
 # Local Imports
 from src.train.trainer import Trainer
@@ -95,7 +93,6 @@ class Unet3DTrainer(Trainer):
         if self.ddp and self.rank != 0:
             return
 
-
         tb_writer = SummaryWriter(self.tensorboard_path.resolve())
 
         tb_writer.add_scalar('Accuracy/train', _train_accuracy, _n_iter)
@@ -161,8 +158,7 @@ class Unet3DTrainer(Trainer):
         if loss_name == 'DiceLoss':
             self.loss = DiceLoss()
 
-    def _training_step(self, _data: dict) -> (dict, dict):
-
+    def _training_step(self, _data: dict) -> dict:
         if self.ddp:
             device = self.device_id
         else:
@@ -178,25 +174,35 @@ class Unet3DTrainer(Trainer):
 
         self.optimizer.zero_grad()
 
-        outputs = self.model(sample)
+        if self.mixed_precision:
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                outputs = self.model(sample)
+                loss = self.loss(outputs, labels)
+        else:
+            outputs = self.model(sample)
+            loss = self.loss(outputs, labels)
 
-        loss = self.loss(outputs, labels)
-        loss.backward()
-
-        self.optimizer.step()
+        if self.mixed_precision:
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            self.optimizer.step()
 
         loss_value = loss.item()
 
         corrects = (outputs == labels).float().sum().item()
         accuracy = corrects/torch.numel(outputs)
 
-        return {'loss': f"{loss_value:.4f}"}, \
-               {'corrects': corrects, 'accuracy': f"{accuracy:.3f}"}
+        return {'loss': loss_value,
+                'corrects': corrects,
+                'accuracy': accuracy}
 
     def _validate_step(self,
                        _epoch_id: int,
                        _batch_id: int,
-                       _data: dict) -> (dict, dict):
+                       _data: dict) -> dict:
 
         if self.ddp:
             device = self.device_id
@@ -227,8 +233,9 @@ class Unet3DTrainer(Trainer):
             corrects = (outputs == labels).float().sum().item()
             accuracy = corrects/torch.numel(outputs)
 
-            return {'loss': f"{loss_value:.4f}"}, \
-                   {'corrects': corrects, 'accuracy': f"{accuracy:.3f}"}
+            return {'loss': loss_value,
+                    'corrects': corrects,
+                    'accuracy': accuracy}
 
     def _train_epoch(self, _epoch: int):
 
@@ -237,60 +244,59 @@ class Unet3DTrainer(Trainer):
         valid_accuracy = RunningAverage()
         valid_loss = RunningAverage()
 
-        if self.tqdm:
-            train_enum = tqdm(self.training_loader,
-                              file=sys.stdout)
-            train_enum.set_description(f"Epoch {_epoch+1}/{self.epochs}")
-        else:
-            train_enum = self.training_loader
+        freq = self.configs['report_freq']
 
-        for index, data in enumerate(train_enum):
-            losses, metrics = self._training_step(data)
+        for index, data in enumerate(self.training_loader):
 
-            # Calculating an writing average of metrics
-            train_accuracy.add(metrics['accuracy'])
-            train_loss.add(losses['loss'])
+            batch_accuracy = RunningAverage()
+            batch_loss = RunningAverage()
 
-            if self.tqdm:
-                postfix = {}
-                for key in losses:
-                    postfix[key] = losses[key]
-                for key in metrics:
-                    postfix[key] = metrics[key]
+            results = self._training_step(data)
 
-                train_enum.set_postfix(postfix)
+            # These are used to calculate per epoch metrics
+            train_accuracy.add(results['accuracy'])
+            train_loss.add(results['loss'])
+            # These ones are for in batch calculation
+            batch_accuracy.add(results['accuracy'])
+            batch_loss.add(results['loss'])
 
-        if self.tqdm:
-            validation_limit = min(len(self.validation_loader),
-                                   self.validation_limit)
-            valid_enum = tqdm(self.validation_loader,
-                              file=sys.stdout,
-                              total=validation_limit)
-            valid_enum.set_description("Validation")
-        else:
-            valid_enum = self.validation_loader
+            if index % freq == 0:
+                logging.info("Epoch: %2d/%d, Batch: %d/%d, "
+                             "Loss: %.3f, Accuracy: %.3f",
+                             _epoch,
+                             self.epochs,
+                             index,
+                             len(self.training_loader),
+                             batch_loss.calcualte(),
+                             batch_accuracy.calcualte())
 
-        for index, data in enumerate(valid_enum):
-
+        for index, data in enumerate(self.validation_loader):
             if index >= self.validation_limit:
                 break
 
-            losses, metrics = self._validate_step(_epoch_id=_epoch,
-                                                  _batch_id=index,
-                                                  _data=data)
+            batch_accuracy = RunningAverage()
+            batch_loss = RunningAverage()
 
-            # Calculating an writing average of metrics
-            valid_accuracy.add(metrics['accuracy'])
-            valid_loss.add(losses['loss'])
+            results = self._validate_step(_epoch_id=_epoch,
+                                          _batch_id=index,
+                                          _data=data)
 
-            if self.tqdm:
-                postfix = {}
-                for key in losses:
-                    postfix[key] = losses[key]
-                for key in metrics:
-                    postfix[key] = metrics[key]
+            # These are used to calculate per epoch metrics
+            valid_accuracy.add(results['accuracy'])
+            valid_loss.add(results['loss'])
+            # These ones are for in batch calculation
+            batch_accuracy.add(results['accuracy'])
+            batch_loss.add(results['loss'])
 
-                valid_enum.set_postfix(postfix)
+            if index % freq == 0:
+                logging.info("Validation, Batch: %d/%d, "
+                             "Loss: %.3f, Accuracy: %.3f",
+                             _epoch,
+                             self.epochs,
+                             index,
+                             len(self.training_loader),
+                             batch_loss.calcualte(),
+                             batch_accuracy.calcualte())
 
         self._log_tensorboard_metrics(
                _train_accuracy=train_accuracy.calcualte(),

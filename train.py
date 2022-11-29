@@ -13,6 +13,7 @@ import src.train.args as args
 from src.train.unet3d import Unet3DTrainer
 from src.utils.misc import configure_logger
 
+
 @record
 def main():
     configs = args.parse("Training Unet3D for GBM segmentation")

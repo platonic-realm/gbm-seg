@@ -10,6 +10,7 @@ trainer:
 
   loss: DiceLoss
   metrics: [accuracy, ]
+  report_freq: 10
 
   epochs: 50
   save_interval: 10
@@ -46,7 +47,7 @@ trainer:
     metrics: True
 
   device: cuda
-  mixed_precision: False
+  mixed_precision: True
 
   ddp:
     enabled: True
@@ -54,6 +55,5 @@ trainer:
 logging:
   log_level: INFO
   log_file: logs/train.log
-  log_std: False
-  tqdm: True
+  log_std: True
 
