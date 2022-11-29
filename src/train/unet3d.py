@@ -7,13 +7,15 @@ Date:   23.11.2022
 import sys
 import logging
 import os
+import random
+from pathlib import Path
 
 # Library Imports
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 # Local Imports
@@ -21,6 +23,8 @@ from src.train.trainer import Trainer
 from src.datasets.train_ds import GBMDataset
 from src.models.unet3d.unet3d import Unet3D
 from src.models.unet3d.losses import DiceLoss
+from src.utils.visual import visualize_predictions
+from src.utils.misc import RunningAverage
 
 
 class Unet3DTrainer(Trainer):
@@ -30,19 +34,13 @@ class Unet3DTrainer(Trainer):
                "This class should only be used with unet_3d configuration." + \
                f"{self.configs['model']['name']} was given instead."
 
-        self.feature_maps = self.configs['model']['feature_maps']
-        self.channels = self.configs['model']['channels']
-        self.metrics = self.configs['metrics']
+        self.feature_maps: list = self.configs['model']['feature_maps']
+        self.channels: list = self.configs['model']['channels']
+        self.metrics: list = self.configs['metrics']
 
-        self.visualization = self.configs['visualization']
-        self.visualization_path = self.configs['visualization_path']
-
-        self.validation_limit = self.configs['valid_ds']['batch_limit']
+        self.validation_limit: int = self.configs['valid_ds']['batch_limit']
         self.model = Unet3D(len(self.channels),
                             _feature_maps=self.feature_maps)
-
-        if self.ddp:
-            init_process_group(backend="nccl")
 
         self._load_snapshot()
 
@@ -58,10 +56,6 @@ class Unet3DTrainer(Trainer):
         self._prepare_data()
         self._prepare_optimizer()
         self._prepare_loss()
-
-    def __del__(self):
-        if self.ddp:
-            destroy_process_group()
 
     def _save_sanpshot(self, epoch: int) -> None:
         if self.snapshot_path is None:
@@ -88,8 +82,29 @@ class Unet3DTrainer(Trainer):
         self.epoch_resume = snapshot['EPOCHS']
         logging.info("Resuming training at epoch: %d", self.epoch_resume)
 
-    def _log_tensorboard(self) -> None:
-        print('dummy')
+    def _log_tensorboard_metrics(self,
+                                 _n_iter: int,
+                                 _train_accuracy: float,
+                                 _train_loss: float,
+                                 _valid_accuracy: float,
+                                 _valid_loss: float) -> None:
+        if not self.tensorboard:
+            return
+        if not self.configs['tensorboard']['metrics']:
+            return
+        if self.ddp and self.rank != 0:
+            return
+
+
+        tb_writer = SummaryWriter(self.tensorboard_path.resolve())
+
+        tb_writer.add_scalar('Accuracy/train', _train_accuracy, _n_iter)
+        tb_writer.add_scalar('Loss/train', _train_loss, _n_iter)
+
+        tb_writer.add_scalar('Accuracy/valid', _valid_accuracy, _n_iter)
+        tb_writer.add_scalar('Loss/valid', _valid_loss, _n_iter)
+
+        tb_writer.close()
 
     def _prepare_data(self) -> None:
 
@@ -178,7 +193,10 @@ class Unet3DTrainer(Trainer):
         return {'loss': f"{loss_value:.4f}"}, \
                {'corrects': corrects, 'accuracy': f"{accuracy:.3f}"}
 
-    def _validate_step(self, _data: dict) -> (dict, dict):
+    def _validate_step(self,
+                       _epoch_id: int,
+                       _batch_id: int,
+                       _data: dict) -> (dict, dict):
 
         if self.ddp:
             device = self.device_id
@@ -197,6 +215,12 @@ class Unet3DTrainer(Trainer):
 
             outputs = self.model(sample)
 
+            self._visualize_validation(_epoch_id=_epoch_id,
+                                       _batch_id=_batch_id,
+                                       _inputs=sample,
+                                       _labels=labels,
+                                       _predictions=outputs)
+
             loss = self.loss(outputs, labels)
             loss_value = loss.item()
 
@@ -208,6 +232,11 @@ class Unet3DTrainer(Trainer):
 
     def _train_epoch(self, _epoch: int):
 
+        train_accuracy = RunningAverage()
+        train_loss = RunningAverage()
+        valid_accuracy = RunningAverage()
+        valid_loss = RunningAverage()
+
         if self.tqdm:
             train_enum = tqdm(self.training_loader,
                               file=sys.stdout)
@@ -215,8 +244,12 @@ class Unet3DTrainer(Trainer):
         else:
             train_enum = self.training_loader
 
-        for data in train_enum:
+        for index, data in enumerate(train_enum):
             losses, metrics = self._training_step(data)
+
+            # Calculating an writing average of metrics
+            train_accuracy.add(metrics['accuracy'])
+            train_loss.add(losses['loss'])
 
             if self.tqdm:
                 postfix = {}
@@ -228,9 +261,11 @@ class Unet3DTrainer(Trainer):
                 train_enum.set_postfix(postfix)
 
         if self.tqdm:
+            validation_limit = min(len(self.validation_loader),
+                                   self.validation_limit)
             valid_enum = tqdm(self.validation_loader,
                               file=sys.stdout,
-                              total=self.validation_limit)
+                              total=validation_limit)
             valid_enum.set_description("Validation")
         else:
             valid_enum = self.validation_loader
@@ -240,7 +275,13 @@ class Unet3DTrainer(Trainer):
             if index >= self.validation_limit:
                 break
 
-            losses, metrics = self._validate_step(data)
+            losses, metrics = self._validate_step(_epoch_id=_epoch,
+                                                  _batch_id=index,
+                                                  _data=data)
+
+            # Calculating an writing average of metrics
+            valid_accuracy.add(metrics['accuracy'])
+            valid_loss.add(losses['loss'])
 
             if self.tqdm:
                 postfix = {}
@@ -251,3 +292,46 @@ class Unet3DTrainer(Trainer):
 
                 valid_enum.set_postfix(postfix)
 
+        self._log_tensorboard_metrics(
+               _train_accuracy=train_accuracy.calcualte(),
+               _train_loss=train_loss.calcualte(),
+               _valid_accuracy=valid_accuracy.calcualte(),
+               _valid_loss=valid_loss.calcualte(),
+               _n_iter=_epoch)
+
+    def _visualize_validation(self,
+                              _epoch_id: int,
+                              _batch_id: int,
+                              _inputs,
+                              _labels,
+                              _predictions):
+
+        dice = random.random()
+        if dice > self.visualization_chance:
+            return
+
+        batch_size = len(_inputs)
+        sample_id = random.randint(0, batch_size-1)
+
+        if self.ddp:
+            path: Path = Path(self.configs['visualization']['path'] +
+                              f"/worker-{self.rank:02}/{_epoch_id}" +
+                              f"/{_batch_id}/{sample_id}/")
+        else:
+            path: Path = Path(self.configs['visualization']['path'] +
+                              f"/{_epoch_id}/{_batch_id}/{sample_id}/")
+
+        path.mkdir(parents=True, exist_ok=True)
+
+        enable_gif: bool = self.configs['visualization']['gif']
+        enable_tif: bool = self.configs['visualization']['tif']
+        enable_mesh: bool = self.configs['visualization']['mesh']
+
+        output_dir: str = path.resolve()
+        visualize_predictions(_inputs=_inputs[sample_id],
+                              _labels=_labels[sample_id],
+                              _predictions=_predictions[sample_id],
+                              _output_dir=output_dir,
+                              _produce_gif_files=enable_gif,
+                              _produce_tif_files=enable_tif,
+                              _produce_3d_model=enable_mesh)

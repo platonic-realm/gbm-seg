@@ -13,6 +13,22 @@ from pathlib import Path
 import torch
 
 
+class RunningAverage():
+    def __init__(self):
+        self.value: float = 0
+        self.counter: int = 0
+
+    def add(self, _value: any) -> None:
+        self.value += float(_value)
+        self.counter += 1
+
+    def calcualte(self) -> float:
+        result: float = self.value / self.counter
+        self.value = 0.0
+        self.counter = 0
+        return result
+
+
 def configure_logger(_configs: dict) -> None:
     LOG_LEVEL = _configs['logging']['log_level']
     log_file = _configs['logging']['log_file']
@@ -29,9 +45,11 @@ def configure_logger(_configs: dict) -> None:
 
     handlers = []
     if log_file is not None:
+        log_file = Path(log_file)
+        create_dirs_recursively(log_file)
         if ddp:
-            log_file = Path(log_file).stem
-            log_file = f"{log_file}-{rank}.log"
+            log_stem = log_file.stem
+            log_file = os.path.dirname(log_file) + f"/{log_stem}-{rank}.log"
         handlers.append(logging.FileHandler(log_file))
     if log_std:
         handlers.append(logging.StreamHandler(sys.stdout))

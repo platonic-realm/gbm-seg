@@ -18,6 +18,7 @@ from skimage import measure
 # Local Imports
 from src.utils.misc import to_numpy
 
+
 def visualize_predictions(_inputs,
                           _labels,
                           _predictions,
@@ -45,16 +46,15 @@ def visualize_predictions(_inputs,
                           _prediction=_predictions,
                           _output_dir=_output_dir)
 
-    #if _produce_scatter_plot:
-    #    prediction_to_scatter_plot(_inputs=_inputs,
-    #                               _label=_labels,
-    #                               _prediction=_predictions,
-    #                               _output_dir=_output_dir)
+    # if _produce_scatter_plot:
+    #     prediction_to_scatter_plot(_inputs=_inputs,
+    #                                _label=_labels,
+    #                                _prediction=_predictions,
+    #                                _output_dir=_output_dir)
 
     if _produce_3d_model:
         prediction_to_verticies(_prediction=_predictions,
                                 _output_dir=_output_dir)
-
 
 
 def prediction_to_tif(_inputs=None,
@@ -80,6 +80,7 @@ def prediction_to_tif(_inputs=None,
                        os.path.join(_output_dir,
                                     "label.tif"))
 
+
 def prediction_to_gif(_inputs=None,
                       _label=None,
                       _prediction=None,
@@ -102,6 +103,7 @@ def prediction_to_gif(_inputs=None,
         tile_3d_to_gif(_label[0],
                        os.path.join(_output_dir,
                                     "label.gif"))
+
 
 def prediction_to_scatter_plot(_inputs=None,
                                _label=None,
@@ -127,6 +129,7 @@ def prediction_to_scatter_plot(_inputs=None,
                                 os.path.join(_output_dir,
                                              "label.png"))
 
+
 def prediction_to_verticies(_inputs=None,
                             _label=None,
                             _prediction=None,
@@ -145,7 +148,8 @@ def prediction_to_verticies(_inputs=None,
 
     if _label is not None:
         tile_3d_to_verticies(_label[0], os.path.join(_output_dir,
-                                                "label"))
+                                                     "label"))
+
 
 def tile_3d_to_tif(_input, _output_file_path):
     tifffile.imwrite(_output_file_path,
@@ -157,12 +161,14 @@ def tile_3d_to_tif(_input, _output_file_path):
                                'axes': 'TYX',
                                })
 
+
 def tile_3d_to_gif(_input, _output_file_path):
     image = _input * 255
     image = image.astype(np.uint8)
     with imageio.get_writer(_output_file_path, mode='I') as writer:
         for index in range(_input.shape[0]):
             writer.append_data(image[index])
+
 
 def tile_3d_to_scatter_plot(_input, _output_file_name):
     # pylint: disable=invalid-name
@@ -176,6 +182,7 @@ def tile_3d_to_scatter_plot(_input, _output_file_name):
     ax.voxels(image, edgecolor='k')
 
     plt.savefig(_output_file_name)
+
 
 def tile_3d_to_verticies(_input, _output_file_name):
     _input = Fn.pad(torch.from_numpy(_input), (1, 1, 1, 1, 1, 1), "constant", 0)

@@ -6,9 +6,12 @@ Date:   22.11.2022
 # Python Imports
 # Python's wierd implementation of abstract methods
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 # Libary Imports
 import torch
+from torch.utils.tensorboard import SummaryWriter
+from torch.distributed import init_process_group, destroy_process_group
 
 # Local Imports
 from src.utils.misc import create_dirs_recursively
@@ -43,11 +46,29 @@ class Trainer(ABC):
         self.world_size: int = \
             self.configs['ddp']['world_size'] if self.ddp else 1
 
+        self.visualization: bool = \
+            self.configs['visualization']['enabled']
+        self.visualization_chance: float = \
+            self.configs['visualization']['chance']
+
+        self.tensorboard: bool = \
+            self.configs['tensorboard']['enabled']
+        self.tensorboard_path = \
+            Path(self.configs['tensorboard']['path'])
+        self.tensorboard_path.mkdir(parents=True, exist_ok=True)
+
         if self.device == 'cuda':
             self.device_id: int = self.local_rank % torch.cuda.device_count()
 
         if self.snapshot_path is not None:
             create_dirs_recursively(self.snapshot_path)
+
+        if self.ddp:
+            init_process_group(backend="nccl")
+
+    def __del__(self):
+        if self.ddp:
+            destroy_process_group()
 
     def train(self):
         for epoch in range(self.epoch_resume, self.epochs):
@@ -63,10 +84,6 @@ class Trainer(ABC):
 
     @abstractmethod
     def _load_snapshot(self) -> None:
-        pass
-
-    @abstractmethod
-    def _log_tensorboard(self) -> None:
         pass
 
     @abstractmethod
@@ -86,7 +103,10 @@ class Trainer(ABC):
         pass
 
     @abstractmethod
-    def _validate_step(self, _data: dict) -> (dict, dict):
+    def _validate_step(self,
+                       _epoch_id: int,
+                       _batch_id: int,
+                       _data: dict) -> (dict, dict):
         pass
 
     @abstractmethod

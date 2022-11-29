@@ -33,9 +33,13 @@ def sanity_check(_configs: dict) -> dict:
     assert not _configs['trainer']['valid_ds']['path'] is None, \
            "Please provide path to the validation dataset"
 
-    if _configs['trainer']['visualization']:
-        assert not _configs['trainer']['visualization_path'] is None, \
-               "Please provide path to the validation dataset"
+    if _configs['trainer']['visualization']['enabled']:
+        assert not _configs['trainer']['visualization']['path'] is None, \
+               "Please provide path to store visualization files"
+
+    if _configs['trainer']['tensorboard']['enabled']:
+        assert not _configs['trainer']['tensorboard']['path'] is None, \
+               "Please provide path for tensorboard logs"
 
     if _configs['logging']['log_std']:
         _configs['logging']['tqdm'] = False

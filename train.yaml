@@ -19,7 +19,7 @@ trainer:
     path: ../data/gbm_train_ds/
     batch_size: 4
     sample_dimension: [12, 256, 256]
-    pixel_stride: [1, 16, 16]
+    pixel_stride: [2, 32, 32]
     pin_memory: False
     shuffle: False
 
@@ -27,23 +27,33 @@ trainer:
     path: ../data/gbm_valid_ds/
     batch_size: 4
     sample_dimension: [12, 256, 256]
-    pixel_stride: [1, 16, 16]
+    pixel_stride: [2, 32, 32]
     pin_memory: False
     shuffle: False
     batch_limit: 300
 
-  visualization: True
-  visualization_path: /tmp/gbm-vv/
+  visualization:
+    enabled: True
+    chance: 0.1
+    path: ./gbm-vv/
+    gif: True
+    tif: False
+    mesh: False
+
+  tensorboard:
+    enabled: True
+    path: ./tensorboard/
+    metrics: True
 
   device: cuda
   mixed_precision: False
 
-  ddp: 
+  ddp:
     enabled: True
 
 logging:
   log_level: INFO
-  log_file: train.log
+  log_file: logs/train.log
   log_std: False
   tqdm: True
 
