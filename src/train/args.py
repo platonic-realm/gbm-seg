@@ -14,7 +14,7 @@ import yaml
 def parse(_description: str) -> None:
     parser = ArgumentParser(description=_description)
     parser.add_argument("-c", "--config",
-                        default="./train.yaml",
+                        default="./configs/train.yaml",
                         help="Configuration's path")
 
     with open(parser.parse_args().config) as config_file:

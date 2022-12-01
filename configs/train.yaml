@@ -1,0 +1,59 @@
+trainer:
+  model:
+    name: unet_3d
+    feature_maps: [64, 128, 256, 512]
+    channels: [0, 1, 2]
+
+  optim:
+    name: adam
+    lr : 0.01
+
+  loss: DiceLoss
+  metrics: [accuracy, ]
+  report_freq: 10
+
+  epochs: 50
+  save_interval: 10
+  snapshot_path: ../x01/snapshots/unet3d.pt
+
+  train_ds:
+    path: ../data/gbm_train_ds/
+    batch_size: 4
+    sample_dimension: [12, 256, 256]
+    pixel_stride: [2, 32, 32]
+    pin_memory: False
+    shuffle: False
+
+  valid_ds:
+    path: ../data/gbm_valid_ds/
+    batch_size: 4
+    sample_dimension: [12, 256, 256]
+    pixel_stride: [2, 32, 32]
+    pin_memory: False
+    shuffle: False
+    batch_limit: 300
+
+  visualization:
+    enabled: True
+    chance: 0.1
+    path: ../x01/gbm-vv/
+    gif: True
+    tif: False
+    mesh: False
+
+  tensorboard:
+    enabled: True
+    path: ../x01/tensorboard/
+    metrics: True
+
+  device: cuda
+  mixed_precision: True
+
+  ddp:
+    enabled: True
+
+logging:
+  log_level: INFO
+  log_file: ../x01/logs/train.log
+  log_std: True
+

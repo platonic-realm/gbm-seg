@@ -2,7 +2,7 @@ trainer:
   model:
     name: unet_3d
     feature_maps: [64, 128, 256, 512]
-    channels: [0, 1, 2]
+    channels: [0, 2]
 
   optim:
     name: adam
@@ -14,36 +14,36 @@ trainer:
 
   epochs: 50
   save_interval: 10
-  snapshot_path: ./snapshots/unet3d.pt
+  snapshot_path: ../neph-coll/snapshots/unet3d.pt
 
   train_ds:
     path: ../data/gbm_train_ds/
-    batch_size: 4
+    batch_size: 6
     sample_dimension: [12, 256, 256]
-    pixel_stride: [2, 32, 32]
+    pixel_stride: [1, 16, 16]
     pin_memory: False
     shuffle: False
 
   valid_ds:
-    path: ../data/gbm_valid_ds/
-    batch_size: 4
+    path: ../data/gbm_train_ds/
+    batch_size: 6
     sample_dimension: [12, 256, 256]
-    pixel_stride: [2, 32, 32]
+    pixel_stride: [1, 16, 16]
     pin_memory: False
     shuffle: False
     batch_limit: 300
 
   visualization:
     enabled: True
-    chance: 0.1
-    path: ./gbm-vv/
+    chance: 0.2
+    path: ../neph-coll/gbm-vv/
     gif: True
     tif: False
     mesh: False
 
   tensorboard:
     enabled: True
-    path: ./tensorboard/
+    path: ../neph-coll/tensorboard/
     metrics: True
 
   device: cuda
@@ -54,6 +54,6 @@ trainer:
 
 logging:
   log_level: INFO
-  log_file: logs/train.log
+  log_file: ../neph-coll/logs/train.log
   log_std: True
 

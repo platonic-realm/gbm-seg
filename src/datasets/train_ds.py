@@ -86,6 +86,10 @@ class GBMDataset(Dataset):
 
         x_start = _n % sample_per_x
 
+        z_start = z_start * self.pixel_per_step_z
+        x_start = x_start * self.pixel_per_step_x
+        y_start = y_start * self.pixel_per_step_y
+
         nephrin = nephrin[z_start: z_start + self.sample_dimension[0],
                           x_start: x_start + self.sample_dimension[1],
                           y_start: y_start + self.sample_dimension[2]

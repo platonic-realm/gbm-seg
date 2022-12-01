@@ -7,10 +7,12 @@ Date:   23.11.2022
 import logging
 import os
 import random
+from datetime import datetime
 from pathlib import Path
 
 # Library Imports
 import torch
+from torch import Tensor
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -169,8 +171,7 @@ class Unet3DTrainer(Trainer):
         collagen4 = _data['collagen4'].to(device)
         labels = _data['labels'].to(device)
 
-        sample = torch.cat((nephrin, wga, collagen4),
-                           dim=1)
+        sample = self._stack_channels(nephrin, wga, collagen4)
 
         self.optimizer.zero_grad()
 
@@ -214,8 +215,7 @@ class Unet3DTrainer(Trainer):
         collagen4 = _data['collagen4'].to(device)
         labels = _data['labels'].to(device)
 
-        sample = torch.cat((nephrin, wga, collagen4),
-                           dim=1)
+        sample = self._stack_channels(nephrin, wga, collagen4)
 
         with torch.no_grad():
 
@@ -291,8 +291,6 @@ class Unet3DTrainer(Trainer):
             if index % freq == 0:
                 logging.info("Validation, Batch: %d/%d, "
                              "Loss: %.3f, Accuracy: %.3f",
-                             _epoch,
-                             self.epochs,
                              index,
                              len(self.training_loader),
                              batch_loss.calcualte(),
@@ -310,8 +308,10 @@ class Unet3DTrainer(Trainer):
                               _batch_id: int,
                               _inputs,
                               _labels,
-                              _predictions):
+                              _predictions,
+                              _all: bool = False):
 
+        random.seed(datetime.now().timestamp())
         dice = random.random()
         if dice > self.visualization_chance:
             return
@@ -320,24 +320,68 @@ class Unet3DTrainer(Trainer):
         sample_id = random.randint(0, batch_size-1)
 
         if self.ddp:
-            path: Path = Path(self.configs['visualization']['path'] +
-                              f"/worker-{self.rank:02}/{_epoch_id}" +
-                              f"/{_batch_id}/{sample_id}/")
+            base_path: str = self.configs['visualization']['path'] + \
+                             f"/worker-{self.rank:02}/epoch-{_epoch_id}" + \
+                             f"/batch-{_batch_id}/"
         else:
-            path: Path = Path(self.configs['visualization']['path'] +
-                              f"/{_epoch_id}/{_batch_id}/{sample_id}/")
-
-        path.mkdir(parents=True, exist_ok=True)
+            base_path: str = self.configs['visualization']['path'] + \
+                             f"/epoch-{_epoch_id}/batch-{_batch_id}/"
 
         enable_gif: bool = self.configs['visualization']['gif']
         enable_tif: bool = self.configs['visualization']['tif']
         enable_mesh: bool = self.configs['visualization']['mesh']
 
-        output_dir: str = path.resolve()
-        visualize_predictions(_inputs=_inputs[sample_id],
-                              _labels=_labels[sample_id],
-                              _predictions=_predictions[sample_id],
-                              _output_dir=output_dir,
-                              _produce_gif_files=enable_gif,
-                              _produce_tif_files=enable_tif,
-                              _produce_3d_model=enable_mesh)
+        if _all:
+            for index in range(batch_size):
+                path: Path = Path(f"{base_path}{index}/")
+                path.mkdir(parents=True, exist_ok=True)
+                output_dir: str = path.resolve()
+                visualize_predictions(_inputs=_inputs[index],
+                                      _labels=_labels[index],
+                                      _predictions=_predictions[index],
+                                      _output_dir=output_dir,
+                                      _produce_gif_files=enable_gif,
+                                      _produce_tif_files=enable_tif,
+                                      _produce_3d_model=enable_mesh)
+        else:
+            path: Path = Path(f"{base_path}")
+            path.mkdir(parents=True, exist_ok=True)
+            output_dir: str = path.resolve()
+            visualize_predictions(_inputs=_inputs[sample_id],
+                                  _labels=_labels[sample_id],
+                                  _predictions=_predictions[sample_id],
+                                  _output_dir=output_dir,
+                                  _produce_gif_files=enable_gif,
+                                  _produce_tif_files=enable_tif,
+                                  _produce_3d_model=enable_mesh)
+
+    # Channels list in the configuration determine
+    # Which channels to be stacked
+    def _stack_channels(self,
+                        _nephrin: Tensor,
+                        _wga: Tensor,
+                        _collagen4: Tensor) -> Tensor:
+
+        channels: list = self.configs['model']['channels']
+
+        if len(channels) == 3:
+            result = torch.cat((_nephrin, _wga, _collagen4), dim=1)
+        elif len(channels) == 2:
+            if channels in ([0, 1], [1, 0]):
+                result = torch.cat((_nephrin, _wga), dim=1)
+            if channels in ([0, 2], [2, 0]):
+                result = torch.cat((_nephrin, _collagen4), dim=1)
+            if channels in ([1, 2], [2, 1]):
+                result = torch.cat((_wga, _collagen4), dim=1)
+        elif len(channels) == 1:
+            # Nephrin -> 0, WGA -> 1, Collagen4 -> 2
+            if channels[0] == 0:
+                result = _nephrin
+            if channels[0] == 1:
+                result = _wga
+            if channels[0] == 2:
+                result = _collagen4
+        else:
+            assert True, "Wrong channels list configuration"
+
+        return result
