@@ -13,7 +13,6 @@ from torch import nn
 # Local Imports
 from src.models.unet3d.blocks import \
         create_encoder_layers, create_decoder_layers
-from src.utils.misc import to_numpy
 
 
 class Unet3D(nn.Module):
@@ -75,11 +74,7 @@ class Unet3D(nn.Module):
 
         results = self.last_layer(results)
 
-        _results = to_numpy(results)
-
         results = self.final_activation(results)
-
-        _results = to_numpy(results)
 
         return results
 

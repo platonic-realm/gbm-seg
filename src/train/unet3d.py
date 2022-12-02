@@ -6,6 +6,7 @@ Date:   23.11.2022
 # Python Imports
 import logging
 import os
+import sys
 import random
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +39,6 @@ class Unet3DTrainer(Trainer):
         self.channels: list = self.configs['model']['channels']
         self.metrics: list = self.configs['metrics']
 
-        self.validation_limit: int = self.configs['valid_ds']['batch_limit']
         self.model = Unet3D(len(self.channels),
                             _feature_maps=self.feature_maps)
 
@@ -79,7 +79,7 @@ class Unet3DTrainer(Trainer):
 
         snapshot = torch.load(self.snapshot_path)
         self.model.load_state_dict(snapshot['MODEL_STATE'])
-        self.epoch_resume = snapshot['EPOCHS']
+        self.epoch_resume = snapshot['EPOCHS'] + 1
         logging.info("Resuming training at epoch: %d", self.epoch_resume)
 
     def _log_tensorboard_metrics(self,
@@ -271,8 +271,6 @@ class Unet3DTrainer(Trainer):
                              batch_accuracy.calcualte())
 
         for index, data in enumerate(self.validation_loader):
-            if index >= self.validation_limit:
-                break
 
             batch_accuracy = RunningAverage()
             batch_loss = RunningAverage()
@@ -292,7 +290,7 @@ class Unet3DTrainer(Trainer):
                 logging.info("Validation, Batch: %d/%d, "
                              "Loss: %.3f, Accuracy: %.3f",
                              index,
-                             len(self.training_loader),
+                             len(self.validation_loader),
                              batch_loss.calcualte(),
                              batch_accuracy.calcualte())
 

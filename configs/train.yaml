@@ -31,7 +31,6 @@ trainer:
     pixel_stride: [2, 32, 32]
     pin_memory: False
     shuffle: False
-    batch_limit: 300
 
   visualization:
     enabled: True

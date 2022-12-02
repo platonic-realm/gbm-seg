@@ -12,8 +12,8 @@ trainer:
   metrics: [accuracy, ]
   report_freq: 10
 
-  epochs: 50
-  save_interval: 10
+  epochs: 100
+  save_interval: 5
   snapshot_path: ../neph-coll/snapshots/unet3d.pt
 
   train_ds:
@@ -25,13 +25,12 @@ trainer:
     shuffle: False
 
   valid_ds:
-    path: ../data/gbm_train_ds/
+    path: ../data/gbm_valid_ds/
     batch_size: 6
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: False
     shuffle: False
-    batch_limit: 300
 
   visualization:
     enabled: True
