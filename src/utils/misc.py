@@ -31,7 +31,8 @@ class RunningAverage():
 
 def configure_logger(_configs: dict) -> None:
     LOG_LEVEL = _configs['logging']['log_level']
-    log_file = _configs['logging']['log_file']
+    log_file = os.path.join(_configs['trainer']['result_path'],
+                            _configs['logging']['log_file'])
     log_std = _configs['logging']['log_std']
     ddp = _configs['trainer']['ddp']['enabled']
 

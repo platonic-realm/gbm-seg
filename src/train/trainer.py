@@ -7,6 +7,7 @@ Date:   22.11.2022
 # Python's wierd implementation of abstract methods
 from abc import ABC, abstractmethod
 from pathlib import Path
+import os
 
 # Libary Imports
 import torch
@@ -27,7 +28,9 @@ class Trainer(ABC):
         self.epochs: int = self.configs['epochs']
         self.epoch_resume = 0
         self.save_interval = self.configs['save_interval']
-        self.snapshot_path = self.configs['snapshot_path']
+        self.result_path = self.configs['result_path']
+        self.snapshot_path = os.path.join(self.result_path,
+                                          self.configs['snapshot_path'])
         self.device: str = self.configs['device']
         self.mixed_precision: bool = self.configs['mixed_precision']
         if self.mixed_precision:
@@ -52,11 +55,15 @@ class Trainer(ABC):
             self.configs['visualization']['enabled']
         self.visualization_chance: float = \
             self.configs['visualization']['chance']
+        self.visualization_path = \
+            os.path.join(self.result_path,
+                         self.configs['visualization']['path'])
 
         self.tensorboard: bool = \
             self.configs['tensorboard']['enabled']
         self.tensorboard_path = \
-            Path(self.configs['tensorboard']['path'])
+            Path(os.path.join(self.result_path,
+                              self.configs['tensorboard']['path']))
         self.tensorboard_path.mkdir(parents=True, exist_ok=True)
 
         if self.device == 'cuda':

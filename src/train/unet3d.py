@@ -6,7 +6,6 @@ Date:   23.11.2022
 # Python Imports
 import logging
 import os
-import sys
 import random
 from datetime import datetime
 from pathlib import Path
@@ -261,7 +260,7 @@ class Unet3DTrainer(Trainer):
             batch_loss.add(results['loss'])
 
             if index % freq == 0:
-                logging.info("Epoch: %2d/%d, Batch: %d/%d, "
+                logging.info("Epoch: %d/%d, Batch: %d/%d, "
                              "Loss: %.3f, Accuracy: %.3f",
                              _epoch,
                              self.epochs,
@@ -318,11 +317,11 @@ class Unet3DTrainer(Trainer):
         sample_id = random.randint(0, batch_size-1)
 
         if self.ddp:
-            base_path: str = self.configs['visualization']['path'] + \
+            base_path: str = self.visualization_path + \
                              f"/worker-{self.rank:02}/epoch-{_epoch_id}" + \
                              f"/batch-{_batch_id}/"
         else:
-            base_path: str = self.configs['visualization']['path'] + \
+            base_path: str = self.visualization_path + \
                              f"/epoch-{_epoch_id}/batch-{_batch_id}/"
 
         enable_gif: bool = self.configs['visualization']['gif']

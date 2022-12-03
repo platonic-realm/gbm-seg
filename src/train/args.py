@@ -17,8 +17,15 @@ def parse(_description: str) -> None:
                         default="./configs/train.yaml",
                         help="Configuration's path")
 
-    with open(parser.parse_args().config) as config_file:
+    parser.add_argument("-rp", "--result-path",
+                        default="../results",
+                        help="Result's path")
+
+    arguments = parser.parse_args()
+
+    with open(arguments.config) as config_file:
         configs = yaml.safe_load(config_file)
+        configs['trainer']['result_path'] = arguments.result_path
 
     return sanity_check(configs)
 
