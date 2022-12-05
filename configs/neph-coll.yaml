@@ -1,8 +1,18 @@
 trainer:
   model:
+    # unet_3d, undet_3d_me
     name: unet_3d
-    tag: adam_dice_128_256_512_1024
-    feature_maps: [128, 256, 512, 1024]
+    # Used for result dir and snapshot names
+    tag: adam_dice_big
+    # Huge: [128, 256, 512, 1024]
+    # Big: [64, 128, 256, 512]
+    # Medium: [64, 128, 256]
+    # Small: [32, 64, 128]
+    # Tiny: [32, 64]
+    feature_maps: [64, 128, 256, 512]
+    # 0: Nephrin
+    # 1: WGA
+    # 2: Collagen4
     channels: [0, 2]
 
   optim:
@@ -11,9 +21,11 @@ trainer:
 
   loss: DiceLoss
   metrics: [accuracy, ]
+  # Every report_freq batch, metrics and losses will be logged
   report_freq: 10
 
-  epochs: 200
+  epochs: 50
+  # Every save_interval a snapshot will be created
   save_interval: 5
   snapshot_path: snapshots/unet3d.pt
 
@@ -22,7 +34,8 @@ trainer:
     batch_size: 3
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
-    pin_memory: False
+    pin_memory: True
+    # shuffle should be off when using DDP
     shuffle: False
 
   valid_ds:
@@ -30,11 +43,13 @@ trainer:
     batch_size: 3
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
-    pin_memory: False
+    pin_memory: True
+    # shuffle should be off when using DDP
     shuffle: False
 
   visualization:
     enabled: True
+    # The chance for a batch to create visualization
     chance: 0.2
     path: gbm-vv/
     gif: True
@@ -53,7 +68,7 @@ trainer:
     enabled: True
     no_of_nodes: 5
     rdzv_backend: c10d
-    rdzv_endpoint: 192.168.227.236:29603 
+    rdzv_endpoint: 192.168.227.236:29603
 
 logging:
   log_level: INFO
