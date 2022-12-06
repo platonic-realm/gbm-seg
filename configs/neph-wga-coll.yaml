@@ -13,25 +13,26 @@ trainer:
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
-    channels: [0, 2]
+    channels: [0, 1, 3]
 
   optim:
     name: adam
     lr : 0.01
 
-  loss: DiceLoss
+  loss: CrossEntropyLoss
+  loss_weights: [1.0, 1.0, 1.0]
   metrics: [accuracy, ]
   # Every report_freq batch, metrics and losses will be logged
   report_freq: 10
 
-  epochs: 50
+  epochs: 70
   # Every save_interval a snapshot will be created
   save_interval: 5
-  snapshot_path: snapshots/unet3d.pt
+  snapshot_path: snapshots/
 
   train_ds:
     path: ../data/gbm_train_ds/
-    batch_size: 3
+    batch_size: 6
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: True
@@ -40,7 +41,7 @@ trainer:
 
   valid_ds:
     path: ../data/gbm_valid_ds/
-    batch_size: 3
+    batch_size: 6
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: True
@@ -66,9 +67,9 @@ trainer:
 
   ddp:
     enabled: True
-    no_of_nodes: 5
+    no_of_nodes: 3
     rdzv_backend: c10d
-    rdzv_endpoint: 192.168.227.236:29603
+    rdzv_endpoint: 192.168.227.235:29603
 
 logging:
   log_level: INFO

@@ -1,7 +1,6 @@
 """
 Author: Arash Fatehi
 Date:   27.10.2022
-File:   datasets.py
 """
 
 # Python Imports
@@ -13,6 +12,10 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import tifffile
+
+# Local Imports
+from src.data.labels_cat import scaler_to_vector, vector_to_scaler
+from src.utils.visual import visualize_scaler_predictions
 
 
 class GBMDataset(Dataset):
@@ -110,25 +113,14 @@ class GBMDataset(Dataset):
                         y_start: y_start + self.sample_dimension[2]
                         ]
 
-        nephrin = nephrin.reshape(1,
-                                  nephrin.shape[0],
-                                  nephrin.shape[1],
-                                  nephrin.shape[2])
+        nephrin = np.expand_dims(nephrin, axis=0)
+        wga = np.expand_dims(wga, axis=0)
+        collagen4 = np.expand_dims(collagen4, axis=0)
+        # labels = scaler_to_vector(labels)
 
-        wga = wga.reshape(1,
-                          wga.shape[0],
-                          wga.shape[1],
-                          wga.shape[2])
-
-        collagen4 = collagen4.reshape(1,
-                                      collagen4.shape[0],
-                                      collagen4.shape[1],
-                                      collagen4.shape[2])
-
-        labels = labels.reshape(1,
-                                labels.shape[0],
-                                labels.shape[1],
-                                labels.shape[2])
+        nephrin = nephrin/255
+        wga = wga/255
+        collagen4 = collagen4/255
 
         return {
             'nephrin': torch.from_numpy(nephrin),
@@ -158,6 +150,5 @@ class GBMDataset(Dataset):
                                              _file_name))
         image = np.array(image)
         image = image.astype(np.float32)
-        image = image / 255
 
         return image

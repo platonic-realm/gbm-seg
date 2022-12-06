@@ -6,12 +6,14 @@ Date:   23.11.2022
 # Python Imports
 import logging
 import os
+import glob
 import random
 from datetime import datetime
 from pathlib import Path
 
 # Library Imports
 import torch
+import torch.nn as nn
 from torch import Tensor
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -20,10 +22,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Local Imports
 from src.train.trainer import Trainer
-from src.datasets.train_ds import GBMDataset
+from src.data.train_ds import GBMDataset
 from src.models.unet3d.unet3d import Unet3D
 from src.models.unet3d.losses import DiceLoss
-from src.utils.visual import visualize_predictions
+from src.utils.visual import visualize_predictions, \
+                             visualize_vector_predictions
 from src.utils.misc import RunningAverage
 
 
@@ -59,7 +62,7 @@ class Unet3DTrainer(Trainer):
     def _save_sanpshot(self, epoch: int) -> None:
         if self.snapshot_path is None:
             return
-        if self.local_rank > 0:
+        if self.rank > 0:
             return
 
         snapshot = {}
@@ -69,14 +72,26 @@ class Unet3DTrainer(Trainer):
         else:
             snapshot['MODEL_STATE'] = self.model.state_dict()
 
-        torch.save(snapshot, self.snapshot_path)
+        save_path = \
+            os.path.join(self.snapshot_path,
+                         f"{self.model_name}-{self.model_tag}-{epoch:03d}.pt")
+        torch.save(snapshot, save_path)
         logging.info("Snapshot saved on epoch %d", epoch)
 
     def _load_snapshot(self) -> None:
         if not os.path.exists(self.snapshot_path):
             return
 
-        snapshot = torch.load(self.snapshot_path)
+        snapshot_list = sorted(filter(os.path.isfile,
+                                      glob.glob(self.snapshot_path + '*')),
+                               reverse=True)
+
+        if len(snapshot_list) <= 0:
+            return
+
+        load_path = snapshot_list[0]
+
+        snapshot = torch.load(load_path)
         self.model.load_state_dict(snapshot['MODEL_STATE'])
         self.epoch_resume = snapshot['EPOCHS'] + 1
         logging.info("Resuming training at epoch: %d", self.epoch_resume)
@@ -155,9 +170,17 @@ class Unet3DTrainer(Trainer):
                                               lr=lr)
 
     def _prepare_loss(self) -> None:
+        if self.ddp:
+            device = self.device_id
+        else:
+            device = self.device
+
         loss_name: str = self.configs['loss']
         if loss_name == 'DiceLoss':
             self.loss = DiceLoss()
+        if loss_name == 'CrossEntropyLoss':
+            weights = torch.tensor(self.configs['loss_weights']).to(device)
+            self.loss = nn.CrossEntropyLoss(weight=weights)
 
     def _training_step(self, _data: dict) -> dict:
         if self.ddp:
@@ -174,6 +197,7 @@ class Unet3DTrainer(Trainer):
 
         self.optimizer.zero_grad()
 
+        labels = labels.long()
         if self.mixed_precision:
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 outputs = self.model(sample)
@@ -192,12 +216,12 @@ class Unet3DTrainer(Trainer):
 
         loss_value = loss.item()
 
-        corrects = (outputs == labels).float().sum().item()
-        accuracy = corrects/torch.numel(outputs)
+        #corrects = (outputs == labels).float().sum().item()
+        #accuracy = corrects/torch.numel(outputs)
 
         return {'loss': loss_value,
-                'corrects': corrects,
-                'accuracy': accuracy}
+                'corrects': 0.0,
+                'accuracy': 0.0}
 
     def _validate_step(self,
                        _epoch_id: int,
@@ -263,7 +287,7 @@ class Unet3DTrainer(Trainer):
                 logging.info("Epoch: %d/%d, Batch: %d/%d, "
                              "Loss: %.3f, Accuracy: %.3f",
                              _epoch,
-                             self.epochs,
+                             self.epochs-1,
                              index,
                              len(self.training_loader),
                              batch_loss.calcualte(),
@@ -308,6 +332,9 @@ class Unet3DTrainer(Trainer):
                               _predictions,
                               _all: bool = False):
 
+        if not self.visualization:
+            return
+
         random.seed(datetime.now().timestamp())
         dice = random.random()
         if dice > self.visualization_chance:
@@ -344,13 +371,19 @@ class Unet3DTrainer(Trainer):
             path: Path = Path(f"{base_path}")
             path.mkdir(parents=True, exist_ok=True)
             output_dir: str = path.resolve()
-            visualize_predictions(_inputs=_inputs[sample_id],
-                                  _labels=_labels[sample_id],
-                                  _predictions=_predictions[sample_id],
-                                  _output_dir=output_dir,
-                                  _produce_gif_files=enable_gif,
-                                  _produce_tif_files=enable_tif,
-                                  _produce_3d_model=enable_mesh)
+
+            visualize_vector_predictions(_input=_labels[sample_id],
+                                         _output_dir=os.path.join(output_dir,"label.tiff"))
+            visualize_vector_predictions(_input=_predictions[sample_id],
+                                         _output_dir=os.path.join(output_dir,"predict.tiff"))
+
+            #visualize_predictions(_inputs=_inputs[sample_id],
+            #                      _labels=_labels[sample_id],
+            #                      _predictions=_predictions[sample_id],
+            #                      _output_dir=output_dir,
+            #                      _produce_gif_files=enable_gif,
+            #                      _produce_tif_files=enable_tif,
+            #                      _produce_3d_model=enable_mesh)
 
     # Channels list in the configuration determine
     # Which channels to be stacked

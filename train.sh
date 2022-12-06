@@ -57,14 +57,17 @@ result_dir=../results/$config_name-$model_name-$model_tag
 
 if $debug
 then
+    echo "Runnign train.py in pudb"
     python -m pudb $script_path -c $config_path -rp $result_dir
 elif $standalone
 then
+    echo "Running torchrun in standalone mode"
     torchrun \
         --standalone \
         --nproc_per_node=gpu \
         $script_path -c $config_path -rp $result_dir
 else
+    echo "Running torchrun in distributed mode"
     torchrun \
         --nproc_per_node=gpu \
         --nnodes=$no_of_nodes \

@@ -25,6 +25,8 @@ class Trainer(ABC):
         self.configs: dict = _configs['trainer']
 
         # Note we are using self.config here ...
+        self.model_name = self.configs['model']['name']
+        self.model_tag = self.configs['model']['tag']
         self.epochs: int = self.configs['epochs']
         self.epoch_resume = 0
         self.save_interval = self.configs['save_interval']
@@ -84,7 +86,7 @@ class Trainer(ABC):
             self._train_epoch(epoch)
             # I should later use validation metrics to
             # decide whether overwite to the snapshop or not
-            if epoch % self.save_interval == 0:
+            if (epoch + 1) % self.save_interval == 0:
                 self._save_sanpshot(epoch)
 
     @abstractmethod

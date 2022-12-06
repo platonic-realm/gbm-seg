@@ -74,7 +74,10 @@ def create_dirs_recursively(_path: str):
 
 
 def to_numpy(_gpu_tensor):
-    return _gpu_tensor.clone().detach().to('cpu').numpy()
+    if torch.is_tensor(_gpu_tensor):
+        return _gpu_tensor.clone().detach().to('cpu').numpy()
+
+    return _gpu_tensor
 
 
 def expand_as_one_hot(_input, _c, _ignore_index=None):

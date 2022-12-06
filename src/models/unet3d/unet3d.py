@@ -51,8 +51,10 @@ class Unet3D(nn.Module):
                                                     _conv_layer_type)
 
         logging.debug("Creating the last layer")
-        self.last_layer = nn.Conv3d(_feature_maps[0], 1, 1)
-        self.final_activation = nn.Sigmoid()
+        self.last_layer = nn.Conv3d(in_channels=_feature_maps[0],
+                                    out_channels=3,
+                                    kernel_size=1)
+        # self.final_activation = nn.Sigmoid()
 
     def forward(self, _x):
         encoder_features = []
@@ -74,7 +76,7 @@ class Unet3D(nn.Module):
 
         results = self.last_layer(results)
 
-        results = self.final_activation(results)
+        # results = self.final_activation(results)
 
         return results
 

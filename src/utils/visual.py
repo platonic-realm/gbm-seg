@@ -9,6 +9,7 @@ import os
 # Library Imports
 import torch
 import torch.nn.functional as Fn
+from numpy import array
 import numpy as np
 import matplotlib.pyplot as plt
 import tifffile
@@ -17,6 +18,7 @@ from skimage import measure
 
 # Local Imports
 from src.utils.misc import to_numpy
+from src.data.labels_cat import vector_to_scaler
 
 
 def visualize_predictions(_inputs,
@@ -46,15 +48,41 @@ def visualize_predictions(_inputs,
                           _prediction=_predictions,
                           _output_dir=_output_dir)
 
-    # if _produce_scatter_plot:
-    #     prediction_to_scatter_plot(_inputs=_inputs,
-    #                                _label=_labels,
-    #                                _prediction=_predictions,
-    #                                _output_dir=_output_dir)
-
     if _produce_3d_model:
         prediction_to_verticies(_prediction=_predictions,
                                 _output_dir=_output_dir)
+
+
+def visualize_scaler_predictions(_input: array,
+                                 _output_dir: str,
+                                 _produce_tif_files: bool = True,
+                                 _produce_gif_files: bool = True,
+                                 _produce_3d_model: bool = True) -> None:
+
+    _input = to_numpy(_input)
+
+    _input = _input * 127
+
+    tifffile.imwrite(_output_dir,
+                     _input,
+                     shape=_input.shape,
+                     imagej=True,
+                     metadata={'axes': 'ZYX', 'fps': 10.0}
+                     )
+
+
+def visualize_vector_predictions(_input: array,
+                                 _output_dir: str,
+                                 _produce_tif_files: bool = True,
+                                 _produce_gif_files: bool = True,
+                                 _produce_3d_model: bool = True) -> None:
+
+    _input = vector_to_scaler(_input)
+    visualize_scaler_predictions(_input,
+                                 _output_dir,
+                                 _produce_tif_files,
+                                 _produce_gif_files,
+                                 _produce_3d_model)
 
 
 def prediction_to_tif(_inputs=None,
@@ -185,7 +213,10 @@ def tile_3d_to_scatter_plot(_input, _output_file_name):
 
 
 def tile_3d_to_verticies(_input, _output_file_name):
-    _input = Fn.pad(torch.from_numpy(_input), (1, 1, 1, 1, 1, 1), "constant", 0)
+    _input = Fn.pad(torch.from_numpy(_input),
+                    (1, 1, 1, 1, 1, 1),
+                    "constant",
+                    0)
     _input = to_numpy(_input)
     verts, faces, _, _ = measure.marching_cubes(_input, 0.1)
     np.save(f"{_output_file_name}_verts.npy", verts)
