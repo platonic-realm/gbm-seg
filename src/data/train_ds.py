@@ -14,8 +14,6 @@ import numpy as np
 import tifffile
 
 # Local Imports
-from src.data.labels_cat import scaler_to_vector, vector_to_scaler
-from src.utils.visual import visualize_scaler_predictions
 
 
 class GBMDataset(Dataset):

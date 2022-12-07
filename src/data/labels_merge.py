@@ -39,11 +39,8 @@ with tifffile.TiffFile('/data/afatehi/gbm/data/raw/Batch 3 - Annotated/GBM-True.
         name, value = tag.name, tag.value
         tif_tags[name] = value
 
-    with open('tags.json', 'w') as fp:
-        json.dump(tif_tags, fp)
-
-tifffile.imwrite('./result.tif',
-                 result,
-                 shape=result.shape,
-                 imagej=True,
-                 metadata=tif_tags)
+    tifffile.imwrite('./result.tif',
+                     result,
+                     shape=result.shape,
+                     imagej=True,
+                     metadata=tif_tags)

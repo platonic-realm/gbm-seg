@@ -25,8 +25,7 @@ from src.train.trainer import Trainer
 from src.data.train_ds import GBMDataset
 from src.models.unet3d.unet3d import Unet3D
 from src.models.unet3d.losses import DiceLoss
-from src.utils.visual import visualize_predictions, \
-                             visualize_vector_predictions
+from src.utils.visual import VisualizerUnet3D
 from src.utils.misc import RunningAverage
 
 
@@ -54,6 +53,11 @@ class Unet3DTrainer(Trainer):
 
         if self.ddp:
             self.model = DDP(self.model, device_ids=[self.local_rank])
+
+        self.visualizer = VisualizerUnet3D(
+                _generate_tif=self.configs['visualization']['tif'],
+                _generate_gif=self.configs['visualization']['gif'],
+                _generate_mesh=self.configs['visualization']['mesh'])
 
         self._prepare_data()
         self._prepare_optimizer()
@@ -188,16 +192,20 @@ class Unet3DTrainer(Trainer):
         else:
             device = self.device
 
+        return {'loss': 0,
+                'corrects': 0,
+                'accuracy': 0}
+
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
         collagen4 = _data['collagen4'].to(device)
         labels = _data['labels'].to(device)
+        labels = labels.long()
 
         sample = self._stack_channels(nephrin, wga, collagen4)
 
         self.optimizer.zero_grad()
 
-        labels = labels.long()
         if self.mixed_precision:
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 outputs = self.model(sample)
@@ -216,12 +224,13 @@ class Unet3DTrainer(Trainer):
 
         loss_value = loss.item()
 
-        #corrects = (outputs == labels).float().sum().item()
-        #accuracy = corrects/torch.numel(outputs)
+        labels_expanded = torch.unsqueeze(labels, 1)
+        corrects = (outputs == labels_expanded).float().sum().item()
+        accuracy = corrects/torch.numel(outputs)
 
         return {'loss': loss_value,
-                'corrects': 0.0,
-                'accuracy': 0.0}
+                'corrects': corrects,
+                'accuracy': accuracy}
 
     def _validate_step(self,
                        _epoch_id: int,
@@ -237,6 +246,7 @@ class Unet3DTrainer(Trainer):
         wga = _data['wga'].to(device)
         collagen4 = _data['collagen4'].to(device)
         labels = _data['labels'].to(device)
+        labels = labels.long()
 
         sample = self._stack_channels(nephrin, wga, collagen4)
 
@@ -253,7 +263,8 @@ class Unet3DTrainer(Trainer):
             loss = self.loss(outputs, labels)
             loss_value = loss.item()
 
-            corrects = (outputs == labels).float().sum().item()
+            labels_expanded = torch.unsqueeze(labels, 1)
+            corrects = (outputs == labels_expanded).float().sum().item()
             accuracy = corrects/torch.numel(outputs)
 
             return {'loss': loss_value,
@@ -351,39 +362,28 @@ class Unet3DTrainer(Trainer):
             base_path: str = self.visualization_path + \
                              f"/epoch-{_epoch_id}/batch-{_batch_id}/"
 
-        enable_gif: bool = self.configs['visualization']['gif']
-        enable_tif: bool = self.configs['visualization']['tif']
-        enable_mesh: bool = self.configs['visualization']['mesh']
-
         if _all:
             for index in range(batch_size):
                 path: Path = Path(f"{base_path}{index}/")
                 path.mkdir(parents=True, exist_ok=True)
                 output_dir: str = path.resolve()
-                visualize_predictions(_inputs=_inputs[index],
-                                      _labels=_labels[index],
-                                      _predictions=_predictions[index],
-                                      _output_dir=output_dir,
-                                      _produce_gif_files=enable_gif,
-                                      _produce_tif_files=enable_tif,
-                                      _produce_3d_model=enable_mesh)
+                self.visualizer.draw_channels(_inputs[index],
+                                              output_dir)
+                self.visualizer.draw_labels(_labels[index],
+                                            output_dir)
+                self.visualizer.draw_predictions(_predictions[index],
+                                                 output_dir)
         else:
             path: Path = Path(f"{base_path}")
             path.mkdir(parents=True, exist_ok=True)
             output_dir: str = path.resolve()
 
-            visualize_vector_predictions(_input=_labels[sample_id],
-                                         _output_dir=os.path.join(output_dir,"label.tiff"))
-            visualize_vector_predictions(_input=_predictions[sample_id],
-                                         _output_dir=os.path.join(output_dir,"predict.tiff"))
-
-            #visualize_predictions(_inputs=_inputs[sample_id],
-            #                      _labels=_labels[sample_id],
-            #                      _predictions=_predictions[sample_id],
-            #                      _output_dir=output_dir,
-            #                      _produce_gif_files=enable_gif,
-            #                      _produce_tif_files=enable_tif,
-            #                      _produce_3d_model=enable_mesh)
+            self.visualizer.draw_channels(_inputs[sample_id],
+                                          output_dir)
+            self.visualizer.draw_labels(_labels[sample_id],
+                                        output_dir)
+            self.visualizer.draw_predictions(_predictions[sample_id],
+                                             output_dir)
 
     # Channels list in the configuration determine
     # Which channels to be stacked

@@ -54,7 +54,7 @@ trainer:
     chance: 0.2
     path: gbm-vv/
     gif: True
-    tif: False
+    tif: True
     mesh: False
 
   tensorboard:
