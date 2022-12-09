@@ -210,11 +210,11 @@ class Unet3DTrainer(Trainer):
 
         if self.mixed_precision:
             with torch.autocast(device_type='cuda', dtype=torch.float16):
-                outputs = self.model(sample)
-                loss = self.loss(outputs, labels)
+                logits, results = self.model(sample)
+                loss = self.loss(logits, labels)
         else:
-            outputs = self.model(sample)
-            loss = self.loss(outputs, labels)
+            logits, results = self.model(sample)
+            loss = self.loss(logits, labels)
 
         if self.mixed_precision:
             self.scaler.scale(loss).backward()
@@ -226,9 +226,8 @@ class Unet3DTrainer(Trainer):
 
         loss_value = loss.item()
 
-        labels_expanded = torch.unsqueeze(labels, 1)
-        corrects = (outputs == labels_expanded).float().sum().item()
-        accuracy = corrects/torch.numel(outputs)
+        corrects = (results == labels).float().sum().item()
+        accuracy = corrects/torch.numel(results)
 
         return {'loss': loss_value,
                 'corrects': corrects,
@@ -254,26 +253,19 @@ class Unet3DTrainer(Trainer):
 
         with torch.no_grad():
 
-            if self.mixed_precision:
-                with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    outputs = self.model(sample)
-                    loss = self.loss(outputs, labels)
-            else:
-                outputs = self.model(sample)
-                loss = self.loss(outputs, labels)
+            logits, results = self.model(sample)
 
             self._visualize_validation(_epoch_id=_epoch_id,
                                        _batch_id=_batch_id,
                                        _inputs=sample,
                                        _labels=labels,
-                                       _predictions=outputs)
+                                       _predictions=results)
 
-            loss = self.loss(outputs, labels)
+            loss = self.loss(logits, labels)
             loss_value = loss.item()
 
-            labels_expanded = torch.unsqueeze(labels, 1)
-            corrects = (outputs == labels_expanded).float().sum().item()
-            accuracy = corrects/torch.numel(outputs)
+            corrects = (results == labels).float().sum().item()
+            accuracy = corrects/torch.numel(results)
 
             return {'loss': loss_value,
                     'corrects': corrects,
@@ -370,8 +362,6 @@ class Unet3DTrainer(Trainer):
             base_path: str = self.visualization_path + \
                              f"/epoch-{_epoch_id}/batch-{_batch_id}/"
 
-        softmax = nn.Softmax(dim=1)
-
         if _all:
             for index in range(batch_size):
                 path: Path = Path(f"{base_path}{index}/")
@@ -383,11 +373,7 @@ class Unet3DTrainer(Trainer):
                 self.visualizer.draw_labels(_labels[index],
                                             output_dir,
                                             _multiplier=127)
-
-                prediction = softmax(_predictions[index])
-                prediction = torch.argmax(prediction,
-                                          dim=0)
-                self.visualizer.draw_predictions(prediction,
+                self.visualizer.draw_predictions(_predictions[index],
                                                  output_dir,
                                                  _multiplier=255)
         else:
@@ -400,11 +386,7 @@ class Unet3DTrainer(Trainer):
             self.visualizer.draw_labels(_labels[sample_id],
                                         output_dir,
                                         _multiplier=127)
-
-            prediction = softmax(_predictions[sample_id])
-            prediction = torch.argmax(prediction,
-                                      dim=0)
-            self.visualizer.draw_predictions(prediction,
+            self.visualizer.draw_predictions(_predictions[sample_id],
                                              output_dir,
                                              _multiplier=127)
 
