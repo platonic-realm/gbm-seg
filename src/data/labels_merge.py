@@ -7,8 +7,8 @@ import json
 import numpy as np
 import tifffile
 
-true_value = 1
-possible_value = 2
+true_value = 2
+possible_value = 1
 
 gbm_true = tifffile.imread(
         '/data/afatehi/gbm/data/raw/Batch 3 - Annotated/GBM-True.tif')

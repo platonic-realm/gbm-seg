@@ -68,6 +68,8 @@ class Trainer(ABC):
                               self.configs['tensorboard']['path']))
         self.tensorboard_path.mkdir(parents=True, exist_ok=True)
 
+        self.skip_training = self.configs['skip_training']
+
         if self.device == 'cuda':
             self.device_id: int = self.local_rank % torch.cuda.device_count()
 

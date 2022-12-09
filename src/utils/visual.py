@@ -36,19 +36,22 @@ class Visualizer(ABC):
     @abstractmethod
     def draw_channels(self,
                       _input,
-                      _output_dir):
+                      _output_dir,
+                      _multiplier):
         pass
 
     @abstractmethod
     def draw_labels(self,
                     _input,
-                    _output_dir):
+                    _output_dir,
+                    _multiplier):
         pass
 
     @abstractmethod
     def draw_predictions(self,
                          _input,
-                         _output_dir):
+                         _output_dir,
+                         _multiplier):
         pass
 
     def _tensor_2D_to_tif(self,
@@ -155,7 +158,8 @@ class VisualizerUnet3D(Visualizer):
 
     def draw_channels(self,
                       _input,
-                      _output_dir: str):
+                      _output_dir: str,
+                      _multiplier=255):
 
         if _input is None:
             return
@@ -164,6 +168,7 @@ class VisualizerUnet3D(Visualizer):
             "Output directory is None, where should I save the result?"
 
         _input = to_numpy(_input)
+        _input = _input * _multiplier
 
         for index, _channel in enumerate(_input):
             self._tensor_3D_to_tif(_channel,
@@ -178,7 +183,8 @@ class VisualizerUnet3D(Visualizer):
 
     def draw_labels(self,
                     _input,
-                    _output_dir: str):
+                    _output_dir: str,
+                    _multiplier=1):
 
         if _input is None:
             return
@@ -187,9 +193,9 @@ class VisualizerUnet3D(Visualizer):
             "Output directory is None, where should I save the result?"
 
         _input = to_numpy(_input)
-        _input = _input.astype(np.uint8)
         # To visualy separate classes from each other
-        _input = _input * 127
+        _input = _input * _multiplier
+        _input = _input.astype(np.uint8)
 
         self._tensor_3D_to_tif(_input,
                                os.path.join(
@@ -208,7 +214,8 @@ class VisualizerUnet3D(Visualizer):
 
     def draw_predictions(self,
                          _input,
-                         _output_dir: str):
+                         _output_dir: str,
+                         _multiplier=1):
         if _input is None:
             return
 
@@ -216,10 +223,11 @@ class VisualizerUnet3D(Visualizer):
             "Output directory is None, where should I save the result?"
 
         _input = to_numpy(_input)
-        _input = vector_to_scaler(_input)
+        # _input = vector_to_scaler(_input)
 
         # To visualy separate classes from each other
-        _input = _input * 127
+        _input = _input * _multiplier
+        _input = _input.astype(np.uint8)
 
         self._tensor_3D_to_tif(_input,
                                os.path.join(

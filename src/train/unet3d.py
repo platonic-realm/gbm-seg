@@ -180,10 +180,11 @@ class Unet3DTrainer(Trainer):
             device = self.device
 
         loss_name: str = self.configs['loss']
+
+        weights = torch.tensor(self.configs['loss_weights']).to(device)
         if loss_name == 'DiceLoss':
-            self.loss = DiceLoss()
+            self.loss = DiceLoss(_weight=weights)
         if loss_name == 'CrossEntropyLoss':
-            weights = torch.tensor(self.configs['loss_weights']).to(device)
             self.loss = nn.CrossEntropyLoss(weight=weights)
 
     def _training_step(self, _data: dict) -> dict:
@@ -192,9 +193,10 @@ class Unet3DTrainer(Trainer):
         else:
             device = self.device
 
-        return {'loss': 0,
-                'corrects': 0,
-                'accuracy': 0}
+        if self.skip_training:
+            return {'loss': 0,
+                    'corrects': 0,
+                    'accuracy': 0}
 
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
@@ -252,7 +254,13 @@ class Unet3DTrainer(Trainer):
 
         with torch.no_grad():
 
-            outputs = self.model(sample)
+            if self.mixed_precision:
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    outputs = self.model(sample)
+                    loss = self.loss(outputs, labels)
+            else:
+                outputs = self.model(sample)
+                loss = self.loss(outputs, labels)
 
             self._visualize_validation(_epoch_id=_epoch_id,
                                        _batch_id=_batch_id,
@@ -362,17 +370,26 @@ class Unet3DTrainer(Trainer):
             base_path: str = self.visualization_path + \
                              f"/epoch-{_epoch_id}/batch-{_batch_id}/"
 
+        softmax = nn.Softmax(dim=1)
+
         if _all:
             for index in range(batch_size):
                 path: Path = Path(f"{base_path}{index}/")
                 path.mkdir(parents=True, exist_ok=True)
                 output_dir: str = path.resolve()
                 self.visualizer.draw_channels(_inputs[index],
-                                              output_dir)
+                                              output_dir,
+                                              _multiplier=127)
                 self.visualizer.draw_labels(_labels[index],
-                                            output_dir)
-                self.visualizer.draw_predictions(_predictions[index],
-                                                 output_dir)
+                                            output_dir,
+                                            _multiplier=127)
+
+                prediction = softmax(_predictions[index])
+                prediction = torch.argmax(prediction,
+                                          dim=0)
+                self.visualizer.draw_predictions(prediction,
+                                                 output_dir,
+                                                 _multiplier=255)
         else:
             path: Path = Path(f"{base_path}")
             path.mkdir(parents=True, exist_ok=True)
@@ -381,9 +398,15 @@ class Unet3DTrainer(Trainer):
             self.visualizer.draw_channels(_inputs[sample_id],
                                           output_dir)
             self.visualizer.draw_labels(_labels[sample_id],
-                                        output_dir)
-            self.visualizer.draw_predictions(_predictions[sample_id],
-                                             output_dir)
+                                        output_dir,
+                                        _multiplier=127)
+
+            prediction = softmax(_predictions[sample_id])
+            prediction = torch.argmax(prediction,
+                                      dim=0)
+            self.visualizer.draw_predictions(prediction,
+                                             output_dir,
+                                             _multiplier=127)
 
     # Channels list in the configuration determine
     # Which channels to be stacked

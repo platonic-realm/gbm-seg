@@ -18,11 +18,9 @@ standalone=false
 while getopts ":dsc:n:" opt; do
     case ${opt} in
         d )
-            echo "debuging..."
             debug=true
             ;;
         s )
-            echo "runnig torchrun in standalone mode"
             standalone=true
             ;;
         c )
