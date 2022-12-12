@@ -18,7 +18,6 @@ from skimage import measure
 
 # Local Imports
 from src.utils.misc import to_numpy
-from src.data.labels_cat import vector_to_scaler
 
 
 class Visualizer(ABC):

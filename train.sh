@@ -51,7 +51,7 @@ no_of_nodes=$(yaml $config_path "['trainer']['ddp']['no_of_nodes']")
 rdzv_backend=$(yaml $config_path "['trainer']['ddp']['rdzv_backend']")
 rdzv_endpoint=$(yaml $config_path "['trainer']['ddp']['rdzv_endpoint']")
 
-result_dir=../results/$config_name-$model_name-$model_tag
+result_dir=../results_train/$config_name-$model_name-$model_tag
 
 if $debug
 then

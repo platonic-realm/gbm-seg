@@ -125,16 +125,6 @@ class GBMDataset(Dataset):
             'wga': torch.from_numpy(wga),
             'collagen4': torch.from_numpy(collagen4),
             'labels': torch.from_numpy(labels),
-            'offsets': torch.from_numpy(
-                np.array([index,
-                          file_id,
-                          x_start,
-                          y_start,
-                          z_start,
-                          image_shape[0],
-                          image_shape[1],
-                          image_shape[2]])
-            )
         }
 
     def get_sample_per_image(self, _image_id):

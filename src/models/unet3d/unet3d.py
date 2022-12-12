@@ -9,6 +9,7 @@ import logging
 
 # Library Imports
 import torch
+from torch import Tensor
 from torch import nn
 
 # Local Imports
@@ -24,9 +25,16 @@ class Unet3D(nn.Module):
             _input_channels,
             _kernel_size=(3, 3, 3),
             _feature_maps=(64, 128, 256, 512),
-            _conv_layer_type='bcr'):
+            _conv_layer_type='bcr',
+            _inference=False,
+            _result_shape=None,
+            _sample_dimension=None):
 
         super().__init__()
+
+        self.inference = _inference
+        self.result_shape = _result_shape
+        self.sample_dimension = _sample_dimension
 
         self.input_channels = _input_channels
         self.kernel_size = _kernel_size
@@ -58,14 +66,22 @@ class Unet3D(nn.Module):
 
         self.final_activation = nn.Softmax(dim=1)
 
-    def forward(self, _x):
+        if self.inference:
+            assert self.result_shape is not None, \
+                "I need the image's shape to produce the result."
+            assert self.sample_dimension is not None, \
+                "I need sample dimension to produce the result."
+            self.result_tensor = torch.zeros(_result_shape,
+                                             requires_grad=False)
+
+    def forward(self, _x, _offsets=None):
         encoder_features = []
 
         for encoder in self.encoder_layers:
             _x = encoder(_x)
             encoder_features.insert(0, _x)
 
-        results = encoder_features[0]
+        outputs = encoder_features[0]
 
         for i, decoder in enumerate(self.decoder_layers):
 
@@ -74,14 +90,38 @@ class Unet3D(nn.Module):
             else:
                 encoder_feature = encoder_features[i+1]
 
-            results = decoder(encoder_feature, results)
+            outputs = decoder(encoder_feature, outputs)
 
-        logits = self.last_layer(results)
+        logits = self.last_layer(outputs)
 
-        results = self.final_activation(logits)
-        results = torch.argmax(results, dim=1)
+        outputs = self.final_activation(logits)
+        outputs = torch.argmax(outputs, dim=1)
 
-        return logits, results
+        # We devided our voxel space to smaller tiles
+        # that overlap on each other. In inderence mode, we
+        # count the predicted class for each of the voxels
+        # and store it in the result tensor. We use this tensor
+        # to decide about the final class of each of the voxels.
+        if self.inference:
+            # for class_id in range(3):
+            #    batch_result = outputs
+            #    batch_result[batch_result == class_id] = 1
+
+            for batch_id in range(_offsets.shape[0]):
+                x_start = _offsets[batch_id][1]
+                y_start = _offsets[batch_id][2]
+                z_start = _offsets[batch_id][3]
+
+                self.result_tensor[:,
+                                   z_start:
+                                   z_start + self.sample_dimension[0],
+                                   x_start:
+                                   x_start + self.sample_dimension[1],
+                                   y_start:
+                                   y_start + self.sample_dimension[2]
+                                   ] += logits[batch_id, :, :, :, :]
+
+        return logits, outputs
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
@@ -90,5 +130,13 @@ class Unet3D(nn.Module):
         for decoder in self.decoder_layers:
             decoder.to(*args, **kwargs)
         self.last_layer.to(*args, **kwargs)
+        if self.inference:
+            self.result_tensor = \
+                    self.result_tensor.to(*args, **kwargs)
 
         return self
+
+    def get_result(self) -> Tensor:
+        if not self.inference:
+            return None
+        return self.result_tensor

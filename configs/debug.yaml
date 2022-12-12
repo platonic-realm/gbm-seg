@@ -3,7 +3,7 @@ trainer:
     # unet_3d, undet_3d_me
     name: unet_3d
     # Used for result dir and snapshot names
-    tag: adam_dice_big
+    tag: adam_cross_big_012
     # Huge: [128, 256, 512, 1024]
     # Big: [64, 128, 256, 512]
     # Medium: [64, 128, 256]
@@ -13,7 +13,7 @@ trainer:
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
-    channels: [0, 1, 3]
+    channels: [0, 1, 2]
 
   optim:
     name: adam
@@ -25,7 +25,7 @@ trainer:
   # Every report_freq batch, metrics and losses will be logged
   report_freq: 10
 
-  epochs: 70
+  epochs: 80
   # Every save_interval a snapshot will be created
   save_interval: 5
   snapshot_path: snapshots/
@@ -68,10 +68,36 @@ trainer:
   mixed_precision: True
 
   ddp:
-    enabled: True
+    enabled: False
     no_of_nodes: 2
     rdzv_backend: c10d
     rdzv_endpoint: 192.168.227.235:29603
+
+inference:
+  model:
+    # unet_3d, undet_3d_me
+    name: unet_3d
+    tag: adam_cross_big_012
+    feature_maps: [64, 128, 256, 512]
+    # 0: Nephrin
+    # 1: WGA
+    # 2: Collagen4
+    channels: [0, 1, 2]
+
+  snapshot_path: '../results/debug-unet_3d-adam_dice_big/snapshots/unet_3d-adam_dice_big-009.pt'
+  device: cuda
+
+  report_freq: 10
+  save_npy: True
+
+  result_dir: ../results-infer/
+
+  inference_ds:
+    path: '../data/raw/Batch 2 - Bad Annotation/'
+    batch_size: 6
+    sample_dimension: [12, 256, 256]
+    pixel_stride: [2, 32, 32]
+    pin_memory: True
 
 logging:
   log_level: INFO

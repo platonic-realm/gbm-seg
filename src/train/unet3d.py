@@ -22,7 +22,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Local Imports
 from src.train.trainer import Trainer
-from src.data.train_ds import GBMDataset
+from src.data.ds_train import GBMDataset
 from src.models.unet3d.unet3d import Unet3D
 from src.models.unet3d.losses import DiceLoss
 from src.utils.visual import VisualizerUnet3D
