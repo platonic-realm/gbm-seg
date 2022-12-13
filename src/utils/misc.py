@@ -32,6 +32,7 @@ class RunningAverage():
 def configure_logger(_configs: dict) -> None:
     LOG_LEVEL = _configs['logging']['log_level']
     log_file = os.path.join(_configs['trainer']['result_path'],
+                            create_config_tag(_configs),
                             _configs['logging']['log_file'])
     log_std = _configs['logging']['log_std']
     ddp = _configs['trainer']['ddp']['enabled']
@@ -65,6 +66,22 @@ def configure_logger(_configs: dict) -> None:
                         handlers=handlers)
 
     logging.info("Log Level: %s", LOG_LEVEL)
+
+
+def create_config_tag(_configs: dict):
+    model_name = _configs['trainer']['model']['name']
+    optimizer = _configs['trainer']['optim']['name']
+    loss = _configs['trainer']['loss']
+    channels = list(_configs['trainer']['model']['channels'])
+
+    tag = f"{model_name}-{optimizer}-{loss}" + \
+          f"-{''.join(str(no) for no in channels)}"
+
+    if "unet" in model_name:
+        feature_maps = list(_configs['trainer']['model']['feature_maps'])
+        tag = f"{tag}-{''.join(str(no) for no in feature_maps)}"
+
+    return tag
 
 
 def create_dirs_recursively(_path: str):

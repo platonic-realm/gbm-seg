@@ -26,6 +26,7 @@ from src.utils.misc import to_numpy, create_dirs_recursively
 class Inference():
     def __init__(self,
                  _configs: dict):
+        self.base_configs = _configs
         self.configs = _configs['inference']
 
         self.freq: int = self.configs['report_freq']
@@ -105,6 +106,7 @@ class Inference():
 
             output_dir = os.path.join(
                     self.configs['result_dir'],
+                    self.base_configs['tag'],
                     file_name)
 
             create_dirs_recursively(
@@ -193,9 +195,15 @@ class Inference():
                                axis=1)
 
         if self.configs['save_npy']:
-            np.save("prediction.npy", _prediction)
-            np.save("sure.npy", sure_tensor)
-            np.save("possible.npy", possible_tensor)
+            np.save(os.path.join(_output_path,
+                                 "prediction.npy"),
+                    _prediction)
+            np.save(os.path.join(_output_path,
+                                 "sure.npy"),
+                    sure_tensor)
+            np.save(os.path.join(_output_path,
+                                 "possible.npy"),
+                    possible_tensor)
 
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):

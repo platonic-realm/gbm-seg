@@ -8,6 +8,7 @@ import os
 import logging
 from argparse import ArgumentParser
 from io import StringIO
+from pathlib import Path
 import yaml
 
 
@@ -17,15 +18,13 @@ def parse(_description: str) -> None:
                         default="./configs/train.yaml",
                         help="Configuration's path")
 
-    parser.add_argument("-rp", "--result-path",
-                        default="../results",
-                        help="Result's path")
-
     arguments = parser.parse_args()
 
     with open(arguments.config) as config_file:
         configs = yaml.safe_load(config_file)
-        configs['trainer']['result_path'] = arguments.result_path
+
+    configs = add_filename_to_configs(configs,
+                                      arguments.config)
 
     return sanity_check(configs)
 
@@ -81,6 +80,13 @@ def sanity_check(_configs: dict) -> dict:
 
     _configs['trainer']['ddp']['enabled'] = ddp
 
+    return _configs
+
+
+def add_filename_to_configs(_configs: dict,
+                            _config_path: str) -> dict:
+    file_name = Path(_config_path).stem
+    _configs['tag'] = file_name
     return _configs
 
 

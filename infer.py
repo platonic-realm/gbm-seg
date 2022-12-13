@@ -8,8 +8,8 @@ Date:   12.12.2022
 # Library Imports
 
 # Local Imports
-import src.train.args as args
 from src.utils.misc import configure_logger
+from src.utils import args
 from src.infer.inference import Inference
 
 

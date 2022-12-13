@@ -9,10 +9,12 @@ import logging
 
 # Library Imports
 import torch
+from torch import Tensor
 from torch import nn
 
 # Local Imports
-from src.models.blocks import create_encoder_layers, create_decoder_layers_me
+from src.models.unet3d_me.blocks import \
+        create_encoder_layers, create_decoder_layers
 
 
 class Unet3DME(nn.Module):
@@ -23,9 +25,16 @@ class Unet3DME(nn.Module):
             _input_channels,
             _kernel_size=(3, 3, 3),
             _feature_maps=(64, 128, 256, 512),
-            _conv_layer_type='bcr'):
+            _conv_layer_type='bcr',
+            _inference=False,
+            _result_shape=None,
+            _sample_dimension=None):
 
         super().__init__()
+
+        self.inference = _inference
+        self.result_shape = _result_shape
+        self.sample_dimension = _sample_dimension
 
         self.input_channels = _input_channels
         self.kernel_size = _kernel_size
@@ -58,15 +67,26 @@ class Unet3DME(nn.Module):
                                                       _conv_layer_type)
 
         logging.debug("Creating the decoder layer")
-        self.decoder_layers = create_decoder_layers_me(_feature_maps,
-                                                       _kernel_size,
-                                                       _conv_layer_type)
+        self.decoder_layers = create_decoder_layers(_feature_maps,
+                                                    _kernel_size,
+                                                    _conv_layer_type)
 
         logging.debug("Creating the last layer")
-        self.last_layer = nn.Conv3d(_feature_maps[0], 1, 1)
+        self.last_layer = nn.Conv3d(in_channels=_feature_maps[0],
+                                    out_channels=3,
+                                    kernel_size=1)
+
         self.final_activation = nn.Softmax(dim=1)
 
-    def forward(self, _x, _y, _z):
+        if self.inference:
+            assert self.result_shape is not None, \
+                "I need the image's shape to produce the result."
+            assert self.sample_dimension is not None, \
+                "I need sample dimension to produce the result."
+            self.result_tensor = torch.zeros(_result_shape,
+                                             requires_grad=False)
+
+    def forward(self, _x, _y, _z, _offsets=None):
         x_encoder_features = []
         y_encoder_features = []
         z_encoder_features = []
@@ -83,7 +103,7 @@ class Unet3DME(nn.Module):
             _z = encoder(_z)
             z_encoder_features.insert(0, _z)
 
-        results = torch.cat((
+        outputs = torch.cat((
                 x_encoder_features[0],
                 y_encoder_features[0],
                 z_encoder_features[0]), dim=1)
@@ -98,12 +118,38 @@ class Unet3DME(nn.Module):
                     y_encoder_features[i+1],
                     z_encoder_features[i+1]), dim=1)
 
-            results = decoder(encoder_features, results)
+            outputs = decoder(encoder_features, outputs)
 
-        results = self.last_layer(results)
-        results = self.final_activation(results)
+        logits = self.last_layer(outputs)
 
-        return results
+        outputs = self.final_activation(logits)
+        outputs = torch.argmax(outputs, dim=1)
+
+        # We devided our voxel space to smaller tiles
+        # that overlap on each other. In inderence mode, we
+        # count the predicted class for each of the voxels
+        # and store it in the result tensor. We use this tensor
+        # to decide about the final class of each of the voxels.
+        if self.inference:
+            # for class_id in range(3):
+            #    batch_result = outputs
+            #    batch_result[batch_result == class_id] = 1
+
+            for batch_id in range(_offsets.shape[0]):
+                x_start = _offsets[batch_id][1]
+                y_start = _offsets[batch_id][2]
+                z_start = _offsets[batch_id][3]
+
+                self.result_tensor[:,
+                                   z_start:
+                                   z_start + self.sample_dimension[0],
+                                   x_start:
+                                   x_start + self.sample_dimension[1],
+                                   y_start:
+                                   y_start + self.sample_dimension[2]
+                                   ] += logits[batch_id, :, :, :, :]
+
+        return logits, outputs
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
@@ -116,5 +162,13 @@ class Unet3DME(nn.Module):
         for decoder in self.decoder_layers:
             decoder.to(*args, **kwargs)
         self.last_layer.to(*args, **kwargs)
+        if self.inference:
+            self.result_tensor = \
+                    self.result_tensor.to(*args, **kwargs)
 
         return self
+
+    def get_result(self) -> Tensor:
+        if not self.inference:
+            return None
+        return self.result_tensor

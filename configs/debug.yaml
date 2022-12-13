@@ -1,9 +1,7 @@
 trainer:
   model:
     # unet_3d, undet_3d_me
-    name: unet_3d
-    # Used for result dir and snapshot names
-    tag: adam_cross_big_012
+    name: unet_3d_me
     # Huge: [128, 256, 512, 1024]
     # Big: [64, 128, 256, 512]
     # Medium: [64, 128, 256]
@@ -19,22 +17,23 @@ trainer:
     name: adam
     lr : 0.01
 
-  loss: CrossEntropyLoss
-  loss_weights: [1.0, 1.0, 1.0]
+  loss: CrossEntropy
+  loss_weights: [1.0, 20.0, 30.0]
   metrics: [accuracy, ]
   # Every report_freq batch, metrics and losses will be logged
   report_freq: 10
 
-  epochs: 80
+  epochs: 20
   # Every save_interval a snapshot will be created
   save_interval: 5
   snapshot_path: snapshots/
 
+  result_path: ../results-train/
   skip_training: False
 
   train_ds:
     path: ../data/gbm_train_ds/
-    batch_size: 6
+    batch_size: 4
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: True
@@ -77,7 +76,6 @@ inference:
   model:
     # unet_3d, undet_3d_me
     name: unet_3d
-    tag: adam_cross_big_012
     feature_maps: [64, 128, 256, 512]
     # 0: Nephrin
     # 1: WGA

@@ -9,8 +9,8 @@ Date:   22.11.2022
 from torch.distributed.elastic.multiprocessing.errors import record
 
 # Local Imports
-import src.train.args as args
-from src.train.unet3d import Unet3DTrainer
+from src.utils import args
+from src.train.unet3d_me import Unet3DMETrainer
 from src.utils.misc import configure_logger
 
 
@@ -20,7 +20,7 @@ def main():
     configure_logger(configs)
     args.summerize(configs)
 
-    trainer = Unet3DTrainer(configs)
+    trainer = Unet3DMETrainer(configs)
     trainer.train()
 
 

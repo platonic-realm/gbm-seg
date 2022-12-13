@@ -46,24 +46,21 @@ yaml() {
 }
 
 model_name=$(yaml $config_path "['trainer']['model']['name']")
-model_tag=$(yaml $config_path "['trainer']['model']['tag']")
 no_of_nodes=$(yaml $config_path "['trainer']['ddp']['no_of_nodes']")
 rdzv_backend=$(yaml $config_path "['trainer']['ddp']['rdzv_backend']")
 rdzv_endpoint=$(yaml $config_path "['trainer']['ddp']['rdzv_endpoint']")
 
-result_dir=../results_train/$config_name-$model_name-$model_tag
-
 if $debug
 then
     echo "Runnign train.py in pudb"
-    python -m pudb $script_path -c $config_path -rp $result_dir
+    python -m pudb $script_path -c $config_path
 elif $standalone
 then
     echo "Running torchrun in standalone mode"
     torchrun \
         --standalone \
         --nproc_per_node=gpu \
-        $script_path -c $config_path -rp $result_dir
+        $script_path -c $config_path
 else
     echo "Running torchrun in distributed mode"
     torchrun \
@@ -73,5 +70,5 @@ else
         --rdzv_id=643 \
         --rdzv_backend=$rdzv_backend \
         --rdzv_endpoint=$rdzv_endpoint \
-        $script_path -c $config_path -rp $result_dir
+        $script_path -c $config_path
 fi
