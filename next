@@ -1,5 +1,0 @@
-4. ETA: 11.12.2022 - Merge labeled data into a single file
-5. ETA: 17.12.2022 - Implement models with multi-class outputs
-6. ETA: 24.12.2022 - Augmenting the samples
-7. ETA: 08.01.2023 - Study and implement all known metrics for 3D segmentation
-8. ETA: 15.01.2023 - Try different loss functions

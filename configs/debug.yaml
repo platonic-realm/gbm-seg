@@ -1,26 +1,26 @@
 trainer:
   model:
     # unet_3d, undet_3d_me
-    name: unet_3d_me
+    name: unet_3d
     # Huge: [128, 256, 512, 1024]
     # Big: [64, 128, 256, 512]
     # Medium: [64, 128, 256]
     # Small: [32, 64, 128]
     # Tiny: [32, 64]
-    feature_maps: [64, 128, 256, 512]
+    feature_maps: [64, 128, 256]
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
-    channels: [0, 1, 2]
+    channels: [0]
 
   optim:
     name: adam
     lr : 0.01
 
   loss: CrossEntropy
-  loss_weights: [1.0, 20.0, 30.0]
+  loss_weights: [1.0, 3.0, 3.0]
   metrics: [accuracy, ]
-  # Every report_freq batch, metrics and losses will be logged
+  # Every report_freq batches, metrics and losses will be logged
   report_freq: 10
 
   epochs: 20

@@ -5,8 +5,6 @@ Date:   23.11.2022
 
 # Python Imports
 import logging
-import os
-import glob
 
 # Library Imports
 import torch
@@ -45,43 +43,6 @@ class Unet3DTrainer(Trainer):
 
         self._prepare_optimizer()
         self._prepare_loss()
-
-    def _save_sanpshot(self, epoch: int) -> None:
-        if self.snapshot_path is None:
-            return
-        if self.rank > 0:
-            return
-
-        snapshot = {}
-        snapshot['EPOCHS'] = epoch
-        if self.ddp:
-            snapshot['MODEL_STATE'] = self.model.module.state_dict()
-        else:
-            snapshot['MODEL_STATE'] = self.model.state_dict()
-
-        save_path = \
-            os.path.join(self.snapshot_path,
-                         f"{self.model_name}-{self.model_tag}-{epoch:03d}.pt")
-        torch.save(snapshot, save_path)
-        logging.info("Snapshot saved on epoch %d", epoch)
-
-    def _load_snapshot(self) -> None:
-        if not os.path.exists(self.snapshot_path):
-            return
-
-        snapshot_list = sorted(filter(os.path.isfile,
-                                      glob.glob(self.snapshot_path + '*')),
-                               reverse=True)
-
-        if len(snapshot_list) <= 0:
-            return
-
-        load_path = snapshot_list[0]
-
-        snapshot = torch.load(load_path)
-        self.model.load_state_dict(snapshot['MODEL_STATE'])
-        self.epoch_resume = snapshot['EPOCHS'] + 1
-        logging.info("Resuming training at epoch: %d", self.epoch_resume)
 
     def _training_step(self, _data: dict) -> dict:
         if self.ddp:

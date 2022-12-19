@@ -2,36 +2,38 @@ trainer:
   model:
     # unet_3d, undet_3d_me
     name: unet_3d
-    # Used for result dir and snapshot names
-    tag: adam_dice_big
     # Huge: [128, 256, 512, 1024]
     # Big: [64, 128, 256, 512]
     # Medium: [64, 128, 256]
     # Small: [32, 64, 128]
     # Tiny: [32, 64]
-    feature_maps: [64, 128, 256, 512]
+    feature_maps: [64, 128, 256]
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
-    channels: [0, 1, 3]
+    channels: [1]
 
   optim:
     name: adam
     lr : 0.01
 
-  loss: DiceLoss
+  loss: CrossEntropy
+  loss_weights: [2.0, 3.0, 3.0]
   metrics: [accuracy, ]
-  # Every report_freq batch, metrics and losses will be logged
-  report_freq: 10
+  # Every report_freq batches, metrics and losses will be logged
+  report_freq: 5
 
-  epochs: 20
+  epochs: 50
   # Every save_interval a snapshot will be created
-  save_interval: 5
+  save_interval: 1
   snapshot_path: snapshots/
+
+  result_path: ../results-train/
+  skip_training: False
 
   train_ds:
     path: ../data/gbm_train_ds/
-    batch_size: 6
+    batch_size: 4
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: True
@@ -40,7 +42,7 @@ trainer:
 
   valid_ds:
     path: ../data/gbm_valid_ds/
-    batch_size: 6
+    batch_size: 4
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: True
@@ -48,12 +50,12 @@ trainer:
     shuffle: False
 
   visualization:
-    enabled: True
+    enabled: False
     # The chance for a batch to create visualization
     chance: 0.2
     path: gbm-vv/
     gif: True
-    tif: False
+    tif: True
     mesh: False
 
   tensorboard:
@@ -65,10 +67,35 @@ trainer:
   mixed_precision: True
 
   ddp:
-    enabled: True
-    no_of_nodes: 3
+    enabled: False
+    no_of_nodes: 2
     rdzv_backend: c10d
     rdzv_endpoint: 192.168.227.235:29603
+
+inference:
+  model:
+    # unet_3d, undet_3d_me
+    name: unet_3d
+    feature_maps: [64, 128, 256, 512]
+    # 0: Nephrin
+    # 1: WGA
+    # 2: Collagen4
+    channels: [0, 1, 2]
+
+  snapshot_path: '../results/debug-unet_3d-adam_dice_big/snapshots/unet_3d-adam_dice_big-009.pt'
+  device: cuda
+
+  report_freq: 10
+  save_npy: True
+
+  result_dir: ../results-infer/
+
+  inference_ds:
+    path: '../data/raw/Batch 2 - Bad Annotation/'
+    batch_size: 6
+    sample_dimension: [12, 256, 256]
+    pixel_stride: [2, 32, 32]
+    pin_memory: True
 
 logging:
   log_level: INFO
