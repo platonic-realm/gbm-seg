@@ -219,10 +219,10 @@ class Inference():
                          possible_tensor,
                          shape=possible_tensor.shape,
                          imagej=True,
-                         metadata=_tiff_tags)
+                         metadata={'axes': 'ZCYX', 'fps': 10.0})
 
         tifffile.imwrite(sure_tif_path,
                          sure_tensor,
                          shape=sure_tensor.shape,
                          imagej=True,
-                         metadata=_tiff_tags)
+                         metadata={'axes': 'ZCYX', 'fps': 10.0})

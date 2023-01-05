@@ -7,7 +7,7 @@ trainer:
     # Medium: [64, 128, 256]
     # Small: [32, 64, 128]
     # Tiny: [32, 64]
-    feature_maps: [64, 128, 256]
+    feature_maps: [64, 128, 256, 512]
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
@@ -50,9 +50,9 @@ trainer:
     shuffle: False
 
   visualization:
-    enabled: False
+    enabled: True
     # The chance for a batch to create visualization
-    chance: 0.2
+    chance: 0.05
     path: gbm-vv/
     gif: True
     tif: True
@@ -80,21 +80,21 @@ inference:
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
-    channels: [0, 1, 2]
+    channels: [0, 2]
 
-  snapshot_path: '../results/debug-unet_3d-adam_dice_big/snapshots/unet_3d-adam_dice_big-009.pt'
+  snapshot_path:  '../results-train/unet_3d-adam-CrossEntropy-02-64128256512/snapshots/unet_3d-unet_3d-adam-CrossEntropy-02-64128256512-013.pt'
   device: cuda
 
   report_freq: 10
-  save_npy: True
+  save_npy: False
 
   result_dir: ../results-infer/
 
   inference_ds:
-    path: '../data/raw/Batch 2 - Bad Annotation/'
+    path: '../data/raw/Batch 1/TifImages/'
     batch_size: 6
     sample_dimension: [12, 256, 256]
-    pixel_stride: [2, 32, 32]
+    pixel_stride: [1, 64, 64]
     pin_memory: True
 
 logging:

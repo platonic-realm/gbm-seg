@@ -7,7 +7,7 @@ trainer:
     # Medium: [64, 128, 256]
     # Small: [32, 64, 128]
     # Tiny: [32, 64]
-    feature_maps: [64, 128, 256]
+    feature_maps: [64, 128, 256, 512]
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
@@ -50,9 +50,9 @@ trainer:
     shuffle: False
 
   visualization:
-    enabled: False
+    enabled: True
     # The chance for a batch to create visualization
-    chance: 0.2
+    chance: 0.05
     path: gbm-vv/
     gif: True
     tif: True
