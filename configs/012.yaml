@@ -12,6 +12,7 @@ trainer:
     # 1: WGA
     # 2: Collagen4
     channels: [0, 1, 2]
+    number_class: 3
 
   optim:
     name: adam
@@ -81,6 +82,7 @@ inference:
     # 1: WGA
     # 2: Collagen4
     channels: [0, 1, 2]
+    number_class: 3
 
   snapshot_path: '../results-train/unet_3d-adam-CrossEntropy-012-64128256512/snapshots/unet_3d-unet_3d-adam-CrossEntropy-012-64128256512-032.pt'
   device: cuda

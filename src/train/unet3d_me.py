@@ -25,9 +25,11 @@ class Unet3DMETrainer(Trainer):
 
         self.feature_maps: list = self.configs['model']['feature_maps']
         self.channels: list = self.configs['model']['channels']
+        self.number_class: int = self.configs['model']['number_class']
         self.metrics: list = self.configs['metrics']
 
         self.model = Unet3DME(1,
+                              self.number_class,
                               _feature_maps=self.feature_maps)
 
         self._load_snapshot()

@@ -25,7 +25,7 @@ from torch.utils.data.distributed import DistributedSampler
 from src.utils.misc import create_dirs_recursively, create_config_tag
 from src.utils.visual import VisualizerUnet3D
 from src.data.ds_train import GBMDataset
-from src.losses.dice import DiceLoss
+from src.utils.losses.dice import DiceLoss
 
 
 # Tip for using abstract methods in python... dont use

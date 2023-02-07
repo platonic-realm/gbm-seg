@@ -33,6 +33,7 @@ class Inference():
         self.model_name: str = self.configs['model']['name']
         self.feature_maps: list = self.configs['model']['feature_maps']
         self.channels: list = self.configs['model']['channels']
+        self.number_class: int = self.configs['model']['number_class']
         self.source_path: str = self.configs['inference_ds']['path']
         self.sample_dimension: list = \
             self.configs['inference_ds']['sample_dimension']
@@ -71,6 +72,7 @@ class Inference():
 
             if self.model_name == 'unet_3d':
                 model = Unet3D(len(self.channels),
+                               self.number_class,
                                _feature_maps=self.feature_maps,
                                _inference=True,
                                _result_shape=result_shape,

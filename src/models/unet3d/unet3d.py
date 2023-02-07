@@ -23,6 +23,7 @@ class Unet3D(nn.Module):
     def __init__(
             self,
             _input_channels,
+            _number_of_classes,
             _kernel_size=(3, 3, 3),
             _feature_maps=(64, 128, 256, 512),
             _conv_layer_type='bcr',

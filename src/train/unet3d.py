@@ -14,6 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from src.train.trainer import Trainer
 from src.models.unet3d.unet3d import Unet3D
 from src.utils.misc import RunningAverage
+from src.utils.metrics import Metrics
 
 
 class Unet3DTrainer(Trainer):
@@ -25,9 +26,11 @@ class Unet3DTrainer(Trainer):
 
         self.feature_maps: list = self.configs['model']['feature_maps']
         self.channels: list = self.configs['model']['channels']
+        self.number_class: int = self.configs['model']['number_class']
         self.metrics: list = self.configs['metrics']
 
         self.model = Unet3D(len(self.channels),
+                            self.number_class,
                             _feature_maps=self.feature_maps)
 
         self._load_snapshot()
@@ -83,8 +86,13 @@ class Unet3DTrainer(Trainer):
 
         loss_value = loss.item()
 
+        metrics = Metrics(self.number_class,
+                          results,
+                          labels)
+
         corrects = (results == labels).float().sum().item()
-        accuracy = corrects/torch.numel(results)
+        accuracy = metrics.Accuracy()
+        TPR_1 = metrics.TruePositiveRate(1)
 
         return {'loss': loss_value,
                 'corrects': corrects,

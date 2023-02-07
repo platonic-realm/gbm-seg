@@ -6,6 +6,7 @@ disable=
     too-many-statements,
     too-many-locals,
     too-few-public-methods,
+    too-many-public-methods,
     too-many-branches,
     invalid-name,
 
