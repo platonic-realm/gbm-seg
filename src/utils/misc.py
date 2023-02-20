@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 
 
-class RunningAverage():
+class RunningMetric():
     def __init__(self):
         self.value: float = 0
         self.counter: int = 0
@@ -73,6 +73,9 @@ def create_config_tag(_configs: dict):
     optimizer = _configs['trainer']['optim']['name']
     loss = _configs['trainer']['loss']
     channels = list(_configs['trainer']['model']['channels'])
+
+    if _configs['trainer']['mode'] == 'self_supervised':
+        model_name += '-SS'
 
     tag = f"{model_name}-{optimizer}-{loss}" + \
           f"-{''.join(str(no) for no in channels)}"

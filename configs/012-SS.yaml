@@ -1,6 +1,6 @@
 trainer:
   # supervised, self_seupervised
-  mode: supervised
+  mode: self_supervised
   model:
     # unet_3d, undet_3d_me
     name: unet_3d
@@ -8,12 +8,20 @@ trainer:
     # Big: [64, 128, 256, 512]
     # Medium: [64, 128, 256]
     # Small: [32, 64, 128]
-    # Tiny: [32, 64]
     feature_maps: [64, 128, 256, 512]
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
     channels: [0, 1, 2]
+    # The kernel size and padding should
+    # make sense and produces the same dimensions
+    # as output at the end.
+    encoder_kernel: [3, 3, 3]
+    encoder_padding: 'same'
+    decoder_kernel: [3, 3, 3]
+    decoder_padding: 'same'
+    # It can be differed from samples
+    # Might add the functionality later
     number_class: 3
 
   optim:
@@ -79,6 +87,7 @@ inference:
   model:
     # unet_3d, undet_3d_me
     name: unet_3d
+    # Of course it should be the same as the checkpoint
     feature_maps: [64, 128, 256, 512]
     # 0: Nephrin
     # 1: WGA
@@ -102,7 +111,8 @@ inference:
     pin_memory: True
 
 logging:
-  log_level: INFO
+  log_level: DEBUG
   log_file: logs/train.log
   log_std: True
+  log_summary: False
 

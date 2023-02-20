@@ -13,18 +13,21 @@ from torch import Tensor
 from torch import nn
 
 # Local Imports
-from src.models.unet3d_me.blocks import \
+from src.models.blocks import \
         create_encoder_layers, create_decoder_layers
 
 
-class Unet3DME(nn.Module):
+class Unet3D(nn.Module):
     # pylint: disable=too-many-instance-attributes
 
     def __init__(
             self,
             _input_channels,
             _number_of_classes,
-            _kernel_size=(3, 3, 3),
+            _encoder_kernel_size=(3, 3, 3),
+            _encoder_padding='same',
+            _decoder_kernel_size=(3, 3, 3),
+            _decoder_padding='same',
             _feature_maps=(64, 128, 256, 512),
             _conv_layer_type='bcr',
             _inference=False,
@@ -38,38 +41,34 @@ class Unet3DME(nn.Module):
         self.sample_dimension = _sample_dimension
 
         self.input_channels = _input_channels
-        self.kernel_size = _kernel_size
+        self.encoder_kernel_size = _encoder_kernel_size
+        self.encoder_padding = _encoder_padding
+        self.decoder_kernel_size = _decoder_kernel_size
+        self.decoder_padding = _decoder_padding
         self.feature_maps = _feature_maps
         self.conv_layer_type = _conv_layer_type
 
         logging.debug("######################")
         logging.debug("Initializing Unet3D with multiple encoders")
         logging.debug("input channels: %s", _input_channels)
-        logging.debug("kernel size: %s", _kernel_size)
+        logging.debug("encoder kernel size: %s", _encoder_kernel_size)
+        logging.debug("encoder padding: %s", _encoder_padding)
+        logging.debug("decoder kernel size: %s", _decoder_kernel_size)
+        logging.debug("decoder padding: %s", _decoder_padding)
         logging.debug("feature maps: %s", _feature_maps)
         logging.debug("convolution layer type: %s", _conv_layer_type)
 
         logging.debug("Creating encoder for nephrin stain")
-        self.x_encoder_layers = create_encoder_layers(_input_channels,
-                                                      _feature_maps,
-                                                      _kernel_size,
-                                                      _conv_layer_type)
-
-        logging.debug("Creating encoder for WGA stain")
-        self.y_encoder_layers = create_encoder_layers(_input_channels,
-                                                      _feature_maps,
-                                                      _kernel_size,
-                                                      _conv_layer_type)
-
-        logging.debug("Creating encoder for Collagen IV stain")
-        self.z_encoder_layers = create_encoder_layers(_input_channels,
-                                                      _feature_maps,
-                                                      _kernel_size,
-                                                      _conv_layer_type)
+        self.encoder_layers = create_encoder_layers(_input_channels,
+                                                    _feature_maps,
+                                                    _encoder_kernel_size,
+                                                    _encoder_padding,
+                                                    _conv_layer_type)
 
         logging.debug("Creating the decoder layer")
         self.decoder_layers = create_decoder_layers(_feature_maps,
-                                                    _kernel_size,
+                                                    _decoder_kernel_size,
+                                                    _decoder_padding,
                                                     _conv_layer_type)
 
         logging.debug("Creating the last layer")
@@ -87,39 +86,23 @@ class Unet3DME(nn.Module):
             self.result_tensor = torch.zeros(_result_shape,
                                              requires_grad=False)
 
-    def forward(self, _x, _y, _z, _offsets=None):
-        x_encoder_features = []
-        y_encoder_features = []
-        z_encoder_features = []
+    def forward(self, _x, _offsets=None):
+        encoder_features = []
 
-        for encoder in self.x_encoder_layers:
+        for encoder in self.encoder_layers:
             _x = encoder(_x)
-            x_encoder_features.insert(0, _x)
+            encoder_features.insert(0, _x)
 
-        for encoder in self.y_encoder_layers:
-            _y = encoder(_y)
-            y_encoder_features.insert(0, _y)
-
-        for encoder in self.z_encoder_layers:
-            _z = encoder(_z)
-            z_encoder_features.insert(0, _z)
-
-        outputs = torch.cat((
-                x_encoder_features[0],
-                y_encoder_features[0],
-                z_encoder_features[0]), dim=1)
+        outputs = encoder_features[0]
 
         for i, decoder in enumerate(self.decoder_layers):
 
             if i == 0:
-                encoder_features = None
+                encoder_feature = None
             else:
-                encoder_features = torch.cat((
-                    x_encoder_features[i+1],
-                    y_encoder_features[i+1],
-                    z_encoder_features[i+1]), dim=1)
+                encoder_feature = encoder_features[i+1]
 
-            outputs = decoder(encoder_features, outputs)
+            outputs = decoder(encoder_feature, outputs)
 
         logits = self.last_layer(outputs)
 
@@ -154,11 +137,7 @@ class Unet3DME(nn.Module):
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
-        for encoder in self.x_encoder_layers:
-            encoder.to(*args, **kwargs)
-        for encoder in self.y_encoder_layers:
-            encoder.to(*args, **kwargs)
-        for encoder in self.z_encoder_layers:
+        for encoder in self.encoder_layers:
             encoder.to(*args, **kwargs)
         for decoder in self.decoder_layers:
             decoder.to(*args, **kwargs)

@@ -13,7 +13,7 @@ from torch import Tensor
 from torch import nn
 
 # Local Imports
-from src.models.unet3d.blocks import \
+from src.models.blocks import \
         create_encoder_layers, create_decoder_layers
 
 
@@ -24,7 +24,10 @@ class Unet3D(nn.Module):
             self,
             _input_channels,
             _number_of_classes,
-            _kernel_size=(3, 3, 3),
+            _encoder_kernel_size=(3, 3, 3),
+            _encoder_padding='same',
+            _decoder_kernel_size=(3, 3, 3),
+            _decoder_padding='same',
             _feature_maps=(64, 128, 256, 512),
             _conv_layer_type='bcr',
             _inference=False,
@@ -38,26 +41,34 @@ class Unet3D(nn.Module):
         self.sample_dimension = _sample_dimension
 
         self.input_channels = _input_channels
-        self.kernel_size = _kernel_size
+        self.encoder_kernel_size = _encoder_kernel_size
+        self.encoder_padding = _encoder_padding
+        self.decoder_kernel_size = _decoder_kernel_size
+        self.decoder_padding = _decoder_padding
         self.feature_maps = _feature_maps
         self.conv_layer_type = _conv_layer_type
 
         logging.debug("######################")
         logging.debug("Initializing Unet3D with multiple encoders")
         logging.debug("input channels: %s", _input_channels)
-        logging.debug("kernel size: %s", _kernel_size)
+        logging.debug("encoder kernel size: %s", _encoder_kernel_size)
+        logging.debug("encoder padding: %s", _encoder_padding)
+        logging.debug("decoder kernel size: %s", _decoder_kernel_size)
+        logging.debug("decoder padding: %s", _decoder_padding)
         logging.debug("feature maps: %s", _feature_maps)
         logging.debug("convolution layer type: %s", _conv_layer_type)
 
         logging.debug("Creating encoder for nephrin stain")
         self.encoder_layers = create_encoder_layers(_input_channels,
                                                     _feature_maps,
-                                                    _kernel_size,
+                                                    _encoder_kernel_size,
+                                                    _encoder_padding,
                                                     _conv_layer_type)
 
         logging.debug("Creating the decoder layer")
         self.decoder_layers = create_decoder_layers(_feature_maps,
-                                                    _kernel_size,
+                                                    _decoder_kernel_size,
+                                                    _decoder_padding,
                                                     _conv_layer_type)
 
         logging.debug("Creating the last layer")

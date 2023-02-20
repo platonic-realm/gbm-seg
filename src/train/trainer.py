@@ -242,7 +242,7 @@ class Trainer(ABC):
 
         save_path = \
             os.path.join(self.snapshot_path,
-                         f"{self.model_name}-{self.model_tag}-{epoch:03d}.pt")
+                         f"{self.model_tag}-{epoch:03d}.pt")
         torch.save(snapshot, save_path)
         logging.info("Snapshot saved on epoch %d", epoch)
 

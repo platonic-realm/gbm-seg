@@ -24,6 +24,10 @@ class InferenceDataset(Dataset):
         self.image = self.read_file(self.file_path)
         self.image_shape = self.image.shape
 
+        assert (self.image_shape[0] - _sample_dimension[0]) % \
+            _pixel_per_step[0], \
+            "(Len(Z_Image) - Len(Z_Sample) % Z_Stride should be 0."
+
         self.nephrin = self.image[:, 0, :, :]
         self.wga = self.image[:, 1, :, :]
         self.collagen4 = self.image[:, 2, :, :]

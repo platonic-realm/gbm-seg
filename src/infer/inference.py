@@ -19,7 +19,7 @@ import imageio
 
 # Local Imports
 from src.data.ds_infer import InferenceDataset
-from src.models.unet3d.unet3d import Unet3D
+from src.models.unet3d import Unet3D
 from src.utils.misc import to_numpy, create_dirs_recursively
 
 

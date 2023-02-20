@@ -1,6 +1,6 @@
 """
 Author: Arash Fatehi
-Date:   23.11.2022
+Date:   19.02.2022
 """
 
 # Python Imports
@@ -12,12 +12,12 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 # Local Imports
 from src.train.trainer import Trainer
-from src.models.unet3d.unet3d import Unet3D
-from src.utils.misc import RunningAverage
+from src.models.unet3d_ss import Unet3DSS
+from src.utils.misc import RunningMetric
 from src.utils.metrics import Metrics
 
 
-class Unet3DTrainer(Trainer):
+class Unet3DSelfTrainer(Trainer):
     def __init__(self, _configs: dict):
         super().__init__(_configs)
         assert self.configs['model']['name'] == 'unet_3d', \
@@ -28,10 +28,12 @@ class Unet3DTrainer(Trainer):
         self.channels: list = self.configs['model']['channels']
         self.number_class: int = self.configs['model']['number_class']
         self.metrics: list = self.configs['metrics']
+        self.sample_dimension = self.configs['train_ds']['sample_dimension']
 
-        self.model = Unet3D(len(self.channels),
-                            self.number_class,
-                            _feature_maps=self.feature_maps)
+        self.model = Unet3DSS(len(self.channels),
+                              self.number_class,
+                              _feature_maps=self.feature_maps,
+                              _sample_dimension=self.sample_dimension)
 
         self._load_snapshot()
 
@@ -70,10 +72,10 @@ class Unet3DTrainer(Trainer):
 
         if self.mixed_precision:
             with torch.autocast(device_type='cuda', dtype=torch.float16):
-                logits, results = self.model(sample)
+                logits, results, iterpolation = self.model(sample)
                 loss = self.loss(logits, labels)
         else:
-            logits, results = self.model(sample)
+            logits, results, interpolation = self.model(sample)
             loss = self.loss(logits, labels)
 
         if self.mixed_precision:
@@ -92,7 +94,6 @@ class Unet3DTrainer(Trainer):
 
         corrects = (results == labels).float().sum().item()
         accuracy = metrics.Accuracy()
-        TPR_1 = metrics.TruePositiveRate(1)
 
         return {'loss': loss_value,
                 'corrects': corrects,
@@ -120,12 +121,6 @@ class Unet3DTrainer(Trainer):
 
             logits, results = self.model(sample)
 
-            self._visualize_validation(_epoch_id=_epoch_id,
-                                       _batch_id=_batch_id,
-                                       _inputs=sample,
-                                       _labels=labels,
-                                       _predictions=results)
-
             loss = self.loss(logits, labels)
             loss_value = loss.item()
 
@@ -138,17 +133,17 @@ class Unet3DTrainer(Trainer):
 
     def _train_epoch(self, _epoch: int):
 
-        train_accuracy = RunningAverage()
-        train_loss = RunningAverage()
-        valid_accuracy = RunningAverage()
-        valid_loss = RunningAverage()
+        train_accuracy = RunningMetric()
+        train_loss = RunningMetric()
+        valid_accuracy = RunningMetric()
+        valid_loss = RunningMetric()
 
         freq = self.configs['report_freq']
 
         for index, data in enumerate(self.training_loader):
 
-            batch_accuracy = RunningAverage()
-            batch_loss = RunningAverage()
+            batch_accuracy = RunningMetric()
+            batch_loss = RunningMetric()
 
             results = self._training_step(data)
 
@@ -171,8 +166,8 @@ class Unet3DTrainer(Trainer):
 
         for index, data in enumerate(self.validation_loader):
 
-            batch_accuracy = RunningAverage()
-            batch_loss = RunningAverage()
+            batch_accuracy = RunningMetric()
+            batch_loss = RunningMetric()
 
             results = self._validate_step(_epoch_id=_epoch,
                                           _batch_id=index,

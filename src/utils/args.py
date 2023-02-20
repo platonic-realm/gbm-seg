@@ -11,6 +11,9 @@ from io import StringIO
 from pathlib import Path
 import yaml
 
+# Library Imports
+import torch
+
 
 def parse(_description: str) -> None:
     parser = ArgumentParser(description=_description)
@@ -47,8 +50,16 @@ def sanity_check(_configs: dict) -> dict:
         assert not _configs['trainer']['tensorboard']['path'] is None, \
                "Please provide path for tensorboard logs"
 
+    if _configs['trainer']['mode'] not in ['supervised', 'self_supervised']:
+        _configs['trainer']['mode'] = 'supervised'
+
     if _configs['logging']['log_std']:
         _configs['logging']['tqdm'] = False
+
+    if torch.cuda.device_count() == 0:
+        _configs['trainer']['device'] = 'cpu'
+        _configs['trainer']['mixed_precision'] = False
+        _configs['inference']['device'] = 'cpu'
 
     # Checking if script has been run via torchrun
     # and add the environment variables to configs

@@ -12,8 +12,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 # Local Imports
 from src.train.trainer import Trainer
-from src.models.unet3d_me.unet3d_me import Unet3DME
-from src.utils.misc import RunningAverage
+from src.models.unet3d_me import Unet3DME
+from src.utils.misc import RunningMetric
 
 
 class Unet3DMETrainer(Trainer):
@@ -129,17 +129,17 @@ class Unet3DMETrainer(Trainer):
 
     def _train_epoch(self, _epoch: int):
 
-        train_accuracy = RunningAverage()
-        train_loss = RunningAverage()
-        valid_accuracy = RunningAverage()
-        valid_loss = RunningAverage()
+        train_accuracy = RunningMetric()
+        train_loss = RunningMetric()
+        valid_accuracy = RunningMetric()
+        valid_loss = RunningMetric()
 
         freq = self.configs['report_freq']
 
         for index, data in enumerate(self.training_loader):
 
-            batch_accuracy = RunningAverage()
-            batch_loss = RunningAverage()
+            batch_accuracy = RunningMetric()
+            batch_loss = RunningMetric()
 
             results = self._training_step(data)
 
@@ -162,8 +162,8 @@ class Unet3DMETrainer(Trainer):
 
         for index, data in enumerate(self.validation_loader):
 
-            batch_accuracy = RunningAverage()
-            batch_loss = RunningAverage()
+            batch_accuracy = RunningMetric()
+            batch_loss = RunningMetric()
 
             results = self._validate_step(_epoch_id=_epoch,
                                           _batch_id=index,
