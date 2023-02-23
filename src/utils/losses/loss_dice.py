@@ -1,7 +1,7 @@
 """
 Author: Arash Fatehi
 Date:   20.10.2022
-File:   losses.py
+File:   loss_dice.py
 """
 
 # Python Imports

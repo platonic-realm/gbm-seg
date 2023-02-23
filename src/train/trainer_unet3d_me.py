@@ -46,7 +46,10 @@ class Unet3DMETrainer(Trainer):
         self._prepare_optimizer()
         self._prepare_loss()
 
-    def _training_step(self, _data: dict) -> dict:
+    def _training_step(self,
+                       _epoch_id: int,
+                       _batch_id: int,
+                       _data: dict) -> dict:
         if self.ddp:
             device = self.device_id
         else:
@@ -141,7 +144,9 @@ class Unet3DMETrainer(Trainer):
             batch_accuracy = RunningMetric()
             batch_loss = RunningMetric()
 
-            results = self._training_step(data)
+            results = self._training_step(_epoch,
+                                          index,
+                                          data)
 
             # These are used to calculate per epoch metrics
             train_accuracy.add(results['accuracy'])

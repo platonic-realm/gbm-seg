@@ -35,20 +35,13 @@ def supervised(_configs):
 # The output tensor and loss are the only changes
 # to the network's architecture
 @record
-def self_supervised(_configs):
+def semi_supervised(_configs):
     if _configs['trainer']['model']['name'] == 'unet_3d':
         trainer = Unet3DSelfTrainer(_configs)
     else:
         assert False, "Please provide a valid model name in the config file"
 
     trainer.train()
-
-
-# Fine tuning the network trained with Self Supervised method
-# for semantic segmentation
-@record
-def fine_tuninig(_coinfigs):
-    pass
 
 
 if __name__ == '__main__':
@@ -58,5 +51,5 @@ if __name__ == '__main__':
         args.summerize(configs)
     if configs['trainer']['mode'] == 'supervised':
         supervised(configs)
-    elif configs['trainer']['mode'] == 'self_supervised':
-        self_supervised(configs)
+    elif configs['trainer']['mode'] == 'semi_supervised':
+        semi_supervised(configs)

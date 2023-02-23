@@ -50,7 +50,7 @@ def sanity_check(_configs: dict) -> dict:
         assert not _configs['trainer']['tensorboard']['path'] is None, \
                "Please provide path for tensorboard logs"
 
-    if _configs['trainer']['mode'] not in ['supervised', 'self_supervised']:
+    if _configs['trainer']['mode'] not in ['supervised', 'semi_supervised']:
         _configs['trainer']['mode'] = 'supervised'
 
     if _configs['logging']['log_std']:

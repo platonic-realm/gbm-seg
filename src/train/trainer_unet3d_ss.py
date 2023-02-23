@@ -49,7 +49,10 @@ class Unet3DSelfTrainer(Trainer):
         self._prepare_optimizer()
         self._prepare_loss()
 
-    def _training_step(self, _data: dict) -> dict:
+    def _training_step(self,
+                       _epoch_id: int,
+                       _batch_id: int,
+                       _data: dict) -> dict:
         if self.ddp:
             device = self.device_id
         else:
@@ -66,17 +69,31 @@ class Unet3DSelfTrainer(Trainer):
         labels = _data['labels'].to(device)
         labels = labels.long()
 
+        frames = self._stack_channels(nephrin, wga, collagen4)
+
+        nephrin = nephrin[:, :, ::2, :, :]
+        wga = wga[:, :, ::2, :, :]
+        collagen4 = collagen4[:, :, ::2, :, :]
+
         sample = self._stack_channels(nephrin, wga, collagen4)
 
         self.optimizer.zero_grad()
 
         if self.mixed_precision:
             with torch.autocast(device_type='cuda', dtype=torch.float16):
-                logits, results, iterpolation = self.model(sample)
-                loss = self.loss(logits, labels)
+                logits, results, interpolation = self.model(sample)
+                loss = self.loss(_epoch_id,
+                                 logits,
+                                 interpolation,
+                                 labels,
+                                 frames)
         else:
             logits, results, interpolation = self.model(sample)
-            loss = self.loss(logits, labels)
+            loss = self.loss(_epoch_id,
+                             logits,
+                             interpolation,
+                             labels,
+                             frames)
 
         if self.mixed_precision:
             self.scaler.scale(loss).backward()
@@ -145,7 +162,9 @@ class Unet3DSelfTrainer(Trainer):
             batch_accuracy = RunningMetric()
             batch_loss = RunningMetric()
 
-            results = self._training_step(data)
+            results = self._training_step(_epoch,
+                                          index,
+                                          data)
 
             # These are used to calculate per epoch metrics
             train_accuracy.add(results['accuracy'])

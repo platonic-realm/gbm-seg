@@ -1,6 +1,6 @@
 trainer:
-  # supervised, self_seupervised
-  mode: self_supervised
+  # supervised, semi_seupervised
+  mode: semi_supervised
   model:
     # unet_3d, undet_3d_me
     name: unet_3d

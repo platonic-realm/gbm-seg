@@ -120,7 +120,8 @@ class Unet3DSS(nn.Module):
         interpolation_ouputs = Fn.normalize(interpolation_ouputs,
                                             p=2,
                                             dim=None)
-        interpolation_ouputs = outputs.mul(255).type(torch.uint8)
+        interpolation_ouputs = \
+            torch.mul(interpolation_ouputs, 255).type(torch.uint8)
 
         return segmentation_logits, segmentation_outputs, interpolation_ouputs
 

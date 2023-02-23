@@ -25,7 +25,8 @@ from torch.utils.data.distributed import DistributedSampler
 from src.utils.misc import create_dirs_recursively, create_config_tag
 from src.utils.visual import VisualizerUnet3D
 from src.data.ds_train import GBMDataset
-from src.utils.losses.dice import DiceLoss
+from src.utils.losses.loss_dice import DiceLoss
+from src.utils.losses.loss_ss import SelfSupervisedLoss
 
 
 # Tip for using abstract methods in python... dont use
@@ -320,16 +321,24 @@ class Trainer(ABC):
         else:
             device = self.device
 
-        loss_name: str = self.configs['loss']
-
         weights = torch.tensor(self.configs['loss_weights']).to(device)
-        if loss_name == 'DiceLoss':
-            self.loss = DiceLoss(_weight=weights)
-        if loss_name == 'CrossEntropy':
-            self.loss = nn.CrossEntropyLoss(weight=weights)
+
+        if self.configs['mode'] == 'supervised':
+
+            loss_name: str = self.configs['loss']
+            if loss_name == 'DiceLoss':
+                self.loss = DiceLoss(_weight=weights)
+            if loss_name == 'CrossEntropy':
+                self.loss = nn.CrossEntropyLoss(weight=weights)
+        else:
+            self.loss = SelfSupervisedLoss(self.epochs,
+                                           weights)
 
     @abstractmethod
-    def _training_step(self, _data: dict) -> (dict, dict):
+    def _training_step(self,
+                       _epoch_id: int,
+                       _batch_id: int,
+                       _data: dict) -> (dict, dict):
         pass
 
     @abstractmethod
