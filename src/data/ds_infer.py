@@ -17,20 +17,25 @@ import tifffile
 class InferenceDataset(Dataset):
     # pylint: disable=too-many-instance-attributes
 
-    def __init__(self, _file_path, _sample_dimension, _pixel_per_step):
+    def __init__(self,
+                 _file_path,
+                 _sample_dimension,
+                 _pixel_per_step,
+                 _channel_map):
 
         self.file_path = _file_path
         self.tiff_tags = {}
         self.image = self.read_file(self.file_path)
         self.image_shape = self.image.shape
+        self.channel_map = _channel_map
 
         assert (self.image_shape[0] - _sample_dimension[0]) % \
             _pixel_per_step[0], \
             "(Len(Z_Image) - Len(Z_Sample) % Z_Stride should be 0."
 
-        self.nephrin = self.image[:, 0, :, :]
-        self.wga = self.image[:, 1, :, :]
-        self.collagen4 = self.image[:, 2, :, :]
+        self.nephrin = self.image[:, self.channel_map[0], :, :]
+        self.wga = self.image[:, self.channel_map[1], :, :]
+        self.collagen4 = self.image[:, self.channel_map[2], :, :]
 
         self.sample_dimension = _sample_dimension
         self.pixel_per_step_x = _pixel_per_step[2]

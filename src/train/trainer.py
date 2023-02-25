@@ -272,20 +272,26 @@ class Trainer(ABC):
             self.configs['train_ds']['sample_dimension']
         training_pixel_stride: list = \
             self.configs['train_ds']['pixel_stride']
+        training_channel_map: list = \
+            self.configs['train_ds']['channel_map']
         training_dataset = GBMDataset(
                 _source_directory=training_ds_dir,
                 _sample_dimension=training_sample_dimension,
-                _pixel_per_step=training_pixel_stride)
+                _pixel_per_step=training_pixel_stride,
+                _channel_map=training_channel_map)
 
         validation_ds_dir: str = self.configs['valid_ds']['path']
         validation_sample_dimension: list = \
             self.configs['valid_ds']['sample_dimension']
         validation_pixel_stride: list = \
             self.configs['valid_ds']['pixel_stride']
+        validation_channel_map: list = \
+            self.configs['valid_ds']['channel_map']
         validation_dataset = GBMDataset(
                 _source_directory=validation_ds_dir,
                 _sample_dimension=validation_sample_dimension,
-                _pixel_per_step=validation_pixel_stride)
+                _pixel_per_step=validation_pixel_stride,
+                _channel_map=validation_channel_map)
 
         if self.ddp:
             train_sampler = DistributedSampler(training_dataset)

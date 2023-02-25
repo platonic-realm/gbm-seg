@@ -9,12 +9,15 @@ import logging
 # Library Imports
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 # Local Imports
 from src.train.trainer import Trainer
 from src.models.unet3d_ss import Unet3DSS
 from src.utils.misc import RunningMetric
 from src.utils.metrics import Metrics
+from src.data.ds_unlabeled import UnlabeledDataset
 
 
 class Unet3DSelfTrainer(Trainer):
@@ -48,6 +51,9 @@ class Unet3DSelfTrainer(Trainer):
 
         self._prepare_optimizer()
         self._prepare_loss()
+
+        self.unlabeled_loader = None
+        self._prepare_unlabeled_data()
 
     def _training_step(self,
                        _epoch_id: int,
@@ -157,7 +163,15 @@ class Unet3DSelfTrainer(Trainer):
 
         freq = self.configs['report_freq']
 
-        for index, data in enumerate(self.training_loader):
+        training_dataset_length = len(self.training_loader)
+        unlabeled_dataset_length = len(self.unlabeled_loader)
+
+        unlabeled_labeled_ratio = \
+            unlabeled_dataset_length // training_dataset_length
+        total_length = \
+            unlabeled_dataset_length + training_dataset_length
+
+        for index in range(total_length):
 
             batch_accuracy = RunningMetric()
             batch_loss = RunningMetric()
@@ -213,3 +227,30 @@ class Unet3DSelfTrainer(Trainer):
                _valid_accuracy=valid_accuracy.calcualte(),
                _valid_loss=valid_loss.calcualte(),
                _n_iter=_epoch)
+
+    def _prepare_unlabeled_data(self) -> None:
+
+        unlabeled_ds_dir: str = self.configs['unlabeled_ds']['path']
+        unlabeled_sample_dimension: list = \
+            self.configs['unlabeled_ds']['sample_dimension']
+        unlabeled_pixel_stride: list = \
+            self.configs['unlabeled_ds']['pixel_stride']
+        unlabeled_channel_map: list = \
+            self.configs['unlabeled_ds']['channel_map']
+        unlabeled_dataset = UnlabeledDataset(
+                _source_directory=unlabeled_ds_dir,
+                _sample_dimension=unlabeled_sample_dimension,
+                _pixel_per_step=unlabeled_pixel_stride,
+                _channel_map=unlabeled_channel_map)
+
+        if self.ddp:
+            unlabeled_sampler = DistributedSampler(unlabeled_dataset)
+        else:
+            unlabeled_sampler = None
+
+        unlabeled_batch_size: int = self.configs['unlabeled_ds']['batch_size']
+        unlabeled_shuffle: bool = self.configs['unlabeled_ds']['shuffle']
+        self.unlabeled_loader = DataLoader(unlabeled_dataset,
+                                           batch_size=unlabeled_batch_size,
+                                           shuffle=unlabeled_shuffle,
+                                           sampler=unlabeled_sampler)

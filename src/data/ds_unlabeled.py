@@ -16,7 +16,7 @@ import tifffile
 # Local Imports
 
 
-class GBMDataset(Dataset):
+class UnlabeledDataset(Dataset):
     # pylint: disable=too-many-instance-attributes
 
     def __init__(self,
@@ -77,7 +77,6 @@ class GBMDataset(Dataset):
         nephrin = self.images[file_name][:, self.channel_map[0], :, :]
         wga = self.images[file_name][:, self.channel_map[1], :, :]
         collagen4 = self.images[file_name][:, self.channel_map[2], :, :]
-        labels = self.images[file_name][:, 3, :, :]
 
         image_shape = nephrin.shape
         sample_per_x = int((image_shape[1] - self.sample_dimension[1]) //
@@ -111,15 +110,9 @@ class GBMDataset(Dataset):
                               y_start: y_start + self.sample_dimension[2]
                               ]
 
-        labels = labels[z_start: z_start + self.sample_dimension[0],
-                        x_start: x_start + self.sample_dimension[1],
-                        y_start: y_start + self.sample_dimension[2]
-                        ]
-
         nephrin = np.expand_dims(nephrin, axis=0)
         wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
-        # labels = scaler_to_vector(labels)
 
         nephrin = nephrin/255
         wga = wga/255
@@ -129,7 +122,6 @@ class GBMDataset(Dataset):
             'nephrin': torch.from_numpy(nephrin),
             'wga': torch.from_numpy(wga),
             'collagen4': torch.from_numpy(collagen4),
-            'labels': torch.from_numpy(labels),
         }
 
     def get_sample_per_image(self, _image_id):

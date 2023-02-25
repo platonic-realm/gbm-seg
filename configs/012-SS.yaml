@@ -42,6 +42,19 @@ trainer:
   result_path: ../results-train/
   skip_training: False
 
+  unlabeled_ds:
+    path: ../data/gbm_unlabeled_ds/
+    batch_size: 4
+    sample_dimension: [12, 256, 256]
+    pixel_stride: [1, 16, 16]
+    pin_memory: True
+    # shuffle should be off when using DDP
+    shuffle: False
+    # Use this if the order of channels is
+    # Different, for example use [1, 0, 2]
+    # If the first channel is WGA and second is nephrin
+    channel_map: [0, 1, 2]
+
   train_ds:
     path: ../data/gbm_train_ds/
     batch_size: 4
@@ -50,6 +63,10 @@ trainer:
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
+    # Use this if the order of channels is
+    # Different, for example use [1, 0, 2]
+    # If the first channel is WGA and second is nephrin
+    channel_map: [0, 1, 2]
 
   valid_ds:
     path: ../data/gbm_valid_ds/
@@ -59,6 +76,10 @@ trainer:
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
+    # Use this if the order of channels is
+    # Different, for example use [1, 0, 2]
+    # If the first channel is WGA and second is nephrin
+    channel_map: [0, 1, 2]
 
   visualization:
     enabled: True
