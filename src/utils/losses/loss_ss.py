@@ -10,6 +10,7 @@ from enum import Enum
 # Library Imports
 import torch
 from torch import nn
+import torch.nn.functional as Fn
 
 # Local Imports
 
@@ -41,19 +42,21 @@ class SelfSupervisedLoss(nn.Module):
                 _truth_interpolation):
 
         alpha = 1 - _epoch_no/self.no_of_epochs
+        alpha = alpha*10
+
         unsupervised_part = \
             torch.mul(alpha,
                       self.unsupervised_loss(_predicted_interpolation,
                                              _truth_interpolation))
-        if self.mode == SSMode.Supervised:
+        if self.mode == SSMode.Unsupervised:
             return unsupervised_part
 
         return torch.add(unsupervised_part,
                          self.supvised_loss(_predicted_segmentation,
                                             _truth_segmentation))
 
-    def SwitchToSupervised(self):
+    def supervised(self):
         self.mode = SSMode.Supervised
 
-    def SwichToUnsupervised(self):
+    def unsupervised(self):
         self.mode = SSMode.Unsupervised

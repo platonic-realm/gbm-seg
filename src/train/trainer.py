@@ -98,6 +98,8 @@ class Trainer(ABC):
 
         if self.device == 'cuda':
             self.device_id: int = self.local_rank % torch.cuda.device_count()
+        else:
+            self.device_id = self.device
 
         if self.snapshot_path is not None:
             create_dirs_recursively(self.snapshot_path)
@@ -260,7 +262,9 @@ class Trainer(ABC):
 
         load_path = snapshot_list[0]
 
-        snapshot = torch.load(load_path)
+        snapshot = torch.load(load_path,
+                              map_location=torch.device(self.device_id))
+
         self.model.load_state_dict(snapshot['MODEL_STATE'])
         self.epoch_resume = snapshot['EPOCHS'] + 1
         logging.info("Resuming training at epoch: %d", self.epoch_resume)

@@ -8,6 +8,7 @@ import logging
 
 # Library Imports
 import torch
+from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -49,6 +50,8 @@ class Unet3DSelfTrainer(Trainer):
         if self.ddp:
             self.model = DDP(self.model, device_ids=[self.local_rank])
 
+        self.model = nn.DataParallel(self.model)
+
         self._prepare_optimizer()
         self._prepare_loss()
 
@@ -72,8 +75,16 @@ class Unet3DSelfTrainer(Trainer):
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
         collagen4 = _data['collagen4'].to(device)
-        labels = _data['labels'].to(device)
-        labels = labels.long()
+
+        labels = None
+        supervised = False
+        self.loss.unsupervised()
+        if 'labels' in _data:
+            labels = _data['labels'].to(device)
+            labels = labels.long()
+            labels[labels == 255] = 1
+            self.loss.supervised()
+            supervised = True
 
         frames = self._stack_channels(nephrin, wga, collagen4)
 
@@ -111,12 +122,16 @@ class Unet3DSelfTrainer(Trainer):
 
         loss_value = loss.item()
 
-        metrics = Metrics(self.number_class,
-                          results,
-                          labels)
+        if supervised:
+            metrics = Metrics(self.number_class,
+                              results,
+                              labels)
 
-        corrects = (results == labels).float().sum().item()
-        accuracy = metrics.Accuracy()
+            corrects = (results == labels).float().sum().item()
+            accuracy = metrics.Accuracy()
+        else:
+            corrects = 0.0
+            accuracy = 0.0
 
         return {'loss': loss_value,
                 'corrects': corrects,
@@ -137,14 +152,34 @@ class Unet3DSelfTrainer(Trainer):
         collagen4 = _data['collagen4'].to(device)
         labels = _data['labels'].to(device)
         labels = labels.long()
+        labels[labels > 0] = 1
+
+        frames = self._stack_channels(nephrin, wga, collagen4)
+
+        nephrin = nephrin[:, :, ::2, :, :]
+        wga = wga[:, :, ::2, :, :]
+        collagen4 = collagen4[:, :, ::2, :, :]
 
         sample = self._stack_channels(nephrin, wga, collagen4)
 
+        self.loss.supervised()
+
         with torch.no_grad():
 
-            logits, results = self.model(sample)
+            logits, results, interpolation = self.model(sample)
 
-            loss = self.loss(logits, labels)
+            self._visualize_validation(_epoch_id=_epoch_id,
+                                       _batch_id=_batch_id,
+                                       _inputs=sample,
+                                       _labels=labels,
+                                       _predictions=results)
+
+            loss = self.loss(_epoch_id,
+                             logits,
+                             interpolation,
+                             labels,
+                             frames)
+
             loss_value = loss.item()
 
             corrects = (results == labels).float().sum().item()
@@ -163,18 +198,27 @@ class Unet3DSelfTrainer(Trainer):
 
         freq = self.configs['report_freq']
 
-        training_dataset_length = len(self.training_loader)
-        unlabeled_dataset_length = len(self.unlabeled_loader)
+        labeled_length = len(self.training_loader)
+        unlabeled_length = len(self.unlabeled_loader)
 
-        unlabeled_labeled_ratio = \
-            unlabeled_dataset_length // training_dataset_length
-        total_length = \
-            unlabeled_dataset_length + training_dataset_length
+        labeled_iterator = iter(self.training_loader)
+        unlabeled_iterator = iter(self.unlabeled_loader)
 
-        for index in range(total_length):
+        ratio = unlabeled_length // labeled_length
+
+        index = 0
+        batch_size = ratio*labeled_length
+        while index < batch_size:
 
             batch_accuracy = RunningMetric()
             batch_loss = RunningMetric()
+
+            if (index % ratio) == 0:
+                data = next(labeled_iterator)
+            else:
+                data = next(unlabeled_iterator)
+
+            index += 1
 
             results = self._training_step(_epoch,
                                           index,
@@ -193,7 +237,7 @@ class Unet3DSelfTrainer(Trainer):
                              _epoch,
                              self.epochs-1,
                              index,
-                             len(self.training_loader),
+                             batch_size,
                              batch_loss.calcualte(),
                              batch_accuracy.calcualte())
 

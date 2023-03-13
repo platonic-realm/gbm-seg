@@ -22,14 +22,14 @@ trainer:
     decoder_padding: 'same'
     # It can be differed from samples
     # Might add the functionality later
-    number_class: 3
+    number_class: 2
 
   optim:
     name: adam
-    lr : 0.005
+    lr : 0.0005
 
   loss: CrossEntropy
-  loss_weights: [1.0, 3.0, 3.0]
+  loss_weights: [1.0, 7.0]
   metrics: [accuracy, ]
   # Every report_freq batches, metrics and losses will be logged
   report_freq: 5
@@ -44,9 +44,9 @@ trainer:
 
   unlabeled_ds:
     path: /data/afatehi/gbm/data/gbm_unlabeled_ds/
-    batch_size: 6
+    batch_size: 24
     sample_dimension: [12, 256, 256]
-    pixel_stride: [1, 52, 52]
+    pixel_stride: [1, 64, 64]
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -57,7 +57,7 @@ trainer:
 
   train_ds:
     path: /data/afatehi/gbm/data/gbm_train_ds/
-    batch_size: 6
+    batch_size: 24
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: True
@@ -66,11 +66,11 @@ trainer:
     # Use this if the order of channels is
     # Different, for example use [1, 0, 2]
     # If the first channel is WGA and second is nephrin
-    channel_map: [0, 1, 2]
+    channel_map: [0, 2, 1]
 
   valid_ds:
     path: /data/afatehi/gbm/data/gbm_valid_ds/
-    batch_size: 4
+    batch_size: 24
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 16, 16]
     pin_memory: True
@@ -79,7 +79,7 @@ trainer:
     # Use this if the order of channels is
     # Different, for example use [1, 0, 2]
     # If the first channel is WGA and second is nephrin
-    channel_map: [0, 1, 2]
+    channel_map: [0, 2, 1]
 
   visualization:
     enabled: True
@@ -132,7 +132,7 @@ inference:
     pin_memory: True
 
 logging:
-  log_level: DEBUG
+  log_level: INFO
   log_file: logs/train.log
   log_std: True
   log_summary: False

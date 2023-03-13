@@ -9,7 +9,6 @@ import logging
 
 # Library Imports
 import torch
-import torch.nn.functional as Fn
 from torch import Tensor
 from torch import nn
 
@@ -117,11 +116,9 @@ class Unet3DSS(nn.Module):
         interpolation_ouputs = decoder(encoder_features[-1], outputs)
         interpolation_ouputs = \
             self.interpolation_last_layer(interpolation_ouputs)
-        interpolation_ouputs = Fn.normalize(interpolation_ouputs,
-                                            p=2,
-                                            dim=None)
-        interpolation_ouputs = \
-            torch.mul(interpolation_ouputs, 255).type(torch.uint8)
+        # interpolation_ouputs = Fn.normalize(interpolation_ouputs,
+        #                                    p=2,
+        #                                    dim=None)
 
         return segmentation_logits, segmentation_outputs, interpolation_ouputs
 
