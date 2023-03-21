@@ -1,7 +1,7 @@
 """
 Author: Arash Fatehi
-Date:   20.10.2022
-file:   undet3d.py
+Date:   19.02.2022
+file:   undet3d_ss.py
 """
 
 # Python Imports

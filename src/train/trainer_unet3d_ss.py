@@ -8,8 +8,8 @@ import logging
 
 # Library Imports
 import torch
-from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DataParallel as DP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
@@ -18,19 +18,23 @@ from src.train.trainer import Trainer
 from src.models.unet3d_ss import Unet3DSS
 from src.utils.misc import RunningMetric
 from src.utils.metrics import Metrics
-from src.data.ds_unlabeled import UnlabeledDataset
+from src.data.ds_train import GBMDataset
+from src.data.ds_train import DatasetType
 
 
-class Unet3DSelfTrainer(Trainer):
-    def __init__(self, _configs: dict):
-        super().__init__(_configs)
-        assert self.configs['model']['name'] == 'unet_3d', \
-               "This class should only be used with unet_3d configuration." + \
-               f"{self.configs['model']['name']} was given instead."
+class Unet3DSemiTrainer(Trainer):
+    def __init__(self,
+                 _configs: dict,
+                 _label_correction_function):
+
+        super().__init__(_configs,
+                         _label_correction_function)
+        assert self.configs['model']['name'] == 'unet_3d_ss', \
+            "This class should only be used with unet_3d_ss configuration." + \
+            f"{self.configs['model']['name']} was given instead."
 
         self.feature_maps: list = self.configs['model']['feature_maps']
         self.channels: list = self.configs['model']['channels']
-        self.number_class: int = self.configs['model']['number_class']
         self.metrics: list = self.configs['metrics']
         self.sample_dimension = self.configs['train_ds']['sample_dimension']
 
@@ -50,7 +54,8 @@ class Unet3DSelfTrainer(Trainer):
         if self.ddp:
             self.model = DDP(self.model, device_ids=[self.local_rank])
 
-        self.model = nn.DataParallel(self.model)
+        if self.dp:
+            self.model = DP(self.model)
 
         self._prepare_optimizer()
         self._prepare_loss()
@@ -81,8 +86,6 @@ class Unet3DSelfTrainer(Trainer):
         self.loss.unsupervised()
         if 'labels' in _data:
             labels = _data['labels'].to(device)
-            labels = labels.long()
-            labels[labels == 255] = 1
             self.loss.supervised()
             supervised = True
 
@@ -151,8 +154,6 @@ class Unet3DSelfTrainer(Trainer):
         wga = _data['wga'].to(device)
         collagen4 = _data['collagen4'].to(device)
         labels = _data['labels'].to(device)
-        labels = labels.long()
-        labels[labels > 0] = 1
 
         frames = self._stack_channels(nephrin, wga, collagen4)
 
@@ -281,11 +282,14 @@ class Unet3DSelfTrainer(Trainer):
             self.configs['unlabeled_ds']['pixel_stride']
         unlabeled_channel_map: list = \
             self.configs['unlabeled_ds']['channel_map']
-        unlabeled_dataset = UnlabeledDataset(
+        unlabeled_dataset = GBMDataset(
                 _source_directory=unlabeled_ds_dir,
                 _sample_dimension=unlabeled_sample_dimension,
                 _pixel_per_step=unlabeled_pixel_stride,
-                _channel_map=unlabeled_channel_map)
+                _channel_map=unlabeled_channel_map,
+                _dataset_type=DatasetType.Unsupervised,
+                _ignore_stride_mismatch=self.configs['unlabeled_ds']
+                ['ignore_stride_mismatch'])
 
         if self.ddp:
             unlabeled_sampler = DistributedSampler(unlabeled_dataset)

@@ -33,7 +33,9 @@ from src.utils.losses.loss_ss import SelfSupervisedLoss
 # double __ for the abstract method as python name
 # mangeling will mess them and you are going to have a hard time
 class Trainer(ABC):
-    def __init__(self, _configs: dict):
+    def __init__(self,
+                 _configs: dict,
+                 _label_correction_function=None):
         self.configs: dict = _configs['trainer']
 
         # these variables are declared because some methods need
@@ -41,6 +43,9 @@ class Trainer(ABC):
         self.model = None
         self.optimizer = None
         self.loss = None
+        self.no_of_classes = None
+
+        self.label_correction = _label_correction_function
 
         self.model_tag = create_config_tag(_configs)
 
@@ -60,6 +65,9 @@ class Trainer(ABC):
             # Needed for gradient scaling
             # https://pytorch.org/docs/stable/notes/amp_examples.html
             self.scaler = torch.cuda.amp.GradScaler()
+
+        # Data Parallelism
+        self.dp = self.configs['dp']
 
         # Distributed Data Parallelism Configurations
         self.ddp: bool = self.configs['ddp']['enabled']
@@ -282,7 +290,12 @@ class Trainer(ABC):
                 _source_directory=training_ds_dir,
                 _sample_dimension=training_sample_dimension,
                 _pixel_per_step=training_pixel_stride,
-                _channel_map=training_channel_map)
+                _channel_map=training_channel_map,
+                _ignore_stride_mismatch=self.configs['train_ds'][
+                    'ignore_stride_mismatch'],
+                _label_correction_function=self.label_correction)
+
+        self.number_class = training_dataset.get_number_of_classes()
 
         validation_ds_dir: str = self.configs['valid_ds']['path']
         validation_sample_dimension: list = \
@@ -295,7 +308,10 @@ class Trainer(ABC):
                 _source_directory=validation_ds_dir,
                 _sample_dimension=validation_sample_dimension,
                 _pixel_per_step=validation_pixel_stride,
-                _channel_map=validation_channel_map)
+                _channel_map=validation_channel_map,
+                _ignore_stride_mismatch=self.configs['train_ds'][
+                    'ignore_stride_mismatch'],
+                _label_correction_function=self.label_correction)
 
         if self.ddp:
             train_sampler = DistributedSampler(training_dataset)

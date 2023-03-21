@@ -50,6 +50,11 @@ def sanity_check(_configs: dict) -> dict:
         assert not _configs['trainer']['tensorboard']['path'] is None, \
                "Please provide path for tensorboard logs"
 
+    if _configs['trainer']['model']['name'] == 'unet_3d_ss':
+        _configs['trainer']['mode'] = 'semi_supervised'
+    else:
+        _configs['trainer']['mode'] = 'supervised'
+
     if _configs['trainer']['mode'] not in ['supervised', 'semi_supervised']:
         _configs['trainer']['mode'] = 'supervised'
 
@@ -86,8 +91,12 @@ def sanity_check(_configs: dict) -> dict:
         _configs['trainer']['ddp']['master_port'] = master_port
 
         ddp = True
+
     except KeyError:
         ddp = False
+
+    if ddp:
+        _configs['trainer']['dp'] = False
 
     _configs['trainer']['ddp']['enabled'] = ddp
 

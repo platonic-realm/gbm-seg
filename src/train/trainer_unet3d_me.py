@@ -9,6 +9,7 @@ import logging
 # Library Imports
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DataParallel as DP
 
 # Local Imports
 from src.train.trainer import Trainer
@@ -25,7 +26,6 @@ class Unet3DMETrainer(Trainer):
 
         self.feature_maps: list = self.configs['model']['feature_maps']
         self.channels: list = self.configs['model']['channels']
-        self.number_class: int = self.configs['model']['number_class']
         self.metrics: list = self.configs['metrics']
 
         self.model = Unet3DME(1,
@@ -42,6 +42,9 @@ class Unet3DMETrainer(Trainer):
 
         if self.ddp:
             self.model = DDP(self.model, device_ids=[self.local_rank])
+
+        if self.dp:
+            self.model = DP(self.model)
 
         self._prepare_optimizer()
         self._prepare_loss()

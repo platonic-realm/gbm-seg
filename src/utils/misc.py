@@ -74,9 +74,6 @@ def create_config_tag(_configs: dict):
     loss = _configs['trainer']['loss']
     channels = list(_configs['trainer']['model']['channels'])
 
-    if _configs['trainer']['mode'] == 'semi_supervised':
-        model_name += '-SS'
-
     tag = f"{model_name}-{optimizer}-{loss}" + \
           f"-{''.join(str(no) for no in channels)}"
 
