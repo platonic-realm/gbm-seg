@@ -4,6 +4,7 @@ Date:   19.02.2022
 """
 
 # Python Imports
+import os
 import logging
 
 # Library Imports
@@ -275,7 +276,8 @@ class Unet3DSemiTrainer(Trainer):
 
     def _prepare_unlabeled_data(self) -> None:
 
-        unlabeled_ds_dir: str = self.configs['unlabeled_ds']['path']
+        unlabeled_ds_dir: str = os.path.join(self.root_path,
+                                             self.configs['unlabeled_ds']['path'])
         unlabeled_sample_dimension: list = \
             self.configs['unlabeled_ds']['sample_dimension']
         unlabeled_pixel_stride: list = \

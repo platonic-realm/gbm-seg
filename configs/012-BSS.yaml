@@ -29,19 +29,22 @@ trainer:
   # Every report_freq batches, metrics and losses will be logged
   report_freq: 5
 
+  # All other pathes in the trainer section are relative to root_path
+  root_path: /data/afatehi/gbm/
+
   epochs: 10
   # Every save_interval a snapshot will be created
   save_interval: 1
   snapshot_path: snapshots/
 
-  result_path: /data/afatehi/gbm/results-train/
+  result_path: ./results-train/
   skip_training: False
 
   unlabeled_ds:
-    path: /data/afatehi/gbm/data/gbm_unlabeled_ds/
+    path: ./data/gbm_unlabeled_ds/
     batch_size: 24
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [2, 32, 32] # Z, X, Y
+    pixel_stride: [2, 64, 64] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -52,7 +55,7 @@ trainer:
     ignore_stride_mismatch: True
 
   train_ds:
-    path: /data/afatehi/gbm/data/gbm_train_ds/
+    path: ./data/gbm_train_ds/
     batch_size: 24
     sample_dimension: [12, 256, 256] # Z, X, Y
     pixel_stride: [1, 16, 16] # Z, X, Y
@@ -66,7 +69,7 @@ trainer:
     ignore_stride_mismatch: False
 
   valid_ds:
-    path: /data/afatehi/gbm/data/gbm_valid_ds/
+    path: ./data/gbm_valid_ds/
     batch_size: 24
     sample_dimension: [12, 256, 256] # Z, X, Y
     pixel_stride: [1, 16, 16] # Z, X, Y
@@ -83,14 +86,14 @@ trainer:
     enabled: True
     # The chance for a batch to create visualization
     chance: 0.20
-    path: gbm-vv/
+    path: ./visuals/
     gif: True
     tif: True
     mesh: False
 
   tensorboard:
     enabled: True
-    path: tensorboard/
+    path: ./tensorboard/
     metrics: True
 
   device: cuda

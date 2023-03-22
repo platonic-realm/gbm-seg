@@ -49,15 +49,18 @@ class Trainer(ABC):
 
         self.model_tag = create_config_tag(_configs)
 
+        self.root_path = self.configs['root_path']
+
         # Note we are using self.configs from now on ...
         self.model_name = self.configs['model']['name']
         self.epochs: int = self.configs['epochs']
         self.epoch_resume = 0
         self.save_interval = self.configs['save_interval']
-        self.result_path = os.path.join(self.configs['result_path'],
-                                        f"{self.model_tag}/"
-                                        )
-        self.snapshot_path = os.path.join(self.result_path,
+        self.result_path = os.path.join(self.root_path,
+                                        self.configs['result_path'],
+                                        f"{self.model_tag}/")
+        self.snapshot_path = os.path.join(self.root_path,
+                                          self.result_path,
                                           self.configs['snapshot_path'])
         self.device: str = self.configs['device']
         self.mixed_precision: bool = self.configs['mixed_precision']
@@ -87,7 +90,8 @@ class Trainer(ABC):
         self.visualization_chance: float = \
             self.configs['visualization']['chance']
         self.visualization_path = \
-            os.path.join(self.result_path,
+            os.path.join(self.root_path,
+                         self.result_path,
                          self.configs['visualization']['path'])
 
         self.visualizer = VisualizerUnet3D(
@@ -98,7 +102,8 @@ class Trainer(ABC):
         self.tensorboard: bool = \
             self.configs['tensorboard']['enabled']
         self.tensorboard_path = \
-            Path(os.path.join(self.result_path,
+            Path(os.path.join(self.root_path,
+                              self.result_path,
                               self.configs['tensorboard']['path']))
         self.tensorboard_path.mkdir(parents=True, exist_ok=True)
 
@@ -279,7 +284,8 @@ class Trainer(ABC):
 
     def _prepare_data(self) -> None:
 
-        training_ds_dir: str = self.configs['train_ds']['path']
+        training_ds_dir: str = os.path.join(self.root_path,
+                                            self.configs['train_ds']['path'])
         training_sample_dimension: list = \
             self.configs['train_ds']['sample_dimension']
         training_pixel_stride: list = \
@@ -297,7 +303,8 @@ class Trainer(ABC):
 
         self.number_class = training_dataset.get_number_of_classes()
 
-        validation_ds_dir: str = self.configs['valid_ds']['path']
+        validation_ds_dir: str = os.path.join(self.root_path,
+                                              self.configs['valid_ds']['path'])
         validation_sample_dimension: list = \
             self.configs['valid_ds']['sample_dimension']
         validation_pixel_stride: list = \
