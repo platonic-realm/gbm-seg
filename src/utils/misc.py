@@ -29,9 +29,28 @@ class RunningMetric():
         return result
 
 
+class GPURunningMetric():
+    def __init__(self, _device):
+        self.device = _device
+        self.value = torch.zeros(1, device=self.device, dtype=torch.float32)
+        self.counter = torch.zeros(1, device=self.device, dtype=torch.float32)
+
+    def add(self, _value) -> None:
+        self.value = torch.add(self.value, _value)
+        self.counter = torch.add(self.value, 1)
+
+    def calcualte(self) -> float:
+        result = torch.div(self.value, self.counter)
+        self.value = torch.zeros(1, device=self.device)
+        self.counter = torch.zeros(1, device=self.device)
+        return result.item()
+
+
 def configure_logger(_configs: dict) -> None:
     LOG_LEVEL = _configs['logging']['log_level']
-    log_file = os.path.join(_configs['trainer']['result_path'],
+    root_path = _configs['root_path']
+    log_file = os.path.join(root_path,
+                            _configs['trainer']['result_path'],
                             create_config_tag(_configs),
                             _configs['logging']['log_file'])
     log_std = _configs['logging']['log_std']

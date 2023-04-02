@@ -66,6 +66,10 @@ def sanity_check(_configs: dict) -> dict:
         _configs['trainer']['mixed_precision'] = False
         _configs['inference']['device'] = 'cpu'
 
+    if _configs['trainer']['device'] == 'cpu':
+        _configs['trainer']['cudnn_benchmark'] = False
+        _configs['trainer']['nvtx_patching'] = False
+
     # Checking if script has been run via torchrun
     # and add the environment variables to configs
     try:

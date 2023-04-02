@@ -20,7 +20,6 @@ class Metrics():
                  _predictions: Tensor,
                  _labels: Tensor):
 
-        self.all_sum: int = 0
         self.predictions: Tensor = _predictions
         self.labels: Tensor = _labels
         self.number_of_classes = _number_of_classes
@@ -50,7 +49,7 @@ class Metrics():
         # And also detach it from the computation graph to save computation
         local_predictions = self.predictions.clone().detach()
 
-        # To calulate number of correct and wrong predictions
+        # To calulate number of correct and wrong predictions of
         # _truth_class_id, we need to first create a mask consists of
         # indexs in the labels tensor with the value of _truth_class_id.
         mask = (self.labels == _class_id).float()
@@ -130,7 +129,7 @@ class Metrics():
     def Accuracy(self) -> float:
         result_tensor = \
             self.confusion_matrix.diag().sum() / self.confusion_matrix.sum()
-        return to_numpy(result_tensor).item()
+        return result_tensor
 
     # TPR + TNR /2
     def BalancedAccuracy(self, _class_id):

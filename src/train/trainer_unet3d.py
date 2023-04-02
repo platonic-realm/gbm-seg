@@ -150,6 +150,9 @@ class Unet3DTrainer(Trainer):
 
         freq = self.configs['report_freq']
 
+        if self.pytorch_profiling:
+            self.prof.start()
+
         for index, data in enumerate(self.training_loader):
 
             batch_accuracy = RunningMetric()
@@ -166,6 +169,9 @@ class Unet3DTrainer(Trainer):
             batch_accuracy.add(results['accuracy'])
             batch_loss.add(results['loss'])
 
+            if self.pytorch_profiling:
+                self.prof.step()
+
             if index % freq == 0:
                 logging.info("Epoch: %d/%d, Batch: %d/%d, "
                              "Loss: %.3f, Accuracy: %.3f",
@@ -175,6 +181,9 @@ class Unet3DTrainer(Trainer):
                              len(self.training_loader),
                              batch_loss.calcualte(),
                              batch_accuracy.calcualte())
+
+        if self.pytorch_profiling:
+            self.prof.stop()
 
         for index, data in enumerate(self.validation_loader):
 

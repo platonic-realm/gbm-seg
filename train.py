@@ -4,8 +4,10 @@ Date:   22.11.2022
 """
 
 # Python Imprts
+import logging
 
 # Library Imports
+import torch
 from torch.distributed.elastic.multiprocessing.errors import record
 
 # Local Imports
@@ -55,6 +57,11 @@ if __name__ == '__main__':
     configure_logger(configs)
     if configs['logging']['log_summary']:
         args.summerize(configs)
+
+    if configs['trainer']['cudnn_benchmark']:
+        torch.backends.cudnn.benchmark = True
+        logging.info("Enabling cudnn benchmarking")
+
     if configs['trainer']['mode'] == 'supervised':
         supervised(configs)
     elif configs['trainer']['mode'] == 'semi_supervised':

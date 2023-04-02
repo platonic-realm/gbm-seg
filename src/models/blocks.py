@@ -28,7 +28,7 @@ class ConvLayer(nn.Module):
         self.convolution = nn.Conv3d(_input_channels,
                                      _output_channels,
                                      _kernel_size,
-                                     bias=True,
+                                     bias=False,
                                      padding=_padding)
 
         self.batch_normalization = nn.BatchNorm3d(_output_channels)

@@ -17,7 +17,7 @@ from torch.utils.data.distributed import DistributedSampler
 # Local Imports
 from src.train.trainer import Trainer
 from src.models.unet3d_ss import Unet3DSS
-from src.utils.misc import RunningMetric
+from src.utils.misc import GPURunningMetric, RunningMetric
 from src.utils.metrics import Metrics
 from src.data.ds_train import GBMDataset
 from src.data.ds_train import DatasetType
@@ -75,7 +75,6 @@ class Unet3DSemiTrainer(Trainer):
 
         if self.skip_training:
             return {'loss': 0,
-                    'corrects': 0,
                     'accuracy': 0}
 
         nephrin = _data['nephrin'].to(device)
@@ -124,21 +123,16 @@ class Unet3DSemiTrainer(Trainer):
             loss.backward()
             self.optimizer.step()
 
-        loss_value = loss.item()
-
         if supervised:
             metrics = Metrics(self.number_class,
                               results,
                               labels)
 
-            corrects = (results == labels).float().sum().item()
             accuracy = metrics.Accuracy()
         else:
-            corrects = 0.0
             accuracy = 0.0
 
-        return {'loss': loss_value,
-                'corrects': corrects,
+        return {'loss': loss,
                 'accuracy': accuracy}
 
     def _validate_step(self,
@@ -188,15 +182,9 @@ class Unet3DSemiTrainer(Trainer):
             accuracy = corrects/torch.numel(results)
 
             return {'loss': loss_value,
-                    'corrects': corrects,
                     'accuracy': accuracy}
 
     def _train_epoch(self, _epoch: int):
-
-        train_accuracy = RunningMetric()
-        train_loss = RunningMetric()
-        valid_accuracy = RunningMetric()
-        valid_loss = RunningMetric()
 
         freq = self.configs['report_freq']
 
@@ -210,10 +198,14 @@ class Unet3DSemiTrainer(Trainer):
 
         index = 0
         batch_size = ratio*labeled_length
+
+        if self.pytorch_profiling:
+            self.prof.start()
+
         while index < batch_size:
 
-            batch_accuracy = RunningMetric()
-            batch_loss = RunningMetric()
+            batch_accuracy = GPURunningMetric(self.device_id)
+            batch_loss = GPURunningMetric(self.device_id)
 
             if (index % ratio) == 0:
                 data = next(labeled_iterator)
@@ -226,12 +218,12 @@ class Unet3DSemiTrainer(Trainer):
                                           index,
                                           data)
 
-            # These are used to calculate per epoch metrics
-            train_accuracy.add(results['accuracy'])
-            train_loss.add(results['loss'])
             # These ones are for in batch calculation
             batch_accuracy.add(results['accuracy'])
-            batch_loss.add(results['loss'])
+            batch_loss.add(results['loss'].clone().detach().to(torch.float32))
+
+            if self.pytorch_profiling:
+                self.prof.step()
 
             if index % freq == 0:
                 logging.info("Epoch: %d/%d, Batch: %d/%d, "
@@ -243,6 +235,9 @@ class Unet3DSemiTrainer(Trainer):
                              batch_loss.calcualte(),
                              batch_accuracy.calcualte())
 
+        if self.pytorch_profiling:
+            self.prof.stop()
+
         for index, data in enumerate(self.validation_loader):
 
             batch_accuracy = RunningMetric()
@@ -252,9 +247,6 @@ class Unet3DSemiTrainer(Trainer):
                                           _batch_id=index,
                                           _data=data)
 
-            # These are used to calculate per epoch metrics
-            valid_accuracy.add(results['accuracy'])
-            valid_loss.add(results['loss'])
             # These ones are for in batch calculation
             batch_accuracy.add(results['accuracy'])
             batch_loss.add(results['loss'])
@@ -267,17 +259,11 @@ class Unet3DSemiTrainer(Trainer):
                              batch_loss.calcualte(),
                              batch_accuracy.calcualte())
 
-        self._log_tensorboard_metrics(
-               _train_accuracy=train_accuracy.calcualte(),
-               _train_loss=train_loss.calcualte(),
-               _valid_accuracy=valid_accuracy.calcualte(),
-               _valid_loss=valid_loss.calcualte(),
-               _n_iter=_epoch)
-
     def _prepare_unlabeled_data(self) -> None:
 
-        unlabeled_ds_dir: str = os.path.join(self.root_path,
-                                             self.configs['unlabeled_ds']['path'])
+        unlabeled_ds_dir: str = \
+            os.path.join(self.root_path,
+                         self.configs['unlabeled_ds']['path'])
         unlabeled_sample_dimension: list = \
             self.configs['unlabeled_ds']['sample_dimension']
         unlabeled_pixel_stride: list = \
@@ -303,4 +289,6 @@ class Unet3DSemiTrainer(Trainer):
         self.unlabeled_loader = DataLoader(unlabeled_dataset,
                                            batch_size=unlabeled_batch_size,
                                            shuffle=unlabeled_shuffle,
-                                           sampler=unlabeled_sampler)
+                                           sampler=unlabeled_sampler,
+                                           num_workers=self.configs
+                                           ['unlabeled_ds']['workers'])

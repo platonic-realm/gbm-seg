@@ -20,6 +20,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch.profiler import ProfilerActivity
 
 # Local Imports
 from src.utils.misc import create_dirs_recursively, create_config_tag
@@ -49,7 +50,7 @@ class Trainer(ABC):
 
         self.model_tag = create_config_tag(_configs)
 
-        self.root_path = self.configs['root_path']
+        self.root_path = _configs['root_path']
 
         # Note we are using self.configs from now on ...
         self.model_name = self.configs['model']['name']
@@ -120,6 +121,7 @@ class Trainer(ABC):
         if self.ddp:
             init_process_group(backend="nccl")
 
+        self._prepare_profiling()
         self._prepare_data()
 
     def __del__(self):
@@ -332,14 +334,18 @@ class Trainer(ABC):
         self.training_loader = DataLoader(training_dataset,
                                           batch_size=training_batch_size,
                                           shuffle=training_shuffle,
-                                          sampler=train_sampler)
+                                          sampler=train_sampler,
+                                          num_workers=self.configs
+                                          ['train_ds']['workers'])
 
         validation_batch_size: int = self.configs['valid_ds']['batch_size']
         validation_shuffle: bool = self.configs['valid_ds']['shuffle']
         self.validation_loader = DataLoader(validation_dataset,
                                             batch_size=validation_batch_size,
                                             shuffle=validation_shuffle,
-                                            sampler=valid_sampler)
+                                            sampler=valid_sampler,
+                                            num_workers=self.configs
+                                            ['valid_ds']['workers'])
 
     def _prepare_optimizer(self) -> None:
         optimizer_name: str = self.configs['optim']['name']
@@ -366,6 +372,65 @@ class Trainer(ABC):
         else:
             self.loss = SelfSupervisedLoss(self.epochs,
                                            weights)
+
+    def _prepare_profiling(self) -> None:
+        if self.configs['profiling']['enabled']:
+            scheduler_wait = self.configs['profiling']['scheduler']['wait']
+            scheduler_warmup = self.configs['profiling']['scheduler']['warmup']
+            scheduler_active = self.configs['profiling']['scheduler']['active']
+            scheduler_repeat = self.configs['profiling']['scheduler']['repeat']
+
+            save_path = os.path.join(self.root_path,
+                                     self.result_path,
+                                     self.configs['profiling']['path'])
+
+            profile_memory = self.configs['profiling']['profile_memory']
+            record_shapes = self.configs['profiling']['record_shapes']
+            with_flops = self.configs['profiling']['with_flops']
+            with_stack = self.configs['profiling']['with_stack']
+
+            tb_trace_handler = \
+                torch.profiler.tensorboard_trace_handler(save_path)
+
+            trace_file = os.path.join(save_path,
+                                      f"{self.model_tag}.txt")
+
+            def txt_trace_handler(prof):
+                with open(trace_file, 'w') as file:
+                    file.write(prof.key_averages().table(
+                                    sort_by="self_cuda_time_total",
+                                    row_limit=-1))
+
+            def print_trace_handler(prof):
+                print(prof.key_averages().table(
+                                sort_by="self_cuda_time_total",
+                                row_limit=-1))
+
+            def trace_handler(prof):
+                if self.configs['profiling']['save']['tensorboard']:
+                    tb_trace_handler(prof)
+
+                if self.configs['profiling']['save']['text']:
+                    txt_trace_handler(prof)
+
+                if self.configs['profiling']['save']['print']:
+                    print_trace_handler(prof)
+
+            self.pytorch_profiling = True
+            self.prof = torch.profiler.profile(
+                    activities=[ProfilerActivity.CUDA,
+                                ProfilerActivity.CPU],
+                    schedule=torch.profiler.schedule(wait=scheduler_wait,
+                                                     warmup=scheduler_warmup,
+                                                     active=scheduler_active,
+                                                     repeat=scheduler_repeat),
+                    on_trace_ready=trace_handler,
+                    profile_memory=profile_memory,
+                    record_shapes=record_shapes,
+                    with_flops=with_flops,
+                    with_stack=with_stack)
+        else:
+            self.pytorch_profiling = False
 
     @abstractmethod
     def _training_step(self,

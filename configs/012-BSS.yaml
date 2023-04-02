@@ -1,6 +1,6 @@
 trainer:
   model:
-    # unet_3d, unet_3d_ss undet_3d_me
+    # unet_3d, unet_3d_ss unet_3d_me
     name: unet_3d_ss
     # Huge: [128, 256, 512, 1024]
     # Big: [64, 128, 256, 512]
@@ -27,24 +27,21 @@ trainer:
   loss_weights: [1.0, 7.0]
   metrics: [accuracy, ]
   # Every report_freq batches, metrics and losses will be logged
-  report_freq: 5
+  report_freq: 36
 
-  # All other pathes in the trainer section are relative to root_path
-  root_path: /data/afatehi/gbm/
-
-  epochs: 10
+  epochs: 1
   # Every save_interval a snapshot will be created
-  save_interval: 1
-  snapshot_path: snapshots/
+  save_interval: 10
+  snapshot_path: ./snapshots/
 
   result_path: ./results-train/
   skip_training: False
 
   unlabeled_ds:
     path: ./data/gbm_unlabeled_ds/
-    batch_size: 24
+    batch_size: 32
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [2, 64, 64] # Z, X, Y
+    pixel_stride: [1, 64, 64] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -52,11 +49,12 @@ trainer:
     # Different, for example use [1, 0, 2]
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 1, 2]
-    ignore_stride_mismatch: True
+    ignore_stride_mismatch: False
+    workers: 8
 
   train_ds:
     path: ./data/gbm_train_ds/
-    batch_size: 24
+    batch_size: 32
     sample_dimension: [12, 256, 256] # Z, X, Y
     pixel_stride: [1, 16, 16] # Z, X, Y
     pin_memory: True
@@ -67,12 +65,13 @@ trainer:
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 2, 1]
     ignore_stride_mismatch: False
+    workers: 8
 
   valid_ds:
     path: ./data/gbm_valid_ds/
-    batch_size: 24
+    batch_size: 32
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 16, 16] # Z, X, Y
+    pixel_stride: [1, 128, 128] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -81,6 +80,7 @@ trainer:
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 2, 1]
     ignore_stride_mismatch: False
+    workers: 8
 
   visualization:
     enabled: True
@@ -91,6 +91,24 @@ trainer:
     tif: True
     mesh: False
 
+  profiling:
+    enabled: False
+    path: ./profiling/
+    save:
+      tensorboard: True
+      text: True
+      print: False
+    profile_memory: True
+    record_shapes: True
+    with_flops: True
+    with_stack: False
+    scheduler:
+      wait: 2
+      warmup: 4
+      active: 4
+      repeat: 2
+
+
   tensorboard:
     enabled: True
     path: ./tensorboard/
@@ -98,6 +116,9 @@ trainer:
 
   device: cuda
   mixed_precision: True
+  cudnn_benchmark: True
+  pytorch_profiling: True
+  profiling_path: ./profiler/
 
   dp: True
 
@@ -139,3 +160,5 @@ logging:
   log_std: True
   log_summary: False
 
+# All other pathes are relative to root_path
+root_path: /data/afatehi/gbm/
