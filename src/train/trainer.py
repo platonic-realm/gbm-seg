@@ -44,7 +44,6 @@ class Trainer(ABC):
         self.model = None
         self.optimizer = None
         self.loss = None
-        self.no_of_classes = None
 
         self.label_correction = _label_correction_function
 
@@ -299,6 +298,8 @@ class Trainer(ABC):
                 _sample_dimension=training_sample_dimension,
                 _pixel_per_step=training_pixel_stride,
                 _channel_map=training_channel_map,
+                _scale_facor=self.configs['train_ds']['scale_factor'],
+                _scale_threshold=self.configs['train_ds']['scale_threshold'],
                 _ignore_stride_mismatch=self.configs['train_ds'][
                     'ignore_stride_mismatch'],
                 _label_correction_function=self.label_correction)
@@ -318,7 +319,9 @@ class Trainer(ABC):
                 _sample_dimension=validation_sample_dimension,
                 _pixel_per_step=validation_pixel_stride,
                 _channel_map=validation_channel_map,
-                _ignore_stride_mismatch=self.configs['train_ds'][
+                _scale_facor=self.configs['valid_ds']['scale_factor'],
+                _scale_threshold=self.configs['valid_ds']['scale_threshold'],
+                _ignore_stride_mismatch=self.configs['valid_ds'][
                     'ignore_stride_mismatch'],
                 _label_correction_function=self.label_correction)
 

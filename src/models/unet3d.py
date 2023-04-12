@@ -41,6 +41,7 @@ class Unet3D(nn.Module):
         self.sample_dimension = _sample_dimension
 
         self.input_channels = _input_channels
+        self.number_of_classes = _number_of_classes
         self.encoder_kernel_size = _encoder_kernel_size
         self.encoder_padding = _encoder_padding
         self.decoder_kernel_size = _decoder_kernel_size
@@ -73,7 +74,7 @@ class Unet3D(nn.Module):
 
         logging.debug("Creating the last layer")
         self.last_layer = nn.Conv3d(in_channels=_feature_maps[0],
-                                    out_channels=3,
+                                    out_channels=self.number_of_classes,
                                     kernel_size=1)
 
         self.final_activation = nn.Softmax(dim=1)

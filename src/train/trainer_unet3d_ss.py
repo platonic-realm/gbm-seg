@@ -275,6 +275,7 @@ class Unet3DSemiTrainer(Trainer):
                 _sample_dimension=unlabeled_sample_dimension,
                 _pixel_per_step=unlabeled_pixel_stride,
                 _channel_map=unlabeled_channel_map,
+                _scale_facor=self.configs['unlabeled_ds']['scale_factor'],
                 _dataset_type=DatasetType.Unsupervised,
                 _ignore_stride_mismatch=self.configs['unlabeled_ds']
                 ['ignore_stride_mismatch'])

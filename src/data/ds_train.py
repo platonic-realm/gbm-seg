@@ -31,9 +31,14 @@ class GBMDataset(Dataset):
                  _sample_dimension,
                  _pixel_per_step,
                  _channel_map,
+                 _scale_facor,
+                 _scale_threshold=None,
                  _dataset_type=DatasetType.Supervised,
                  _ignore_stride_mismatch=False,
                  _label_correction_function=None):
+
+        self.scale_factor = _scale_facor
+        self.scale_threshold = _scale_threshold
 
         self.dataset_type = _dataset_type
 
@@ -77,6 +82,52 @@ class GBMDataset(Dataset):
 
             image = np.array(image)
             image = image.astype(np.float32)
+            if self.scale_factor > 1:
+                # The shape is Depth, Channel, Height, Width
+                scaled_image = np.empty(((image.shape[0]-1)*self.scale_factor,
+                                         image.shape[1],
+                                         image.shape[2],
+                                         image.shape[3]),
+                                        dtype=np.float32)
+
+                # To prevent out of bound exception in image[index+1],
+                # copy the last layer in the beginning.
+                scaled_image[-1] = image[-1]
+                for i in range(scaled_image.shape[0]-1):
+                    index = int(i/self.scale_factor)
+                    i_mod = i % self.scale_factor
+                    if i_mod == 0:
+                        scaled_image[i] = image[index]
+                    else:
+                        scaled_image[i] = image[index] +\
+                            (image[index+1] - image[index]) /\
+                            self.scale_factor * i_mod
+
+                        mask = (scaled_image[i, 3, :, :] > 0) & \
+                               (scaled_image[i, 3, :, :] < 255)
+                        scaled_image[i, 3, :, :][mask] = \
+                            scaled_image[i, 3, :, :][mask] * 1.6  # Some value
+
+                        threshold_value = self.scale_threshold /\
+                            self.scale_factor * i_mod
+
+                        mask = scaled_image[i, 3, :, :] > threshold_value
+                        scaled_image[i, 3, :, :][mask] = 255
+                        mask = ~mask
+                        scaled_image[i, 3, :, :][mask] = 0
+
+                tifffile.imwrite("./test.tiff",
+                                 scaled_image[:, 3, :, :],
+                                 shape=scaled_image[:, 3, :, :].shape,
+                                 imagej=True,
+                                 metadata={'axes': 'ZYX', 'fps': 10.0}
+                                 )
+                image = scaled_image
+
+            if self.label_correction_function is not None:
+                image[:, 3, :, :] = \
+                    self.label_correction_function(image[:, 3, :, :])
+
             self.images[file_name] = image
 
             # Image's dimentionality order is like (Z, C, Y, X)
@@ -153,25 +204,26 @@ class GBMDataset(Dataset):
                           x_start: x_start + self.sample_dimension[1],
                           y_start: y_start + self.sample_dimension[2]
                           ]
+        nephrin = torch.from_numpy(nephrin)
 
         wga = wga[z_start: z_start + self.sample_dimension[0],
                   x_start: x_start + self.sample_dimension[1],
                   y_start: y_start + self.sample_dimension[2]
                   ]
+        wga = torch.from_numpy(wga)
 
         collagen4 = collagen4[z_start: z_start + self.sample_dimension[0],
                               x_start: x_start + self.sample_dimension[1],
                               y_start: y_start + self.sample_dimension[2]
                               ]
+        collagen4 = torch.from_numpy(collagen4)
 
         if self.dataset_type == DatasetType.Supervised:
             labels = labels[z_start: z_start + self.sample_dimension[0],
                             x_start: x_start + self.sample_dimension[1],
                             y_start: y_start + self.sample_dimension[2]
                             ]
-
-            if self.label_correction_function is not None:
-                labels = self.label_correction_function(labels)
+            labels = torch.from_numpy(labels)
 
         nephrin = np.expand_dims(nephrin, axis=0)
         wga = np.expand_dims(wga, axis=0)
@@ -183,16 +235,16 @@ class GBMDataset(Dataset):
 
         if self.dataset_type == DatasetType.Supervised:
             return {
-                'nephrin': torch.from_numpy(nephrin),
-                'wga': torch.from_numpy(wga),
-                'collagen4': torch.from_numpy(collagen4),
-                'labels': torch.from_numpy(labels),
+                'nephrin': nephrin,
+                'wga': wga,
+                'collagen4': collagen4,
+                'labels': labels,
             }
 
         return {
-            'nephrin': torch.from_numpy(nephrin),
-            'wga': torch.from_numpy(wga),
-            'collagen4': torch.from_numpy(collagen4),
+            'nephrin': nephrin,
+            'wga': wga,
+            'collagen4': collagen4,
         }
 
     def get_sample_per_image(self, _image_id):

@@ -19,8 +19,12 @@ from src.utils.metrics import Metrics
 
 
 class Unet3DTrainer(Trainer):
-    def __init__(self, _configs: dict):
-        super().__init__(_configs)
+    def __init__(self,
+                 _configs: dict,
+                 _label_correction_function):
+
+        super().__init__(_configs,
+                         _label_correction_function)
         assert self.configs['model']['name'] == 'unet_3d', \
                "This class should only be used with unet_3d configuration." + \
                f"{self.configs['model']['name']} was given instead."
