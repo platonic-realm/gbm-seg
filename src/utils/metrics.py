@@ -11,7 +11,6 @@ import torch
 from torch import Tensor
 
 # Local Imports
-from src.utils.misc import to_numpy
 
 
 class Metrics():
@@ -23,6 +22,7 @@ class Metrics():
         self.predictions: Tensor = _predictions
         self.labels: Tensor = _labels
         self.number_of_classes = _number_of_classes
+        self.device = _predictions.device
 
         # Calculating the confusion matrix
         self.confusion_matrix: Tensor = torch.zeros(_number_of_classes,
@@ -43,7 +43,7 @@ class Metrics():
 
         result = torch.zeros(self.number_of_classes,
                              dtype=torch.int32,
-                             device=self.predictions.device)
+                             device=self.device)
 
         # Copy the predictions tensor as next operation are destructive
         # And also detach it from the computation graph to save computation
@@ -78,48 +78,48 @@ class Metrics():
     # TP
     def TruePositive(self, _class_id) -> int:
         result_tensor = self.confusion_matrix[_class_id, _class_id]
-        return to_numpy(result_tensor)
+        return result_tensor
 
     # AP = TP + FN
     def AllPostive(self, _class_id) -> int:
         result_tensor = self.confusion_matrix[:, _class_id].sum()
-        return to_numpy(result_tensor)
+        return result_tensor
 
     def FalsePositive(self, _class_id) -> int:
-        FP = torch.zeros(1)
+        FP = torch.zeros(1, device=self.device)
         for i in range(self.number_of_classes):
             for j in range(self.number_of_classes):
                 if _class_id == i and _class_id != j:
                     FP += self.confusion_matrix[i, j]
-        return to_numpy(FP)
+        return FP
 
     # TN
     def TrueNegative(self, _class_id) -> int:
-        TN = torch.zeros(1)
+        TN = torch.zeros(1, device=self.device)
         for i in range(self.number_of_classes):
             for j in range(self.number_of_classes):
                 if _class_id not in (i, j):
                     TN += self.confusion_matrix[i, j]
-        return to_numpy(TN)
+        return TN
 
     # AN = TN + FP
     def AllNegative(self, _class_id) -> int:
-        TN = torch.zeros(1)
-        FP = torch.zeros(1)
+        TN = torch.zeros(1, device=self.device)
+        FP = torch.zeros(1, device=self.device)
         for i in range(self.number_of_classes):
             for j in range(self.number_of_classes):
                 if _class_id not in (i, j):
                     TN += self.confusion_matrix[i, j]
                 elif _class_id == i and _class_id != j:
                     FP += self.confusion_matrix[i, j]
-        return to_numpy(TN) + to_numpy(FP)
+        return TN + FP
 
     # FN
-    def FalseNegative(self, _class_id) -> int:
+    def FalseNegative(self, _class_id: int) -> int:
         return self.AllPostive(_class_id) - self.TruePositive(_class_id)
 
     # AP / AP + AN
-    def Pervalence(self, _class_id):
+    def Pervalence(self, _class_id: int) -> float:
         AP = self.AllPostive(_class_id)
         AN = self.AllNegative(_class_id)
 
@@ -132,7 +132,7 @@ class Metrics():
         return result_tensor
 
     # TPR + TNR /2
-    def BalancedAccuracy(self, _class_id):
+    def BalancedAccuracy(self, _class_id: int) -> float:
         return (self.TruePositiveRate(_class_id) +
                 self.TrueNegativeRate(_class_id)) / 2
 

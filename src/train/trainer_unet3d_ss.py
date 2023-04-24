@@ -17,7 +17,7 @@ from torch.utils.data.distributed import DistributedSampler
 # Local Imports
 from src.train.trainer import Trainer
 from src.models.unet3d_ss import Unet3DSS
-from src.utils.misc import GPURunningMetric, RunningMetric
+from src.utils.misc import GPURunningMetrics, RunningMetric
 from src.utils.metrics import Metrics
 from src.data.ds_train import GBMDataset
 from src.data.ds_train import DatasetType
@@ -204,9 +204,6 @@ class Unet3DSemiTrainer(Trainer):
 
         while index < batch_size:
 
-            batch_accuracy = GPURunningMetric(self.device_id)
-            batch_loss = GPURunningMetric(self.device_id)
-
             if (index % ratio) == 0:
                 data = next(labeled_iterator)
             else:
@@ -218,22 +215,16 @@ class Unet3DSemiTrainer(Trainer):
                                           index,
                                           data)
 
-            # These ones are for in batch calculation
-            batch_accuracy.add(results['accuracy'])
-            batch_loss.add(results['loss'].clone().detach().to(torch.float32))
-
             if self.pytorch_profiling:
                 self.prof.step()
 
             if index % freq == 0:
                 logging.info("Epoch: %d/%d, Batch: %d/%d, "
-                             "Loss: %.3f, Accuracy: %.3f",
+                             "",
                              _epoch,
                              self.epochs-1,
                              index,
-                             batch_size,
-                             batch_loss.calcualte(),
-                             batch_accuracy.calcualte())
+                             batch_size,)
 
         if self.pytorch_profiling:
             self.prof.stop()

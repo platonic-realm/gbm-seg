@@ -23,9 +23,7 @@ from src.utils.misc import configure_logger
 def supervised(_configs):
     def label_correction_function(_labels):
         _labels = _labels.astype(int)
-        _labels[_labels == 255] = -1
-        _labels[_labels >= 0] = 1
-        _labels[_labels == -1] = 0
+        _labels[_labels == 255] = 1
         return _labels
 
     if _configs['trainer']['model']['name'] == 'unet_3d':

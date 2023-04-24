@@ -21,15 +21,36 @@ trainer:
 
   optim:
     name: adam
-    lr : 0.0005
+    lr : 0.00006
 
   loss: CrossEntropy
   loss_weights: [1.0, 7.0]
   metrics: [accuracy, ]
   # Every report_freq batches, metrics and losses will be logged
-  report_freq: 20
+  report_freq: 10
 
-  epochs: 1
+  metrics: [
+            'Loss',
+            'Accuracy',
+           #'Pervalence',
+            'BalancedAccuracy',
+            'TruePositiveRate',
+            'TrueNegativeRate',
+            'FalsePositiveRate',
+            'FalseNegativeRate',
+            'PositivePredictiveValue',
+            'NegativePredictiveValue',
+           #'FalseDiscoveryRate',
+           #'FalseOmissionRate',
+           #'PositiveLikelihoodRatio',
+           #'NegativeLikelihoodRatio',
+            'Dice',
+            'JaccardIndex',
+           ]
+
+  metrics_class_ids: [1]
+
+  epochs: 10
   # Every save_interval a snapshot will be created
   save_interval: 10
   snapshot_path: ./snapshots/
@@ -39,7 +60,7 @@ trainer:
 
   unlabeled_ds:
     path: ./data/gbm_unlabeled_ds/
-    batch_size: 10
+    batch_size: 8
     sample_dimension: [12, 256, 256] # Z, X, Y
     pixel_stride: [1, 64, 64] # Z, X, Y
     pin_memory: True
@@ -55,9 +76,9 @@ trainer:
 
   train_ds:
     path: ./data/gbm_train_ds/
-    batch_size: 32
+    batch_size: 8
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 16, 16] # Z, X, Y
+    pixel_stride: [1, 32, 32] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -68,13 +89,13 @@ trainer:
     ignore_stride_mismatch: False
     workers: 8
     scale_factor: 6
-    scale_threshold: 300
+    scale_threshold: 255
 
   valid_ds:
     path: ./data/gbm_valid_ds/
-    batch_size: 32
+    batch_size: 8
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 64, 64] # Z, X, Y
+    pixel_stride: [1, 32, 32] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -85,7 +106,7 @@ trainer:
     ignore_stride_mismatch: False
     workers: 8
     scale_factor: 6
-    scale_threshold: 300
+    scale_threshold: 255
 
   visualization:
     enabled: True
@@ -116,13 +137,12 @@ trainer:
   tensorboard:
     enabled: True
     path: ./tensorboard/
-    metrics: True
 
   device: cuda
   mixed_precision: True
   cudnn_benchmark: False
 
-  dp: True
+  dp: False
 
   ddp:
     enabled: False

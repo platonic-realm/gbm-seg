@@ -14,7 +14,6 @@ from torch.nn.parallel import DataParallel as DP
 # Local Imports
 from src.train.trainer import Trainer
 from src.models.unet3d import Unet3D
-from src.utils.misc import RunningMetric
 from src.utils.metrics import Metrics
 
 
@@ -94,18 +93,11 @@ class Unet3DTrainer(Trainer):
             loss.backward()
             self.optimizer.step()
 
-        loss_value = loss.item()
-
         metrics = Metrics(self.number_class,
                           results,
                           labels)
 
-        corrects = (results == labels).float().sum().item()
-        accuracy = metrics.Accuracy()
-
-        return {'loss': loss_value,
-                'corrects': corrects,
-                'accuracy': accuracy}
+        return self._reports_metrics(metrics, loss)
 
     def _validate_step(self,
                        _epoch_id: int,
@@ -135,22 +127,15 @@ class Unet3DTrainer(Trainer):
                                        _labels=labels,
                                        _predictions=results)
 
+            metrics = Metrics(self.number_class,
+                              results,
+                              labels)
+
             loss = self.loss(logits, labels)
-            loss_value = loss.item()
 
-            corrects = (results == labels).float().sum().item()
-            accuracy = corrects/torch.numel(results)
-
-            return {'loss': loss_value,
-                    'corrects': corrects,
-                    'accuracy': accuracy}
+            return self._reports_metrics(metrics, loss)
 
     def _train_epoch(self, _epoch: int):
-
-        train_accuracy = RunningMetric()
-        train_loss = RunningMetric()
-        valid_accuracy = RunningMetric()
-        valid_loss = RunningMetric()
 
         freq = self.configs['report_freq']
 
@@ -159,63 +144,51 @@ class Unet3DTrainer(Trainer):
 
         for index, data in enumerate(self.training_loader):
 
-            batch_accuracy = RunningMetric()
-            batch_loss = RunningMetric()
-
             results = self._training_step(_epoch,
                                           index,
                                           data)
 
-            # These are used to calculate per epoch metrics
-            train_accuracy.add(results['accuracy'])
-            train_loss.add(results['loss'])
-            # These ones are for in batch calculation
-            batch_accuracy.add(results['accuracy'])
-            batch_loss.add(results['loss'])
+            self.batch_metrics.add(results)
 
             if self.pytorch_profiling:
                 self.prof.step()
 
             if index % freq == 0:
-                logging.info("Epoch: %d/%d, Batch: %d/%d, "
-                             "Loss: %.3f, Accuracy: %.3f",
+                tb_step = _epoch * self.training_batch_size + index + freq
+                metrics = self.batch_metrics.calculate()
+                logging.info("Epoch: %d/%d, Batch: %d/%d,\n"
+                             "Info: %s",
                              _epoch,
                              self.epochs-1,
                              index,
                              len(self.training_loader),
-                             batch_loss.calcualte(),
-                             batch_accuracy.calcualte())
+                             metrics)
+
+                self._log_tensorboard_metrics(tb_step,
+                                              'train',
+                                              metrics)
 
         if self.pytorch_profiling:
             self.prof.stop()
 
+        self.batch_metrics.calculate()
         for index, data in enumerate(self.validation_loader):
-
-            batch_accuracy = RunningMetric()
-            batch_loss = RunningMetric()
 
             results = self._validate_step(_epoch_id=_epoch,
                                           _batch_id=index,
                                           _data=data)
 
-            # These are used to calculate per epoch metrics
-            valid_accuracy.add(results['accuracy'])
-            valid_loss.add(results['loss'])
-            # These ones are for in batch calculation
-            batch_accuracy.add(results['accuracy'])
-            batch_loss.add(results['loss'])
+            self.batch_metrics.add(results)
 
             if index % freq == 0:
-                logging.info("Validation, Batch: %d/%d, "
-                             "Loss: %.3f, Accuracy: %.3f",
+                tb_step = _epoch * self.validation_batch_size + index + freq
+                metrics = self.batch_metrics.calculate()
+                logging.info("Validation, Batch: %d/%d,\n"
+                             "Info: %s",
                              index,
                              len(self.validation_loader),
-                             batch_loss.calcualte(),
-                             batch_accuracy.calcualte())
+                             metrics)
 
-        self._log_tensorboard_metrics(
-               _train_accuracy=train_accuracy.calcualte(),
-               _train_loss=train_loss.calcualte(),
-               _valid_accuracy=valid_accuracy.calcualte(),
-               _valid_loss=valid_loss.calcualte(),
-               _n_iter=_epoch)
+                self._log_tensorboard_metrics(tb_step,
+                                              'valid',
+                                              metrics)

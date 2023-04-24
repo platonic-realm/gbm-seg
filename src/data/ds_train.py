@@ -82,6 +82,11 @@ class GBMDataset(Dataset):
 
             image = np.array(image)
             image = image.astype(np.float32)
+
+            image[:, 3, :, :][image[:, 3, :, :] >= 255] = -1
+            image[:, 3, :, :][image[:, 3, :, :] >= 0] = 255
+            image[:, 3, :, :][image[:, 3, :, :] == -1] = 0
+
             if self.scale_factor > 1:
                 # The shape is Depth, Channel, Height, Width
                 scaled_image = np.empty(((image.shape[0]-1)*self.scale_factor,
@@ -103,25 +108,24 @@ class GBMDataset(Dataset):
                             (image[index+1] - image[index]) /\
                             self.scale_factor * i_mod
 
-                        mask = (scaled_image[i, 3, :, :] > 0) & \
-                               (scaled_image[i, 3, :, :] < 255)
-                        scaled_image[i, 3, :, :][mask] = \
-                            scaled_image[i, 3, :, :][mask] * 1.6  # Some value
+                        threshold = (self.scale_factor-1) *\
+                            (self.scale_threshold / self.scale_factor)
 
-                        threshold_value = self.scale_threshold /\
-                            self.scale_factor * i_mod
+                        scaled_image[i, 3, :, :][
+                                scaled_image[i, 3, :, :] >= threshold] = 255
 
-                        mask = scaled_image[i, 3, :, :] > threshold_value
-                        scaled_image[i, 3, :, :][mask] = 255
-                        mask = ~mask
-                        scaled_image[i, 3, :, :][mask] = 0
+                        scaled_image[i, 3, :, :][
+                                scaled_image[i, 3, :, :] < threshold] = 0
 
-                tifffile.imwrite("./test.tiff",
-                                 scaled_image[:, 3, :, :],
-                                 shape=scaled_image[:, 3, :, :].shape,
+
+                tifffile.imwrite('/data/afatehi/label_test/interpolated.tif',
+                                 scaled_image,
+                                 shape=scaled_image.shape,
                                  imagej=True,
-                                 metadata={'axes': 'ZYX', 'fps': 10.0}
+                                 metadata={'axes': 'ZCYX', 'fps': 10.0}
                                  )
+
+
                 image = scaled_image
 
             if self.label_correction_function is not None:

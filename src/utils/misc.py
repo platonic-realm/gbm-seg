@@ -29,21 +29,49 @@ class RunningMetric():
         return result
 
 
-class GPURunningMetric():
-    def __init__(self, _device):
+class GPURunningMetrics():
+    def __init__(self,
+                 _configs,
+                 _device):
         self.device = _device
-        self.value = torch.zeros(1, device=self.device, dtype=torch.float32)
-        self.counter = torch.zeros(1, device=self.device, dtype=torch.float32)
+        self.metrics = _configs['metrics']
 
-    def add(self, _value) -> None:
-        self.value = torch.add(self.value, _value)
-        self.counter = torch.add(self.value, 1)
+        self.values = torch.zeros(len(self.metrics),
+                                  device=self.device,
+                                  dtype=torch.float32)
+        self.counter = torch.zeros(1,
+                                   device=self.device,
+                                   dtype=torch.float32)
 
-    def calcualte(self) -> float:
-        result = torch.div(self.value, self.counter)
-        self.value = torch.zeros(1, device=self.device)
-        self.counter = torch.zeros(1, device=self.device)
-        return result.item()
+    def add(self, _values) -> None:
+        for i, metric in enumerate(self.metrics):
+            if len(_values[metric].shape) > 0:
+                self.values[i] += _values[metric].squeeze()
+            else:
+                self.values[i] += _values[metric]
+        self.counter += 1
+
+    def calculate(self) -> dict:
+        results = dict.fromkeys(self.metrics)
+        results_tensor = torch.div(self.values, self.counter)
+        self.values = torch.zeros(len(self.metrics),
+                                  device=self.device,
+                                  dtype=torch.float32)
+        self.counter = torch.zeros(1,
+                                   device=self.device,
+                                   dtype=torch.float32)
+
+        results_numpy = to_numpy(results_tensor)
+
+        for i, metric in enumerate(self.metrics):
+            results[metric] = results_numpy[i]
+        return results
+
+    def zeros(self) -> dict:
+        results = dict.fromkeys(self.metrics)
+        for metric in self.metrics:
+            results[metric] = 0.0
+        return results
 
 
 def configure_logger(_configs: dict) -> None:

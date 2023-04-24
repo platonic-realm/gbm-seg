@@ -28,6 +28,7 @@ from src.utils.visual import VisualizerUnet3D
 from src.data.ds_train import GBMDataset
 from src.utils.losses.loss_dice import DiceLoss
 from src.utils.losses.loss_ss import SelfSupervisedLoss
+from src.utils.misc import GPURunningMetrics
 
 
 # Tip for using abstract methods in python... dont use
@@ -120,6 +121,12 @@ class Trainer(ABC):
         if self.ddp:
             init_process_group(backend="nccl")
 
+        self.batch_metrics = GPURunningMetrics(self.configs,
+                                               self.device)
+        self.epoch_metrics = GPURunningMetrics(self.configs,
+                                               self.device)
+
+        self._init_tensorboard()
         self._prepare_profiling()
         self._prepare_data()
 
@@ -166,26 +173,35 @@ class Trainer(ABC):
 
         return result
 
-    def _log_tensorboard_metrics(self,
-                                 _n_iter: int,
-                                 _train_accuracy: float,
-                                 _train_loss: float,
-                                 _valid_accuracy: float,
-                                 _valid_loss: float) -> None:
+    def _init_tensorboard(self):
+
         if not self.tensorboard:
             return
-        if not self.configs['tensorboard']['metrics']:
+        if self.ddp and self.rank != 0:
+            return
+        zero_metrics = self.batch_metrics.zeros()
+        self._log_tensorboard_metrics(0,
+                                      'train',
+                                      zero_metrics)
+        self._log_tensorboard_metrics(0,
+                                      'valid',
+                                      zero_metrics)
+
+    def _log_tensorboard_metrics(self,
+                                 _n_iter: int,
+                                 _mode: str,
+                                 _metrics: dict) -> None:
+        if not self.tensorboard:
             return
         if self.ddp and self.rank != 0:
             return
 
         tb_writer = SummaryWriter(self.tensorboard_path.resolve())
 
-        tb_writer.add_scalar('Accuracy/train', _train_accuracy, _n_iter)
-        tb_writer.add_scalar('Loss/train', _train_loss, _n_iter)
-
-        tb_writer.add_scalar('Accuracy/valid', _valid_accuracy, _n_iter)
-        tb_writer.add_scalar('Loss/valid', _valid_loss, _n_iter)
+        for metric in _metrics.keys():
+            tb_writer.add_scalar(f'{metric}/{_mode}',
+                                 _metrics[metric],
+                                 _n_iter)
 
         tb_writer.close()
 
@@ -333,6 +349,7 @@ class Trainer(ABC):
             valid_sampler = None
 
         training_batch_size: int = self.configs['train_ds']['batch_size']
+        self.training_batch_size = training_batch_size
         training_shuffle: bool = self.configs['train_ds']['shuffle']
         self.training_loader = DataLoader(training_dataset,
                                           batch_size=training_batch_size,
@@ -342,6 +359,7 @@ class Trainer(ABC):
                                           ['train_ds']['workers'])
 
         validation_batch_size: int = self.configs['valid_ds']['batch_size']
+        self.validation_batch_size = validation_batch_size
         validation_shuffle: bool = self.configs['valid_ds']['shuffle']
         self.validation_loader = DataLoader(validation_dataset,
                                             batch_size=validation_batch_size,
@@ -434,6 +452,22 @@ class Trainer(ABC):
                     with_stack=with_stack)
         else:
             self.pytorch_profiling = False
+
+    def _reports_metrics(self,
+                         _metrics,
+                         _loss):
+        results = dict()
+        results['Loss'] = _loss
+
+        metric_list = self.configs['metrics']
+
+        for metric in metric_list[1:]:
+            if metric == 'Accuracy':
+                results[metric] = getattr(_metrics, metric)()
+            else:
+                results[metric] = getattr(_metrics, metric)(_class_id=1)
+
+        return results
 
     @abstractmethod
     def _training_step(self,
