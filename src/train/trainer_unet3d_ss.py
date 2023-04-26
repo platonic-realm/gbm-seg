@@ -17,8 +17,8 @@ from torch.utils.data.distributed import DistributedSampler
 # Local Imports
 from src.train.trainer import Trainer
 from src.models.unet3d_ss import Unet3DSS
-from src.utils.misc import GPURunningMetrics, RunningMetric
-from src.utils.metrics import Metrics
+from src.utils.metrics.classification import Metrics
+from src.utils.metrics.memory import GPURunningMetrics
 from src.data.ds_train import GBMDataset
 from src.data.ds_train import DatasetType
 
@@ -62,20 +62,21 @@ class Unet3DSemiTrainer(Trainer):
         self._prepare_loss()
 
         self.unlabeled_loader = None
+        self.unlabeled_metrics = GPURunningMetrics(self.configs,
+                                                   self.device,
+                                                   ["loss"])
         self._prepare_unlabeled_data()
 
     def _training_step(self,
                        _epoch_id: int,
                        _batch_id: int,
                        _data: dict) -> dict:
+        self.step += 1
+
         if self.ddp:
             device = self.device_id
         else:
             device = self.device
-
-        if self.skip_training:
-            return {'loss': 0,
-                    'accuracy': 0}
 
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
@@ -86,14 +87,11 @@ class Unet3DSemiTrainer(Trainer):
         self.loss.unsupervised()
         if 'labels' in _data:
             labels = _data['labels'].to(device)
+            labels = labels.long()
             self.loss.supervised()
             supervised = True
 
         frames = self._stack_channels(nephrin, wga, collagen4)
-
-        nephrin = nephrin[:, :, ::2, :, :]
-        wga = wga[:, :, ::2, :, :]
-        collagen4 = collagen4[:, :, ::2, :, :]
 
         sample = self._stack_channels(nephrin, wga, collagen4)
 
@@ -107,6 +105,9 @@ class Unet3DSemiTrainer(Trainer):
                                  interpolation,
                                  labels,
                                  frames)
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
         else:
             logits, results, interpolation = self.model(sample)
             loss = self.loss(_epoch_id,
@@ -114,12 +115,6 @@ class Unet3DSemiTrainer(Trainer):
                              interpolation,
                              labels,
                              frames)
-
-        if self.mixed_precision:
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-        else:
             loss.backward()
             self.optimizer.step()
 
@@ -128,12 +123,9 @@ class Unet3DSemiTrainer(Trainer):
                               results,
                               labels)
 
-            accuracy = metrics.Accuracy()
-        else:
-            accuracy = 0.0
+            return self._reports_metrics(metrics, loss)
 
-        return {'loss': loss,
-                'accuracy': accuracy}
+        return {'loss': loss}
 
     def _validate_step(self,
                        _epoch_id: int,
@@ -149,12 +141,9 @@ class Unet3DSemiTrainer(Trainer):
         wga = _data['wga'].to(device)
         collagen4 = _data['collagen4'].to(device)
         labels = _data['labels'].to(device)
+        labels = labels.long()
 
         frames = self._stack_channels(nephrin, wga, collagen4)
-
-        nephrin = nephrin[:, :, ::2, :, :]
-        wga = wga[:, :, ::2, :, :]
-        collagen4 = collagen4[:, :, ::2, :, :]
 
         sample = self._stack_channels(nephrin, wga, collagen4)
 
@@ -176,13 +165,11 @@ class Unet3DSemiTrainer(Trainer):
                              labels,
                              frames)
 
-            loss_value = loss.item()
+            metrics = Metrics(self.number_class,
+                              results,
+                              labels)
 
-            corrects = (results == labels).float().sum().item()
-            accuracy = corrects/torch.numel(results)
-
-            return {'loss': loss_value,
-                    'accuracy': accuracy}
+            return self._reports_metrics(metrics, loss)
 
     def _train_epoch(self, _epoch: int):
 
@@ -196,59 +183,74 @@ class Unet3DSemiTrainer(Trainer):
 
         ratio = unlabeled_length // labeled_length
 
-        index = 0
-        batch_size = ratio*labeled_length
+        assert ratio >= 2, "It doesn't make sense to have a low ratio."
+
+        train_index = 0
+        batch_size = ratio * labeled_length
+
+        if freq > ratio:
+            freq = freq + (freq % ratio)
+        else:
+            freq = ratio
 
         if self.pytorch_profiling:
             self.prof.start()
 
-        while index < batch_size:
-
-            if (index % ratio) == 0:
+        while train_index < batch_size:
+            supervised = (train_index % ratio) == 0
+            if supervised:
                 data = next(labeled_iterator)
             else:
                 data = next(unlabeled_iterator)
 
-            index += 1
+            train_index += 1
 
             results = self._training_step(_epoch,
-                                          index,
+                                          train_index,
                                           data)
+            if supervised:
+                self.gpu_metrics.add(results)
+            else:
+                self.unlabeled_metrics.add(results)
 
             if self.pytorch_profiling:
                 self.prof.step()
 
-            if index % freq == 0:
-                logging.info("Epoch: %d/%d, Batch: %d/%d, "
-                             "",
-                             _epoch,
-                             self.epochs-1,
-                             index,
-                             batch_size,)
+            if train_index % freq == 0:
+                # We should calculate once and report twice
+                metrics = self.gpu_metrics.calculate()
+                self._log_tensorboard_metrics(self.step,
+                                              'train',
+                                              metrics)
+
+                logging.info("Epoch: %d/%d, Batch: %d/%d, Step: %d\n"
+                             "Info: %s",
+                             _epoch+1,
+                             self.epochs,
+                             train_index,
+                             batch_size,
+                             self.step,
+                             metrics)
+
+                for index, data in enumerate(self.validation_loader):
+                    results = self._validate_step(_epoch_id=_epoch,
+                                                  _batch_id=index,
+                                                  _data=data)
+                    self.gpu_metrics.add(results)
+
+                # We should calculate once and report twice
+                metrics = self.gpu_metrics.calculate()
+                logging.info("Validation, Step: %d\n"
+                             "Info: %s",
+                             self.step,
+                             metrics)
+
+                self._log_tensorboard_metrics(self.step,
+                                              'valid',
+                                              metrics)
 
         if self.pytorch_profiling:
             self.prof.stop()
-
-        for index, data in enumerate(self.validation_loader):
-
-            batch_accuracy = RunningMetric()
-            batch_loss = RunningMetric()
-
-            results = self._validate_step(_epoch_id=_epoch,
-                                          _batch_id=index,
-                                          _data=data)
-
-            # These ones are for in batch calculation
-            batch_accuracy.add(results['accuracy'])
-            batch_loss.add(results['loss'])
-
-            if index % freq == 0:
-                logging.info("Validation, Batch: %d/%d, "
-                             "Loss: %.3f, Accuracy: %.3f",
-                             index,
-                             len(self.validation_loader),
-                             batch_loss.calcualte(),
-                             batch_accuracy.calcualte())
 
     def _prepare_unlabeled_data(self) -> None:
 
@@ -266,7 +268,6 @@ class Unet3DSemiTrainer(Trainer):
                 _sample_dimension=unlabeled_sample_dimension,
                 _pixel_per_step=unlabeled_pixel_stride,
                 _channel_map=unlabeled_channel_map,
-                _scale_facor=self.configs['unlabeled_ds']['scale_factor'],
                 _dataset_type=DatasetType.Unsupervised,
                 _ignore_stride_mismatch=self.configs['unlabeled_ds']
                 ['ignore_stride_mismatch'])

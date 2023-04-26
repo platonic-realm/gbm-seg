@@ -1,12 +1,13 @@
 trainer:
   model:
     # unet_3d, unet_3d_ss unet_3d_me
-    name: unet_3d
+    name: unet_3d_ss
     # Huge: [128, 256, 512, 1024]
     # Big: [64, 128, 256, 512]
     # Medium: [64, 128, 256]
     # Small: [32, 64, 128]
-    feature_maps: [64, 128, 256, 512]
+    # Tiny: [16, 32, 64]
+    feature_maps: [16, 32, 64]
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
@@ -21,7 +22,7 @@ trainer:
 
   optim:
     name: adam
-    lr : 0.00006
+    lr : 0.0001
 
   loss: CrossEntropy
   loss_weights: [1.0, 7.0]
@@ -50,19 +51,18 @@ trainer:
 
   metrics_class_ids: [1]
 
-  epochs: 10
+  epochs: 30
   # Every save_interval a snapshot will be created
   save_interval: 10
   snapshot_path: ./snapshots/
 
   result_path: ./results-train/
-  skip_training: False
 
   unlabeled_ds:
     path: ./data/gbm_unlabeled_ds/
-    batch_size: 8
+    batch_size: 16
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 64, 64] # Z, X, Y
+    pixel_stride: [1, 256, 256] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -76,9 +76,9 @@ trainer:
 
   train_ds:
     path: ./data/gbm_train_ds/
-    batch_size: 8
+    batch_size: 16
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 32, 32] # Z, X, Y
+    pixel_stride: [1, 64, 64] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -86,16 +86,14 @@ trainer:
     # Different, for example use [1, 0, 2]
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 2, 1]
-    ignore_stride_mismatch: False
+    ignore_stride_mismatch: True
     workers: 8
-    scale_factor: 6
-    scale_threshold: 255
 
   valid_ds:
     path: ./data/gbm_valid_ds/
-    batch_size: 8
+    batch_size: 16
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 32, 32] # Z, X, Y
+    pixel_stride: [1, 256, 256] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -103,10 +101,8 @@ trainer:
     # Different, for example use [1, 0, 2]
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 2, 1]
-    ignore_stride_mismatch: False
+    ignore_stride_mismatch: True
     workers: 8
-    scale_factor: 6
-    scale_threshold: 255
 
   visualization:
     enabled: True
@@ -152,32 +148,38 @@ trainer:
 
 inference:
   model:
-    # unet_3d, undet_3d_me
-    name: unet_3d
+    # unet_3d, unet_3d_ss unet_3d_me
+    name: unet_3d_ss
     # Of course it should be the same as the checkpoint
-    feature_maps: [64, 128, 256, 512]
+    feature_maps: [16, 32, 64]
     # 0: Nephrin
     # 1: WGA
     # 2: Collagen4
     channels: [0, 1, 2]
 
-  snapshot_path: '~/gbm/results-train/unet_3d-adam-CrossEntropy-012-64128256512/snapshots/unet_3d-unet_3d-adam-CrossEntropy-012-64128256512-032.pt'
+  number_class: 2
+  snapshot_path: '/data/afatehi/unet_3d_ss-adam-CrossEntropy-012-163264-009.pt'
   device: cuda
 
-  report_freq: 10
   save_npy: False
 
-  result_dir: ~/gbm/results-infer/
+  result_dir: /data/afatehi/gbm/results-infer/
 
   inference_ds:
-    path: '~/gbm/data/raw/Batch 1/TifImages/'
-    batch_size: 6
-    sample_dimension: [12, 256, 256]
-    pixel_stride: [1, 64, 64]
+    path: '/data/afatehi/infer/'
+    batch_size: 16
+    sample_dimension: [6, 512, 512]
+    pixel_stride: [1, 256, 256]
     pin_memory: True
+    # Use this if the order of channels is
+    # Different, for example use [1, 0, 2]
+    # If the first channel is WGA and second is nephrin
+    channel_map: [0, 2, 1]
+    scale_factor: 1
+    workers: 8
 
 logging:
-  log_level: INFO
+  log_level: DEBUG
   log_file: logs/train.log
   log_std: True
   log_summary: False

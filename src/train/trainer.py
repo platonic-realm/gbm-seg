@@ -28,7 +28,7 @@ from src.utils.visual import VisualizerUnet3D
 from src.data.ds_train import GBMDataset
 from src.utils.losses.loss_dice import DiceLoss
 from src.utils.losses.loss_ss import SelfSupervisedLoss
-from src.utils.misc import GPURunningMetrics
+from src.utils.metrics.memory import GPURunningMetrics
 
 
 # Tip for using abstract methods in python... dont use
@@ -56,6 +56,7 @@ class Trainer(ABC):
         self.model_name = self.configs['model']['name']
         self.epochs: int = self.configs['epochs']
         self.epoch_resume = 0
+        self.step = 0
         self.save_interval = self.configs['save_interval']
         self.result_path = os.path.join(self.root_path,
                                         self.configs['result_path'],
@@ -108,8 +109,6 @@ class Trainer(ABC):
                               self.configs['tensorboard']['path']))
         self.tensorboard_path.mkdir(parents=True, exist_ok=True)
 
-        self.skip_training = self.configs['skip_training']
-
         if self.device == 'cuda':
             self.device_id: int = self.local_rank % torch.cuda.device_count()
         else:
@@ -121,12 +120,9 @@ class Trainer(ABC):
         if self.ddp:
             init_process_group(backend="nccl")
 
-        self.batch_metrics = GPURunningMetrics(self.configs,
-                                               self.device)
-        self.epoch_metrics = GPURunningMetrics(self.configs,
-                                               self.device)
+        self.gpu_metrics = GPURunningMetrics(self.configs,
+                                             self.device)
 
-        self._init_tensorboard()
         self._prepare_profiling()
         self._prepare_data()
 
@@ -174,12 +170,26 @@ class Trainer(ABC):
         return result
 
     def _init_tensorboard(self):
+        if self.step > 0:
+            return
 
         if not self.tensorboard:
             return
         if self.ddp and self.rank != 0:
             return
-        zero_metrics = self.batch_metrics.zeros()
+
+        zero_metrics = GPURunningMetrics(self.configs,
+                                         self.device)
+
+        for index, data in enumerate(self.validation_loader):
+
+            results = self._validate_step(_epoch_id=0,
+                                          _batch_id=index,
+                                          _data=data)
+
+            self.gpu_metrics.add(results)
+
+        zero_metrics = zero_metrics.calculate()
         self._log_tensorboard_metrics(0,
                                       'train',
                                       zero_metrics)
@@ -268,6 +278,7 @@ class Trainer(ABC):
 
         snapshot = {}
         snapshot['EPOCHS'] = epoch
+        snapshot['STEP'] = self.step
         if self.ddp:
             snapshot['MODEL_STATE'] = self.model.module.state_dict()
         else:
@@ -297,7 +308,9 @@ class Trainer(ABC):
 
         self.model.load_state_dict(snapshot['MODEL_STATE'])
         self.epoch_resume = snapshot['EPOCHS'] + 1
+        self.step = snapshot['STEP'] + 1
         logging.info("Resuming training at epoch: %d", self.epoch_resume)
+        logging.info("Resuming training at step: %d", self.step)
 
     def _prepare_data(self) -> None:
 
@@ -314,8 +327,6 @@ class Trainer(ABC):
                 _sample_dimension=training_sample_dimension,
                 _pixel_per_step=training_pixel_stride,
                 _channel_map=training_channel_map,
-                _scale_facor=self.configs['train_ds']['scale_factor'],
-                _scale_threshold=self.configs['train_ds']['scale_threshold'],
                 _ignore_stride_mismatch=self.configs['train_ds'][
                     'ignore_stride_mismatch'],
                 _label_correction_function=self.label_correction)
@@ -335,8 +346,6 @@ class Trainer(ABC):
                 _sample_dimension=validation_sample_dimension,
                 _pixel_per_step=validation_pixel_stride,
                 _channel_map=validation_channel_map,
-                _scale_facor=self.configs['valid_ds']['scale_factor'],
-                _scale_threshold=self.configs['valid_ds']['scale_threshold'],
                 _ignore_stride_mismatch=self.configs['valid_ds'][
                     'ignore_stride_mismatch'],
                 _label_correction_function=self.label_correction)
@@ -417,7 +426,7 @@ class Trainer(ABC):
                                       f"{self.model_tag}.txt")
 
             def txt_trace_handler(prof):
-                with open(trace_file, 'w') as file:
+                with open(trace_file, 'w', encoding='UTF-8') as file:
                     file.write(prof.key_averages().table(
                                     sort_by="self_cuda_time_total",
                                     row_limit=-1))
@@ -456,7 +465,7 @@ class Trainer(ABC):
     def _reports_metrics(self,
                          _metrics,
                          _loss):
-        results = dict()
+        results = {}
         results['Loss'] = _loss
 
         metric_list = self.configs['metrics']

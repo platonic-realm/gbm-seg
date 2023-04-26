@@ -4,43 +4,54 @@ Date:   10.12.2022
 """
 
 # Python Imports
+import os
 
 # Library Imports
 import torch
-from torch.utils.data import Dataset
 import numpy as np
 import tifffile
 
 # Local Imports
+from src.data.ds_base import BaseDataset, DatasetType
 
 
-class InferenceDataset(Dataset):
+class InferenceDataset(BaseDataset):
     # pylint: disable=too-many-instance-attributes
 
     def __init__(self,
                  _file_path,
                  _sample_dimension,
                  _pixel_per_step,
-                 _channel_map):
+                 _channel_map,
+                 _scale_factor):
+
+        super().__init__(_sample_dimension,
+                         _pixel_per_step,
+                         _channel_map,
+                         _scale_factor,
+                         _dataset_type=DatasetType.Inference,
+                         _ignore_stride_mismatch=False,
+                         _label_correction_function=None)
 
         self.file_path = _file_path
-        self.tiff_tags = {}
-        self.image = self.read_file(self.file_path)
-        self.image_shape = self.image.shape
-        self.channel_map = _channel_map
+        self.file_name = os.path.basename(_file_path)
+        with tifffile.TiffFile(self.file_path) as tiff:
+            self.image = tiff.asarray()
+            self.tiff_tags = self.get_tiff_tags(tiff)
 
-        assert (self.image_shape[0] - _sample_dimension[0]) % \
-            _pixel_per_step[0], \
-            "(Len(Z_Image) - Len(Z_Sample) % Z_Stride should be 0."
+        self.image_shape = self.image.shape
+        self.image = np.array(self.image)
+        self.image = self.image.astype(np.float32)
+
+        if self.scale_factor > 1:
+            self.image = self.scale(self.image)
+
+        self.check_image_shape_compatibility(self.image_shape,
+                                             self.file_name)
 
         self.nephrin = self.image[:, self.channel_map[0], :, :]
         self.wga = self.image[:, self.channel_map[1], :, :]
         self.collagen4 = self.image[:, self.channel_map[2], :, :]
-
-        self.sample_dimension = _sample_dimension
-        self.pixel_per_step_x = _pixel_per_step[2]
-        self.pixel_per_step_y = _pixel_per_step[1]
-        self.pixel_per_step_z = _pixel_per_step[0]
 
         sample_per_z = int((self.image_shape[0] - self.sample_dimension[0]) //
                            self.pixel_per_step_z) + 1
@@ -105,15 +116,3 @@ class InferenceDataset(Dataset):
                           z_start])
             ).int()
         }
-
-    def read_file(self, _file_path):
-        with tifffile.TiffFile(_file_path) as tif:
-            for tag in tif.pages[0].tags.values():
-                name, value = tag.name, tag.value
-                self.tiff_tags[name] = value
-
-        image = tifffile.imread(_file_path)
-        image = np.array(image)
-        image = image.astype(np.float32)
-
-        return image

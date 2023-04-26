@@ -20,6 +20,9 @@ import imageio
 # Local Imports
 from src.data.ds_infer import InferenceDataset
 from src.models.unet3d import Unet3D
+from src.models.unet3d_me import Unet3DME
+from src.models.unet3d_ss import Unet3DSS
+
 from src.utils.misc import to_numpy, create_dirs_recursively
 
 
@@ -29,35 +32,33 @@ class Inference():
         self.base_configs = _configs
         self.configs = _configs['inference']
 
-        self.freq: int = self.configs['report_freq']
         self.model_name: str = self.configs['model']['name']
+        self.number_class: int = self.configs['number_class']
         self.feature_maps: list = self.configs['model']['feature_maps']
         self.channels: list = self.configs['model']['channels']
-        self.number_class: int = self.configs['model']['number_class']
-        self.source_path: str = self.configs['inference_ds']['path']
+        self.input_path: str = self.configs['inference_ds']['path']
         self.sample_dimension: list = \
             self.configs['inference_ds']['sample_dimension']
         self.pixel_stride: list = \
             self.configs['inference_ds']['pixel_stride']
         self.batch_size: int = self.configs['inference_ds']['batch_size']
+        self.scale_factor: int = self.configs['inference_ds']['scale_factor']
+        self.channel_map: list = self.configs['inference_ds']['channel_map']
 
     def infer(self):
-
-        directory_content = os.listdir(self.source_path)
+        directory_content = os.listdir(self.input_path)
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
                                         _x),
                                         directory_content))
 
         for file_name in directory_content:
-            file_path = os.path.join(self.source_path, file_name)
+            file_path = os.path.join(self.input_path, file_name)
             dataset = InferenceDataset(
                     _file_path=file_path,
                     _sample_dimension=self.sample_dimension,
-                    _pixel_per_step=self.pixel_stride)
-            dataset = InferenceDataset(
-                    _file_path=file_path,
-                    _sample_dimension=self.sample_dimension,
-                    _pixel_per_step=self.pixel_stride)
+                    _pixel_per_step=self.pixel_stride,
+                    _channel_map=self.channel_map,
+                    _scale_factor=self.scale_factor)
 
             data_loader = DataLoader(dataset,
                                      batch_size=self.batch_size,
@@ -65,7 +66,7 @@ class Inference():
 
             result_shape: list = []
             list(dataset.image_shape)
-            result_shape.append(3)
+            result_shape.append(self.number_class)
             result_shape.append(dataset.image_shape[0])
             result_shape.append(dataset.image_shape[2])
             result_shape.append(dataset.image_shape[3])
@@ -77,6 +78,20 @@ class Inference():
                                _inference=True,
                                _result_shape=result_shape,
                                _sample_dimension=self.sample_dimension)
+            elif self.model_name == 'unet_3d_me':
+                model = Unet3DME(len(self.channels),
+                                 self.number_class,
+                                 _feature_maps=self.feature_maps,
+                                 _inference=True,
+                                 _result_shape=result_shape,
+                                 _sample_dimension=self.sample_dimension)
+            elif self.model_name == 'unet_3d_ss':
+                model = Unet3DSS(len(self.channels),
+                                 self.number_class,
+                                 _feature_maps=self.feature_maps,
+                                 _inference=True,
+                                 _result_shape=result_shape,
+                                 _sample_dimension=self.sample_dimension)
 
             snapshot_path: str = self.configs['snapshot_path']
             snapshot = torch.load(snapshot_path)
@@ -85,7 +100,7 @@ class Inference():
             device: str = self.configs['device']
             model.to(device)
 
-            for index, data in enumerate(data_loader):
+            for _, data in enumerate(data_loader):
 
                 nephrin = data['nephrin'].to(device)
                 wga = data['wga'].to(device)
@@ -98,13 +113,7 @@ class Inference():
                                              collagen4)
 
                 with torch.no_grad():
-                    _, _ = model(sample, offsets)
-
-                if index % self.freq == 0:
-                    logging.info("%s: %d/%d completed ",
-                                 file_name,
-                                 index*self.batch_size,
-                                 len(dataset))
+                    _ = model(sample, offsets)
 
             output_dir = os.path.join(
                     self.configs['result_dir'],
@@ -163,68 +172,31 @@ class Inference():
                     _prediction: array,
                     _output_path: str,
                     _tiff_tags: dict,
-                    _multiplier: int = 127):
+                    _multiplier: int = 255):
 
         prediction_tif_path = os.path.join(_output_path, "prediction.tif")
         prediction_gif_path = os.path.join(_output_path, "prediction.gif")
 
-        sure_tif_path = os.path.join(_output_path, "sure.tif")
-        possible_tif_path = os.path.join(_output_path, "possible.tiff")
-
-        sure_tensor = np.copy(_prediction)
-        sure_tensor[sure_tensor != 2] = 0
-        sure_tensor[sure_tensor == 2] = 255
-        sure_tensor = sure_tensor.astype(np.uint8)
-
-        possible_tensor = np.copy(_prediction)
-        possible_tensor[possible_tensor != 1] = 0
-        possible_tensor[possible_tensor == 1] = 255
-        possible_tensor = possible_tensor.astype(np.uint8)
-
         _prediction = _prediction * _multiplier
         _prediction = _prediction.astype(np.uint8)
-
-        possible_tensor = np.stack([_nephrin,
-                                    _wga,
-                                    _collagen4,
-                                    possible_tensor],
-                                   axis=1)
-
-        sure_tensor = np.stack([_nephrin,
-                                _wga,
-                                _collagen4,
-                                sure_tensor],
-                               axis=1)
 
         if self.configs['save_npy']:
             np.save(os.path.join(_output_path,
                                  "prediction.npy"),
                     _prediction)
-            np.save(os.path.join(_output_path,
-                                 "sure.npy"),
-                    sure_tensor)
-            np.save(os.path.join(_output_path,
-                                 "possible.npy"),
-                    possible_tensor)
 
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):
                 writer.append_data(_prediction[index])
 
+        _prediction = np.stack([_nephrin,
+                                _wga,
+                                _collagen4,
+                                _prediction],
+                               axis=1)
+
         tifffile.imwrite(prediction_tif_path,
                          _prediction,
                          shape=_prediction.shape,
-                         imagej=True,
-                         metadata={'axes': 'ZYX', 'fps': 10.0})
-
-        tifffile.imwrite(possible_tif_path,
-                         possible_tensor,
-                         shape=possible_tensor.shape,
-                         imagej=True,
-                         metadata={'axes': 'ZCYX', 'fps': 10.0})
-
-        tifffile.imwrite(sure_tif_path,
-                         sure_tensor,
-                         shape=sure_tensor.shape,
                          imagej=True,
                          metadata={'axes': 'ZCYX', 'fps': 10.0})

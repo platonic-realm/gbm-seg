@@ -256,11 +256,6 @@ class DecoderLayer_SS(nn.Module):
 
         _x = torch.cat((_encoder_features, _x), dim=1)
 
-        _x = Fn.interpolate(_x,
-                            size=(_x.shape[2]*2,
-                                  _x.shape[3],
-                                  _x.shape[4]))
-
         _x = self.convolution_1(_x)
         _x = self.convolution_2(_x)
 

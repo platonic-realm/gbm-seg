@@ -14,7 +14,7 @@ from torch.nn.parallel import DataParallel as DP
 # Local Imports
 from src.train.trainer import Trainer
 from src.models.unet3d import Unet3D
-from src.utils.metrics import Metrics
+from src.utils.metrics.classification import Metrics
 
 
 class Unet3DTrainer(Trainer):
@@ -57,15 +57,13 @@ class Unet3DTrainer(Trainer):
                        _epoch_id: int,
                        _batch_id: int,
                        _data: dict) -> dict:
+
+        self.step += 1
+
         if self.ddp:
             device = self.device_id
         else:
             device = self.device
-
-        if self.skip_training:
-            return {'loss': 0,
-                    'corrects': 0,
-                    'accuracy': 0}
 
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
@@ -81,15 +79,12 @@ class Unet3DTrainer(Trainer):
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 logits, results = self.model(sample)
                 loss = self.loss(logits, labels)
-        else:
-            logits, results = self.model(sample)
-            loss = self.loss(logits, labels)
-
-        if self.mixed_precision:
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
+            logits, results = self.model(sample)
+            loss = self.loss(logits, labels)
             loss.backward()
             self.optimizer.step()
 
@@ -148,47 +143,45 @@ class Unet3DTrainer(Trainer):
                                           index,
                                           data)
 
-            self.batch_metrics.add(results)
+            self.gpu_metrics.add(results)
 
             if self.pytorch_profiling:
                 self.prof.step()
 
-            if index % freq == 0:
-                tb_step = _epoch * self.training_batch_size + index + freq
-                metrics = self.batch_metrics.calculate()
-                logging.info("Epoch: %d/%d, Batch: %d/%d,\n"
+            if self.step % freq == 0:
+                # We should calculate once and report twice
+                metrics = self.gpu_metrics.calculate()
+                self._log_tensorboard_metrics(self.step,
+                                              'train',
+                                              metrics)
+
+                logging.info("Epoch: %d/%d, Batch: %d/%d, Step: %d\n"
                              "Info: %s",
-                             _epoch,
-                             self.epochs-1,
-                             index,
+                             _epoch+1,
+                             self.epochs,
+                             index+1,
                              len(self.training_loader),
+                             self.step,
                              metrics)
 
-                self._log_tensorboard_metrics(tb_step,
-                                              'train',
+                for index, data in enumerate(self.validation_loader):
+
+                    results = self._validate_step(_epoch_id=_epoch,
+                                                  _batch_id=index,
+                                                  _data=data)
+
+                    self.gpu_metrics.add(results)
+
+                # We should calculate once and report twice
+                metrics = self.gpu_metrics.calculate()
+                logging.info("Validation, Step: %d\n"
+                             "Info: %s",
+                             self.step,
+                             metrics)
+
+                self._log_tensorboard_metrics(self.step,
+                                              'valid',
                                               metrics)
 
         if self.pytorch_profiling:
             self.prof.stop()
-
-        self.batch_metrics.calculate()
-        for index, data in enumerate(self.validation_loader):
-
-            results = self._validate_step(_epoch_id=_epoch,
-                                          _batch_id=index,
-                                          _data=data)
-
-            self.batch_metrics.add(results)
-
-            if index % freq == 0:
-                tb_step = _epoch * self.validation_batch_size + index + freq
-                metrics = self.batch_metrics.calculate()
-                logging.info("Validation, Batch: %d/%d,\n"
-                             "Info: %s",
-                             index,
-                             len(self.validation_loader),
-                             metrics)
-
-                self._log_tensorboard_metrics(tb_step,
-                                              'valid',
-                                              metrics)

@@ -30,7 +30,8 @@ def supervised(_configs):
         trainer = Unet3DTrainer(_configs,
                                 label_correction_function)
     elif _configs['trainer']['model']['name'] == 'unet_3d_me':
-        trainer = Unet3DMETrainer(_configs)
+        trainer = Unet3DMETrainer(_configs,
+                                  label_correction_function)
     else:
         assert False, "Please provide a valid model name in the config file"
 

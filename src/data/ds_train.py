@@ -6,24 +6,17 @@ Date:   27.10.2022
 # Python Imports
 import os
 import re
-from enum import Enum
 
 # Library Imports
 import torch
-from torch.utils.data import Dataset
 import numpy as np
 import tifffile
 
 # Local Imports
+from src.data.ds_base import DatasetType, BaseDataset
 
 
-class DatasetType(Enum):
-    Supervised = 1
-    Unsupervised = 2
-    Inference = 3
-
-
-class GBMDataset(Dataset):
+class GBMDataset(BaseDataset):
     # pylint: disable=too-many-instance-attributes
 
     def __init__(self,
@@ -31,31 +24,20 @@ class GBMDataset(Dataset):
                  _sample_dimension,
                  _pixel_per_step,
                  _channel_map,
-                 _scale_facor,
-                 _scale_threshold=None,
+                 _scale_facor=1,
                  _dataset_type=DatasetType.Supervised,
                  _ignore_stride_mismatch=False,
                  _label_correction_function=None):
 
-        self.scale_factor = _scale_facor
-        self.scale_threshold = _scale_threshold
-
-        self.dataset_type = _dataset_type
-
-        self.ignore_stride_mismatch = _ignore_stride_mismatch
-
-        self.label_correction_function = _label_correction_function
-
-        # I am expecting the image dimensions to be ordered
-        # like (Z, C, Y, X) I might need to add some
-        # functionalities to configure this behaviour
+        super().__init__(_sample_dimension,
+                         _pixel_per_step,
+                         _channel_map,
+                         _scale_facor,
+                         _dataset_type,
+                         _ignore_stride_mismatch,
+                         _label_correction_function)
 
         self.source_directory = _source_directory
-        self.sample_dimension = _sample_dimension
-        self.channel_map = _channel_map
-        self.pixel_per_step_z = _pixel_per_step[0]
-        self.pixel_per_step_x = _pixel_per_step[1]
-        self.pixel_per_step_y = _pixel_per_step[2]
 
         self.image_list = []
         self.samples_per_image = []
@@ -83,50 +65,13 @@ class GBMDataset(Dataset):
             image = np.array(image)
             image = image.astype(np.float32)
 
-            image[:, 3, :, :][image[:, 3, :, :] >= 255] = -1
-            image[:, 3, :, :][image[:, 3, :, :] >= 0] = 255
-            image[:, 3, :, :][image[:, 3, :, :] == -1] = 0
+            if self.dataset_type == DatasetType.Supervised:
+                image[:, 3, :, :][image[:, 3, :, :] >= 255] = -1
+                image[:, 3, :, :][image[:, 3, :, :] >= 0] = 255
+                image[:, 3, :, :][image[:, 3, :, :] == -1] = 0
 
             if self.scale_factor > 1:
-                # The shape is Depth, Channel, Height, Width
-                scaled_image = np.empty(((image.shape[0]-1)*self.scale_factor,
-                                         image.shape[1],
-                                         image.shape[2],
-                                         image.shape[3]),
-                                        dtype=np.float32)
-
-                # To prevent out of bound exception in image[index+1],
-                # copy the last layer in the beginning.
-                scaled_image[-1] = image[-1]
-                for i in range(scaled_image.shape[0]-1):
-                    index = int(i/self.scale_factor)
-                    i_mod = i % self.scale_factor
-                    if i_mod == 0:
-                        scaled_image[i] = image[index]
-                    else:
-                        scaled_image[i] = image[index] +\
-                            (image[index+1] - image[index]) /\
-                            self.scale_factor * i_mod
-
-                        threshold = (self.scale_factor-1) *\
-                            (self.scale_threshold / self.scale_factor)
-
-                        scaled_image[i, 3, :, :][
-                                scaled_image[i, 3, :, :] >= threshold] = 255
-
-                        scaled_image[i, 3, :, :][
-                                scaled_image[i, 3, :, :] < threshold] = 0
-
-
-                tifffile.imwrite('/data/afatehi/label_test/interpolated.tif',
-                                 scaled_image,
-                                 shape=scaled_image.shape,
-                                 imagej=True,
-                                 metadata={'axes': 'ZCYX', 'fps': 10.0}
-                                 )
-
-
-                image = scaled_image
+                image = self.scale(image)
 
             if self.label_correction_function is not None:
                 image[:, 3, :, :] = \
@@ -261,53 +206,3 @@ class GBMDataset(Dataset):
         labels = self.images[self.image_list[0]][:, 3, :, :]
         unique_labels = np.unique(labels)
         return len(unique_labels)
-
-    @staticmethod
-    def get_tiff_tags(_tiff):
-        result = []
-        for page in _tiff.pages:
-            result.append(page.tags)
-        return result
-
-    def check_image_shape_compatibility(self,
-                                        _shape,
-                                        _file_name):
-
-        if self.ignore_stride_mismatch:
-            return
-
-        # Checking image's z-axis
-        criterion = (_shape[0] - self.sample_dimension[0]) % \
-            self.pixel_per_step_z
-        assert criterion == 0, \
-            (f'Dimension of file "{_file_name}" on z-axis'
-             f'={_shape[0]} and is not compatible with'
-             f' stride={self.pixel_per_step_z} and'
-             f' sample size={self.sample_dimension[0]}.\n'
-             '(Image Dimension - Sample Dimension) % Stride should be 0.\n'
-             f'For z-axis: ({_shape[0]} - {self.sample_dimension[0]}) %'
-             f' {self.pixel_per_step_z} = {criterion}')
-
-        # Checking image's y-axis
-        criterion = (_shape[2] - self.sample_dimension[2]) % \
-            self.pixel_per_step_y
-        assert criterion == 0, \
-            (f'Dimension of file "{_file_name}" on y-axis'
-             f'={_shape[2]} and is not compatible with'
-             f' stride={self.pixel_per_step_y} and'
-             f' sample size={self.sample_dimension[2]}.\n'
-             '(Image Dimension - Sample Dimension) % Stride should be 0.\n'
-             f'For y-axis: ({_shape[2]} - {self.sample_dimension[2]}) %'
-             f' {self.pixel_per_step_y} = {criterion}')
-
-        # Checking image's x-axis
-        criterion = (_shape[3] - self.sample_dimension[1]) % \
-            self.pixel_per_step_x
-        assert criterion == 0, \
-            (f'Dimension of file "{_file_name}" on x-axis'
-             f'={_shape[3]} and is not compatible with'
-             f' stride={self.pixel_per_step_x} and'
-             f' sample size={self.sample_dimension[1]}.\n'
-             '(Image Dimension - Sample Dimension) % Stride should be 0.\n'
-             f'For x-axis: ({_shape[3]} - {self.sample_dimension[1]}) %'
-             f' {self.pixel_per_step_x} = {criterion}')

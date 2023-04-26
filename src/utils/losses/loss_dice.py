@@ -56,9 +56,6 @@ class DiceLoss(_AbstractDiceLoss):
     and will be normalized by the Sigmoid function.
     """
 
-    def __init__(self, _weight=None, _normalization='sigmoid'):
-        super().__init__(_weight, _normalization)
-
     def dice(self, _input, _target, _weight):
         return compute_per_channel_dice(_input, _target, _weight=self.weight)
 

@@ -51,7 +51,7 @@ class Metrics():
 
         # To calulate number of correct and wrong predictions of
         # _truth_class_id, we need to first create a mask consists of
-        # indexs in the labels tensor with the value of _truth_class_id.
+        # indexs in the labels tensor with the value of _class_id.
         mask = (self.labels == _class_id).float()
 
         # Having a class_id == 0 will cause problem when we count
