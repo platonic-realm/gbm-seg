@@ -25,10 +25,8 @@ trainer:
     lr : 0.0001
 
   loss: CrossEntropy
-  loss_weights: [1.0, 7.0]
-  metrics: [accuracy, ]
-  # Every report_freq batches, metrics and losses will be logged
-  report_freq: 10
+  loss_weights: [1.0, 3.0]
+  report_freq: 50
 
   metrics: [
             'Loss',
@@ -51,18 +49,16 @@ trainer:
 
   metrics_class_ids: [1]
 
-  epochs: 30
-  # Every save_interval a snapshot will be created
-  save_interval: 10
+  epochs: 20
   snapshot_path: ./snapshots/
 
   result_path: ./results-train/
 
   unlabeled_ds:
     path: ./data/gbm_unlabeled_ds/
-    batch_size: 16
+    batch_size: 24
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 256, 256] # Z, X, Y
+    pixel_stride: [1, 32, 32] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
     shuffle: False
@@ -76,22 +72,39 @@ trainer:
 
   train_ds:
     path: ./data/gbm_train_ds/
-    batch_size: 16
+    batch_size: 24
     sample_dimension: [12, 256, 256] # Z, X, Y
     pixel_stride: [1, 64, 64] # Z, X, Y
     pin_memory: True
     # shuffle should be off when using DDP
-    shuffle: False
+    shuffle: True
     # Use this if the order of channels is
     # Different, for example use [1, 0, 2]
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 2, 1]
     ignore_stride_mismatch: True
     workers: 8
+    augmentation:
+      enabled: True
+      workers: 32
+      methods: [
+                # twist the stack around the z-axis clockwise
+                ['_twist_clock', '0.5',],
+                # twist the stack counter clockwise
+                ['_twist_reverse', '0.5'],
+                # rotate each plane with degree z*degree
+                ['_rotate_linear', '0.5'],
+                # rotate each plane with degree -z*degree
+                ['_rotate_reverse', '0.5'],
+                # rotate each plane randomly
+                ['_rotate_random', '0.2'],
+                # rotate each plane randomly
+                ['_rotate_random', '0.1'],
+               ]
 
   valid_ds:
     path: ./data/gbm_valid_ds/
-    batch_size: 16
+    batch_size: 32
     sample_dimension: [12, 256, 256] # Z, X, Y
     pixel_stride: [1, 256, 256] # Z, X, Y
     pin_memory: True
@@ -158,15 +171,15 @@ inference:
     channels: [0, 1, 2]
 
   number_class: 2
-  snapshot_path: '/data/afatehi/unet_3d_ss-adam-CrossEntropy-012-163264-009.pt'
+  snapshot_path: './snaps/unet_3d-adam-CrossEntropy-012-163264-003-0530.pt'
   device: cuda
 
   save_npy: False
 
-  result_dir: /data/afatehi/gbm/results-infer/
+  result_dir: './results-infer/'
 
   inference_ds:
-    path: '/data/afatehi/infer/'
+    path: './data/raw/Batch 2 - Bad Annotation/'
     batch_size: 16
     sample_dimension: [6, 512, 512]
     pixel_stride: [1, 256, 256]
@@ -175,7 +188,7 @@ inference:
     # Different, for example use [1, 0, 2]
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 2, 1]
-    scale_factor: 1
+    scale_factor: 6
     workers: 8
 
 logging:

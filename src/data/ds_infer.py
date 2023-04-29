@@ -39,13 +39,13 @@ class InferenceDataset(BaseDataset):
             self.image = tiff.asarray()
             self.tiff_tags = self.get_tiff_tags(tiff)
 
-        self.image_shape = self.image.shape
         self.image = np.array(self.image)
         self.image = self.image.astype(np.float32)
 
         if self.scale_factor > 1:
             self.image = self.scale(self.image)
 
+        self.image_shape = self.image.shape
         self.check_image_shape_compatibility(self.image_shape,
                                              self.file_name)
 

@@ -16,6 +16,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 import tifffile
 import imageio
+from tqdm import tqdm
 
 # Local Imports
 from src.data.ds_infer import InferenceDataset
@@ -29,9 +30,11 @@ from src.utils.misc import to_numpy, create_dirs_recursively
 class Inference():
     def __init__(self,
                  _configs: dict):
+        self.root_path = _configs['root_path']
         self.base_configs = _configs
         self.configs = _configs['inference']
 
+        self.device: str = self.configs['device']
         self.model_name: str = self.configs['model']['name']
         self.number_class: int = self.configs['number_class']
         self.feature_maps: list = self.configs['model']['feature_maps']
@@ -46,13 +49,15 @@ class Inference():
         self.channel_map: list = self.configs['inference_ds']['channel_map']
 
     def infer(self):
-        directory_content = os.listdir(self.input_path)
+        directory_path = os.path.join(self.root_path,
+                                      self.input_path)
+        directory_content = os.listdir(directory_path)
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
                                         _x),
                                         directory_content))
 
         for file_name in directory_content:
-            file_path = os.path.join(self.input_path, file_name)
+            file_path = os.path.join(directory_path, file_name)
             dataset = InferenceDataset(
                     _file_path=file_path,
                     _sample_dimension=self.sample_dimension,
@@ -79,7 +84,7 @@ class Inference():
                                _result_shape=result_shape,
                                _sample_dimension=self.sample_dimension)
             elif self.model_name == 'unet_3d_me':
-                model = Unet3DME(len(self.channels),
+                model = Unet3DME(1,
                                  self.number_class,
                                  _feature_maps=self.feature_maps,
                                  _inference=True,
@@ -94,13 +99,17 @@ class Inference():
                                  _sample_dimension=self.sample_dimension)
 
             snapshot_path: str = self.configs['snapshot_path']
-            snapshot = torch.load(snapshot_path)
+            snapshot_path = os.path.join(self.root_path,
+                                         snapshot_path)
+            snapshot = torch.load(snapshot_path,
+                                  map_location=torch.device(self.device))
             model.load_state_dict(snapshot['MODEL_STATE'])
 
             device: str = self.configs['device']
             model.to(device)
 
-            for _, data in enumerate(data_loader):
+            for data in tqdm(data_loader,
+                             desc="Prcossing"):
 
                 nephrin = data['nephrin'].to(device)
                 wga = data['wga'].to(device)
@@ -113,9 +122,13 @@ class Inference():
                                              collagen4)
 
                 with torch.no_grad():
-                    _ = model(sample, offsets)
+                    if self.model_name == 'unet_3d_me':
+                        _ = model(nephrin, wga, collagen4, offsets)
+                    else:
+                        _ = model(sample, offsets)
 
             output_dir = os.path.join(
+                    self.root_path,
                     self.configs['result_dir'],
                     self.base_configs['tag'],
                     file_name)
@@ -199,4 +212,5 @@ class Inference():
                          _prediction,
                          shape=_prediction.shape,
                          imagej=True,
-                         metadata={'axes': 'ZCYX', 'fps': 10.0})
+                         metadata={'axes': 'ZCYX', 'fps': 10.0},
+                         compression='lzw')

@@ -1,9 +1,10 @@
 import tifffile
 import numpy as np
+import tifffile
 from skimage import measure, morphology
 
 
-use_morphology = False
+use_morphology = True
 min_size = 100
 # source_file = '/data/afatehi/gbm/data/gbm_valid_ds/Series38.All.Possible.GBM.2023-01-17.tif'
 # output_file = '/data/afatehi/validation_erosion_ccl_dilation.tif'

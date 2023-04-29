@@ -12,6 +12,7 @@ import glob
 import random
 import logging
 from datetime import datetime
+import threading
 
 # Libary Imports
 import torch
@@ -57,7 +58,6 @@ class Trainer(ABC):
         self.epochs: int = self.configs['epochs']
         self.epoch_resume = 0
         self.step = 0
-        self.save_interval = self.configs['save_interval']
         self.result_path = os.path.join(self.root_path,
                                         self.configs['result_path'],
                                         f"{self.model_tag}/")
@@ -133,10 +133,6 @@ class Trainer(ABC):
     def train(self):
         for epoch in range(self.epoch_resume, self.epochs):
             self._train_epoch(epoch)
-            # I should later use validation metrics to
-            # decide whether overwite to the snapshop or not
-            if (epoch + 1) % self.save_interval == 0:
-                self._save_sanpshot(epoch)
 
     # Channels list in the configuration determine
     # Which channels to be stacked
@@ -270,25 +266,32 @@ class Trainer(ABC):
                                              output_dir,
                                              _multiplier=127)
 
-    def _save_sanpshot(self, epoch: int) -> None:
+    def _save_sanpshot(self, _epoch: int) -> None:
         if self.snapshot_path is None:
             return
         if self.rank > 0:
             return
-
         snapshot = {}
-        snapshot['EPOCHS'] = epoch
+        snapshot['EPOCHS'] = _epoch
         snapshot['STEP'] = self.step
         if self.ddp:
             snapshot['MODEL_STATE'] = self.model.module.state_dict()
         else:
             snapshot['MODEL_STATE'] = self.model.state_dict()
 
+        thread = threading.Thread(target=self._save_snapshot_async,
+                                  args=(snapshot, _epoch))
+        thread.start()
+
+    def _save_snapshot_async(self, _snapshot: dict, _epoch: int) -> None:
+
         save_path = \
             os.path.join(self.snapshot_path,
-                         f"{self.model_tag}-{epoch:03d}.pt")
-        torch.save(snapshot, save_path)
-        logging.info("Snapshot saved on epoch %d", epoch)
+                         f"{self.model_tag}-{_epoch:03d}-{self.step:04d}.pt")
+        torch.save(_snapshot, save_path)
+        logging.info("Snapshot saved on epoch: %d, step: %d",
+                     _epoch,
+                     self.step)
 
     def _load_snapshot(self) -> None:
         if not os.path.exists(self.snapshot_path):
@@ -322,6 +325,10 @@ class Trainer(ABC):
             self.configs['train_ds']['pixel_stride']
         training_channel_map: list = \
             self.configs['train_ds']['channel_map']
+        training_augmentation = None
+        if self.configs['train_ds']['augmentation']['enabled']:
+            training_augmentation = \
+                self.configs['train_ds']['augmentation']['methods']
         training_dataset = GBMDataset(
                 _source_directory=training_ds_dir,
                 _sample_dimension=training_sample_dimension,
@@ -329,7 +336,10 @@ class Trainer(ABC):
                 _channel_map=training_channel_map,
                 _ignore_stride_mismatch=self.configs['train_ds'][
                     'ignore_stride_mismatch'],
-                _label_correction_function=self.label_correction)
+                _label_correction_function=self.label_correction,
+                _augmentation=training_augmentation,
+                _augmentation_workers=self.configs['train_ds'][
+                    'augmentation']['workers'])
 
         self.number_class = training_dataset.get_number_of_classes()
 

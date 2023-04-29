@@ -73,10 +73,11 @@ class BaseDataset(Dataset, ABC):
 
     @staticmethod
     def get_tiff_tags(_tiff):
-        result = []
-        for page in _tiff.pages:
-            result.append(page.tags)
-        return result
+        tiff_tags = {}
+        for tag in _tiff.pages[0].tags.values():
+            name, value = tag.name, tag.value
+            tiff_tags[name] = value
+        return tiff_tags
 
     def check_image_shape_compatibility(self,
                                         _shape,

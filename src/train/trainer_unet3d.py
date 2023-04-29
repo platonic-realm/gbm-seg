@@ -164,6 +164,9 @@ class Unet3DTrainer(Trainer):
                              self.step,
                              metrics)
 
+                # Save the snapshot
+                self._save_sanpshot(_epoch)
+
                 for index, data in enumerate(self.validation_loader):
 
                     results = self._validate_step(_epoch_id=_epoch,
