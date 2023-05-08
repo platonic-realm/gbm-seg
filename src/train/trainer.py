@@ -24,7 +24,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.profiler import ProfilerActivity
 
 # Local Imports
-from src.utils.misc import create_dirs_recursively, create_config_tag
+from src.utils.misc import create_dirs_recursively
 from src.utils.visual import VisualizerUnet3D
 from src.data.ds_train import GBMDataset
 from src.utils.losses.loss_dice import DiceLoss
@@ -49,8 +49,6 @@ class Trainer(ABC):
 
         self.label_correction = _label_correction_function
 
-        self.model_tag = create_config_tag(_configs)
-
         self.root_path = _configs['root_path']
 
         # Note we are using self.configs from now on ...
@@ -59,8 +57,7 @@ class Trainer(ABC):
         self.epoch_resume = 0
         self.step = 0
         self.result_path = os.path.join(self.root_path,
-                                        self.configs['result_path'],
-                                        f"{self.model_tag}/")
+                                        self.configs['result_path'])
         self.snapshot_path = os.path.join(self.root_path,
                                           self.result_path,
                                           self.configs['snapshot_path'])
@@ -274,7 +271,7 @@ class Trainer(ABC):
         snapshot = {}
         snapshot['EPOCHS'] = _epoch
         snapshot['STEP'] = self.step
-        if self.ddp:
+        if self.ddp or self.dp:
             snapshot['MODEL_STATE'] = self.model.module.state_dict()
         else:
             snapshot['MODEL_STATE'] = self.model.state_dict()
@@ -287,10 +284,10 @@ class Trainer(ABC):
 
         save_path = \
             os.path.join(self.snapshot_path,
-                         f"{self.model_tag}-{_epoch:03d}-{self.step:04d}.pt")
+                         f"{_epoch:03d}-{self.step:04d}.pt")
         torch.save(_snapshot, save_path)
         logging.info("Snapshot saved on epoch: %d, step: %d",
-                     _epoch,
+                     _epoch+1,
                      self.step)
 
     def _load_snapshot(self) -> None:
@@ -433,7 +430,7 @@ class Trainer(ABC):
                 torch.profiler.tensorboard_trace_handler(save_path)
 
             trace_file = os.path.join(save_path,
-                                      f"{self.model_tag}.txt")
+                                      "trace.txt")
 
             def txt_trace_handler(prof):
                 with open(trace_file, 'w', encoding='UTF-8') as file:

@@ -1,6 +1,5 @@
 import tifffile
 import numpy as np
-import tifffile
 from skimage import measure, morphology
 
 

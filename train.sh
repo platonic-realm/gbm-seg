@@ -12,7 +12,7 @@ debug=false
 standalone=false
 
 # For parsing arguments I am using getops, its not a robust way of
-# handling it, but it gets the job done and for the time being, 
+# handling it, but it gets the job done and for the time being,
 # I don't need anything fancy...
 # https://sookocheff.com/post/bash/parsing-bash-script-arguments-with-shopts/
 while getopts ":dsc:n:" opt; do

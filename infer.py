@@ -13,10 +13,13 @@ from src.utils import args
 from src.infer.inference import Inference
 
 
+def main_infer(_configs):
+    inference = Inference(_configs)
+    inference.infer()
+
+
 if __name__ == '__main__':
     configs = args.parse("Inferance -> GBM segmentation")
     configure_logger(configs)
-    args.summerize(configs)
 
-    inference = Inference(configs)
-    inference.infer()
+    main_infer(configs)

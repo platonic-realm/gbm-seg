@@ -59,17 +59,21 @@ def semi_supervised(_configs):
     trainer.train()
 
 
-if __name__ == '__main__':
-    configs = args.parse("Training Unet3D for GBM segmentation")
-    configure_logger(configs)
-    if configs['logging']['log_summary']:
-        args.summerize(configs)
+def main_train(_configs):
+    if _configs['logging']['log_summary']:
+        args.summerize(_configs)
 
-    if configs['trainer']['cudnn_benchmark']:
+    if _configs['trainer']['cudnn_benchmark']:
         torch.backends.cudnn.benchmark = True
         logging.info("Enabling cudnn benchmarking")
 
-    if configs['trainer']['mode'] == 'supervised':
-        supervised(configs)
-    elif configs['trainer']['mode'] == 'semi_supervised':
-        semi_supervised(configs)
+    if _configs['trainer']['mode'] == 'supervised':
+        supervised(_configs)
+    elif _configs['trainer']['mode'] == 'semi_supervised':
+        semi_supervised(_configs)
+
+
+if __name__ == '__main__':
+    configs = args.parse("Training Unet3D for GBM segmentation")
+    configure_logger(configs)
+    main_train(configs)

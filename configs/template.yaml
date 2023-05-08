@@ -1,24 +1,86 @@
+experiments:
+  root: '/data/afatehi/gbm/experiments/'
+  models: ['unet_3d',
+           'unet_3d_me',
+           'unet_3d_ss']
+  model_sizes: [
+                 [tiny, 16, 32, 64],
+                 [small, 32, 64, 128],
+                 [medium, 64, 128, 256],
+                 [big, 64, 128, 256, 512],
+                 [huge, 128, 256, 512, 1024],
+               ]
+  channels: [
+              [nephrin, 0],
+              [wga, 1],
+              [collagen4, 2]
+            ]
+  optimizers: [[adam, lr, 0.0001]]
+  losses: [CrossEntropy, Dice]
+  metrics: [
+            ['Loss', True],
+            ['Accuracy', False],
+            ['Pervalence', False],
+            ['BalancedAccuracy', False],
+            ['TruePositiveRate', True],
+            ['TrueNegativeRate', False],
+            ['FalsePositiveRate', False],
+            ['FalseNegativeRate', False],
+            ['PositivePredictiveValue', True],
+            ['NegativePredictiveValue', False],
+            ['FalseDiscoveryRate', False],
+            ['FalseOmissionRate', False],
+            ['PositiveLikelihoodRatio', False],
+            ['NegativeLikelihoodRatio', False],
+            ['Dice', True],
+            ['JaccardIndex', True]
+           ]
+  train_same_sample_size: True
+  train_same_batch_size: True
+  train_same_stride: False
+  augmentations: [
+                  # twist the stack around the z-axis clockwise
+                  ['_twist_clock', '0.5',],
+                  # twist the stack counter clockwise
+                  ['_twist_reverse', '0.5'],
+                  # rotate each plane with degree z*degree
+                  ['_rotate_linear', '0.5'],
+                  # rotate each plane with degree -z*degree
+                  ['_rotate_reverse', '0.5'],
+                  # rotate each plane randomly
+                  ['_rotate_random', '0.2'],
+                  # rotate each plane randomly
+                  ['_rotate_random', '0.1'],
+                 ]
+
+  log_levels: [INFO, DEBUG]
+
+  scale_batch_size_for_dp: True
+  scale_lerning_rate_for_batch_size: True
+
+  # I am expecting train_ds, valid_ds, test_ds and unlabeled_ds directories
+  default_channels: [0, 1, 2]
+  default_data_path: '/data/afatehi/gbm/data/'
+  default_ds_workers: 4
+  default_aug_workers: 32
+  default_kernel_size: [3, 3, 3]
+  default_padding: 'same'
+  default_loss_weights: [1.0, 10.0]
+  default_report_freq: 20
+  default_epochs: 10
+  default_batch_size: 8
+
 trainer:
   model:
-    # unet_3d, unet_3d_ss unet_3d_me
     name: unet_3d
-    # Huge: [128, 256, 512, 1024]
-    # Big: [64, 128, 256, 512]
-    # Medium: [64, 128, 256]
-    # Small: [32, 64, 128]
-    # Tiny: [16, 32, 64]
     feature_maps: [64, 128, 256, 512]
-    # 0: Nephrin
-    # 1: WGA
-    # 2: Collagen4
     channels: [0, 1, 2]
-    # The kernel size and padding should
-    # make sense and produces the same dimensions
-    # as output at the end.
     encoder_kernel: [3, 3, 3]
     encoder_padding: 'same'
     decoder_kernel: [3, 3, 3]
     decoder_padding: 'same'
+
+  epochs: 10
 
   optim:
     name: adam
@@ -30,45 +92,16 @@ trainer:
 
   metrics: [
             'Loss',
-           #'Accuracy',
-           #'Pervalence',
-           #'BalancedAccuracy',
             'TruePositiveRate',
-           #'TrueNegativeRate',
-           #'FalsePositiveRate',
-           #'FalseNegativeRate',
             'PositivePredictiveValue',
-           #'NegativePredictiveValue',
-           #'FalseDiscoveryRate',
-           #'FalseOmissionRate',
-           #'PositiveLikelihoodRatio',
-           #'NegativeLikelihoodRatio',
             'Dice',
             'JaccardIndex',
            ]
 
   metrics_class_ids: [1]
 
-  epochs: 10
   snapshot_path: ./snapshots/
-
   result_path: ./results-train/
-
-  unlabeled_ds:
-    path: ./data/gbm_unlabeled_ds/
-    batch_size: 24
-    sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 64, 64] # Z, X, Y
-    pin_memory: True
-    # shuffle should be off when using DDP
-    shuffle: False
-    # Use this if the order of channels is
-    # Different, for example use [1, 0, 2]
-    # If the first channel is WGA and second is nephrin
-    channel_map: [0, 1, 2]
-    ignore_stride_mismatch: False
-    workers: 0
-    scale_factor: 6
 
   train_ds:
     path: ./data/gbm_train_ds/
@@ -83,7 +116,7 @@ trainer:
     # If the first channel is WGA and second is nephrin
     channel_map: [0, 2, 1]
     ignore_stride_mismatch: True
-    workers: 8
+    workers: 4
     augmentation:
       enabled: True
       workers: 32
@@ -116,6 +149,21 @@ trainer:
     channel_map: [0, 2, 1]
     ignore_stride_mismatch: True
     workers: 8
+
+  unlabeled_ds:
+    path: ./data/gbm_unlabeled_ds/
+    batch_size: 24
+    sample_dimension: [12, 256, 256] # Z, X, Y
+    pixel_stride: [1, 64, 64] # Z, X, Y
+    pin_memory: True
+    # shuffle should be off when using DDP
+    shuffle: False
+    # Use this if the order of channels is
+    # Different, for example use [1, 0, 2]
+    # If the first channel is WGA and second is nephrin
+    channel_map: [0, 1, 2]
+    ignore_stride_mismatch: False
+    workers: 4
 
   visualization:
     enabled: True
@@ -161,32 +209,22 @@ trainer:
 
 inference:
   model:
-    # unet_3d, unet_3d_ss unet_3d_me
     name: unet_3d_ss
-    # Of course it should be the same as the checkpoint
     feature_maps: [64, 128, 256, 512]
-    # 0: Nephrin
-    # 1: WGA
-    # 2: Collagen4
     channels: [0, 1, 2]
 
   number_class: 2
-  snapshot_path: './snaps/unet_3d_ss-adam-CrossEntropy-012-64128256512-001-2200.pt'
+  snapshot_path: ''
   device: cuda
 
-  save_npy: False
-
-  result_dir: './results-infer/'
+  result_dir: ''
 
   inference_ds:
-    path: './data/raw/Batch 2 - Bad Annotation/'
+    path: ''
     batch_size: 8
     sample_dimension: [12, 256, 256]
     pixel_stride: [1, 64, 64]
     pin_memory: True
-    # Use this if the order of channels is
-    # Different, for example use [1, 0, 2]
-    # If the first channel is WGA and second is nephrin
     channel_map: [0, 1, 2]
     scale_factor: 6
     workers: 8
@@ -198,4 +236,4 @@ logging:
   log_summary: False
 
 # All other pathes are relative to root_path
-root_path: /data/afatehi/gbm/
+root_path: './'

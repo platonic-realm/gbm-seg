@@ -103,10 +103,21 @@ class Inference():
                                          snapshot_path)
             snapshot = torch.load(snapshot_path,
                                   map_location=torch.device(self.device))
-            model.load_state_dict(snapshot['MODEL_STATE'])
+
+            # Check if the state dict was created with data parallelism
+            state_dict = snapshot['MODEL_STATE']
+            if 'module' in list(state_dict.keys())[0]:
+                corrected_state_dict = {}
+                for k, v in state_dict.items():
+                    name = k[7:]  # remove `module.`
+                    corrected_state_dict[name] = v
+                model.load_state_dict(corrected_state_dict)
+            else:
+                model.load_state_dict(state_dict)
 
             device: str = self.configs['device']
             model.to(device)
+            model.eval()
 
             for data in tqdm(data_loader,
                              desc="Prcossing"):

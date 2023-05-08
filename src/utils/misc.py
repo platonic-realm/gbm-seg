@@ -7,10 +7,17 @@ Date:   01.11.2022
 import logging
 import sys
 import os
+import shutil
 from pathlib import Path
 
 # Library Imports
 import torch
+
+
+def basic_logger() -> None:
+    log_format = "%(asctime)s [%(levelname)s] %(message)s"
+    logging.basicConfig(level='INFO',
+                        format=log_format)
 
 
 def configure_logger(_configs: dict) -> None:
@@ -18,7 +25,6 @@ def configure_logger(_configs: dict) -> None:
     root_path = _configs['root_path']
     log_file = os.path.join(root_path,
                             _configs['trainer']['result_path'],
-                            create_config_tag(_configs),
                             _configs['logging']['log_file'])
     log_std = _configs['logging']['log_std']
     ddp = _configs['trainer']['ddp']['enabled']
@@ -54,26 +60,21 @@ def configure_logger(_configs: dict) -> None:
     logging.info("Log Level: %s", LOG_LEVEL)
 
 
-def create_config_tag(_configs: dict):
-    model_name = _configs['trainer']['model']['name']
-    optimizer = _configs['trainer']['optim']['name']
-    loss = _configs['trainer']['loss']
-    channels = list(_configs['trainer']['model']['channels'])
-
-    tag = f"{model_name}-{optimizer}-{loss}" + \
-          f"-{''.join(str(no) for no in channels)}"
-
-    if "unet" in model_name:
-        feature_maps = list(_configs['trainer']['model']['feature_maps'])
-        tag = f"{tag}-{''.join(str(no) for no in feature_maps)}"
-
-    return tag
-
-
 def create_dirs_recursively(_path: str):
     dir_path = os.path.dirname(_path)
     path: Path = Path(dir_path)
     path.mkdir(parents=True, exist_ok=True)
+
+
+def copy_directory(_source_dir, _dest_dir, _exclude_list: list):
+    for item in os.listdir(_source_dir):
+        source_path = os.path.join(_source_dir, item)
+        dest_path = os.path.join(_dest_dir, item)
+        if item not in _exclude_list:
+            if os.path.isdir(source_path):
+                shutil.copytree(source_path, dest_path)
+            else:
+                shutil.copy2(source_path, dest_path)
 
 
 def to_numpy(_gpu_tensor):
