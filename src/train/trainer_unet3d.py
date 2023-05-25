@@ -88,6 +88,7 @@ class Unet3DTrainer(Trainer):
             loss.backward()
             self.optimizer.step()
 
+        self.seen_labels += self.training_batch_size
         metrics = Metrics(self.number_class,
                           results,
                           labels)
@@ -151,9 +152,10 @@ class Unet3DTrainer(Trainer):
             if self.step % freq == 0:
                 # We should calculate once and report twice
                 metrics = self.gpu_metrics.calculate()
-                self._log_tensorboard_metrics(self.step,
-                                              'train',
-                                              metrics)
+                self._log_metrics(_epoch,
+                                  self.step,
+                                  'train',
+                                  metrics)
 
                 logging.info("Epoch: %d/%d, Batch: %d/%d, Step: %d\n"
                              "Info: %s",
@@ -182,8 +184,15 @@ class Unet3DTrainer(Trainer):
                              self.step,
                              metrics)
 
+                self._log_metrics(_epoch,
+                                  self.step,
+                                  'valid',
+                                  metrics)
                 self._log_tensorboard_metrics(self.step,
                                               'valid',
+                                              metrics)
+                self._log_tensorboard_metrics(self.seen_labels,
+                                              'valid_ls',
                                               metrics)
 
         if self.pytorch_profiling:

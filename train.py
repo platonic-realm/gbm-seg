@@ -18,7 +18,6 @@ from src.train.trainer_unet3d_ss import Unet3DSemiTrainer
 from src.utils.misc import configure_logger
 
 
-# Training the network in a Supervised manner
 @record
 def supervised(_configs):
     def label_correction_function(_labels):
@@ -38,11 +37,6 @@ def supervised(_configs):
     trainer.train()
 
 
-# Training the network in a Self Supervised manner
-# I am interpreting the stacks of images as frames
-# and ask the network to interpolate them
-# The output tensor and loss are the only changes
-# to the network's architecture
 @record
 def semi_supervised(_configs):
     if _configs['trainer']['model']['name'] == 'unet_3d_ss':

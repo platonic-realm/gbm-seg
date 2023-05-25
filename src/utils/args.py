@@ -42,6 +42,10 @@ def parse_exper() -> None:
                              '--root',
                              action='store_true',
                              help='the root directory of experminets')
+    list_parser.add_argument('-s',
+                             '--snapshots',
+                             action='store',
+                             help='list the snapshots of an experiment')
 
     # Define a subparser for the 'create' action
     create_parser = \
@@ -49,6 +53,12 @@ def parse_exper() -> None:
                               help='create a new experiment')
     create_parser.add_argument('name',
                                help='name of the experiment to create')
+
+    create_parser.add_argument('-bs',
+                               '--batch-size',
+                               action='store',
+                               default=8,
+                               help='set the batch size for training')
 
     # Define a subparser for the 'delete' action
     delete_parser = \
@@ -75,6 +85,7 @@ def parse_exper() -> None:
     infer_parser.add_argument('-s',
                               '--snapshot',
                               action='store',
+                              required=True,
                               help='select the snapshot for inference')
 
     infer_parser.add_argument('-bs',
@@ -100,6 +111,12 @@ def parse_exper() -> None:
                               action='store',
                               default=1,
                               help='set the scale for interpolation')
+
+    infer_parser.add_argument('-cm',
+                              '--channel-map',
+                              action='store',
+                              default='0, 1, 2',
+                              help='the channel map of inference dataset')
 
     # Parse the arguments
     args = parser.parse_args()

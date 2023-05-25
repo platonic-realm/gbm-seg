@@ -193,7 +193,10 @@ trainer:
 
   tensorboard:
     enabled: True
+    label_seen: True
     path: ./tensorboard/
+
+  sqlite: True
 
   device: cuda
   mixed_precision: True

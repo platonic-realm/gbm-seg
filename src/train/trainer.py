@@ -15,6 +15,7 @@ from datetime import datetime
 import threading
 
 # Libary Imports
+import sqlite3
 import torch
 from torch import Tensor, nn
 from torch.distributed import init_process_group, destroy_process_group
@@ -100,6 +101,8 @@ class Trainer(ABC):
 
         self.tensorboard: bool = \
             self.configs['tensorboard']['enabled']
+        self.tensorboard_ls: bool =\
+            self.configs['tensorboard']['label_seen']
         self.tensorboard_path = \
             Path(os.path.join(self.root_path,
                               self.result_path,
@@ -120,8 +123,16 @@ class Trainer(ABC):
         self.gpu_metrics = GPURunningMetrics(self.configs,
                                              self.device)
 
+        self.sqlite = self.configs['sqlite']
+        self.database_path = os.path.join(self.root_path,
+                                          'report.db')
+
+        self.seen_labels = 0
+        self.resume_count = 0
+
         self._prepare_profiling()
         self._prepare_data()
+        self._prepare_database()
 
     def __del__(self):
         if self.ddp:
@@ -189,6 +200,48 @@ class Trainer(ABC):
         self._log_tensorboard_metrics(0,
                                       'valid',
                                       zero_metrics)
+
+    def _log_metrics(self,
+                     _epoch: int,
+                     _step: int,
+                     _tag: str,
+                     _metrics: dict) -> None:
+
+        self._log_database_metrics(_epoch, _step, _tag, _metrics)
+        self._log_tensorboard_metrics(_step, _tag, _metrics)
+
+        if self.tensorboard_ls:
+            self._log_tensorboard_metrics(self.seen_labels,
+                                          f"{_tag}_ls",
+                                          _metrics)
+
+    def _log_database_metrics(self,
+                              _epoch: int,
+                              _step: int,
+                              _tag: str,
+                              _metrics: dict) -> None:
+        if not self.sqlite:
+            return
+
+        with sqlite3.connect(self.database_path) as con:
+            cursor = con.cursor()
+
+            insert_query = '''
+                INSERT INTO metrics (resume, epoch, step,
+                                     lseen, tag, name, value)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                           '''
+
+            values = [(self.resume_count,
+                       _epoch,
+                       _step,
+                       self.seen_labels,
+                       _tag,
+                       name,
+                       float(value)) for name, value in _metrics.items()]
+
+            cursor.executemany(insert_query, values)
+            con.commit()
 
     def _log_tensorboard_metrics(self,
                                  _n_iter: int,
@@ -271,6 +324,8 @@ class Trainer(ABC):
         snapshot = {}
         snapshot['EPOCHS'] = _epoch
         snapshot['STEP'] = self.step
+        snapshot['SEEN_LABELS'] = self.seen_labels
+        snapshot['RESUME_COUNT'] = self.resume_count
         if self.ddp or self.dp:
             snapshot['MODEL_STATE'] = self.model.module.state_dict()
         else:
@@ -309,6 +364,9 @@ class Trainer(ABC):
         self.model.load_state_dict(snapshot['MODEL_STATE'])
         self.epoch_resume = snapshot['EPOCHS'] + 1
         self.step = snapshot['STEP'] + 1
+        self.seen_labels = snapshot['SEEN_LABELS']
+        self.resume_count = snapshot['RESUME_COUNT'] + 1
+
         logging.info("Resuming training at epoch: %d", self.epoch_resume)
         logging.info("Resuming training at step: %d", self.step)
 
@@ -409,6 +467,28 @@ class Trainer(ABC):
         else:
             self.loss = SelfSupervisedLoss(self.epochs,
                                            weights)
+
+    def _prepare_database(self) -> None:
+        if not self.sqlite:
+            return
+
+        with sqlite3.connect(self.database_path) as con:
+            cursor = con.cursor()
+
+        create_table = '''
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resume INTEGER NOT NULL,
+                epoch INTEGER NOT NULL,
+                step INTEGER NOT NULL,
+                lseen INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                name TEXT NOT NULL,
+                value REAL NOT NULL)
+                       '''
+        cursor.execute(create_table)
+
+        con.commit()
 
     def _prepare_profiling(self) -> None:
         if self.configs['profiling']['enabled']:

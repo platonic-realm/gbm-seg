@@ -141,7 +141,6 @@ class Inference():
             output_dir = os.path.join(
                     self.root_path,
                     self.configs['result_dir'],
-                    self.base_configs['tag'],
                     file_name)
 
             create_dirs_recursively(
@@ -204,10 +203,10 @@ class Inference():
         _prediction = _prediction * _multiplier
         _prediction = _prediction.astype(np.uint8)
 
-        if self.configs['save_npy']:
-            np.save(os.path.join(_output_path,
-                                 "prediction.npy"),
-                    _prediction)
+        # if self.configs['save_npy']:
+        #     np.save(os.path.join(_output_path,
+        #                          "prediction.npy"),
+        #             _prediction)
 
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):

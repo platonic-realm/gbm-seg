@@ -34,13 +34,18 @@ if __name__ == '__main__':
                 _name=name,
                 _root_path=configs['experiments']['root'],
                 _source_path=os.getcwd(),
-                _dataset_path=configs['experiments']['default_data_path'])
+                _dataset_path=configs['experiments']['default_data_path'],
+                _batch_size=int(args.batch_size))
 
     if args.action == 'list':
         root = args.root
         if not root:
             root = configs['experiments']['root']
-        exper.list_experiments(root)
+        if args.snapshots is None:
+            exper.list_experiments(root)
+        else:
+            exper.list_snapshots(_name=args.snapshots,
+                                 _root_path=root)
 
     if args.action == 'train':
         configure_logger(configs)
@@ -65,6 +70,8 @@ if __name__ == '__main__':
                             item in args.sample_dimension.split(",")]
         stride = [item.strip() for
                   item in args.stride.split(",")]
+        channel_map = [item.strip() for
+                       item in args.channel_map.split(",")]
         scale = args.scale_factor
 
         exper.infer_experiment(_name=name,
@@ -73,4 +80,5 @@ if __name__ == '__main__':
                                _batch_size=batch_size,
                                _sample_dimension=sample_dimension,
                                _stride=stride,
-                               _scale=scale)
+                               _scale=scale,
+                               _channel_map=channel_map)
