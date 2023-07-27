@@ -460,7 +460,7 @@ class Trainer(ABC):
         if self.configs['mode'] == 'supervised':
 
             loss_name: str = self.configs['loss']
-            if loss_name == 'DiceLoss':
+            if loss_name == 'Dice':
                 self.loss = DiceLoss(_weight=weights)
             if loss_name == 'CrossEntropy':
                 self.loss = nn.CrossEntropyLoss(weight=weights)

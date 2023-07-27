@@ -195,7 +195,7 @@ class Inference():
                     _prediction: array,
                     _output_path: str,
                     _tiff_tags: dict,
-                    _multiplier: int = 255):
+                    _multiplier: int = 120):
 
         prediction_tif_path = os.path.join(_output_path, "prediction.tif")
         prediction_gif_path = os.path.join(_output_path, "prediction.gif")

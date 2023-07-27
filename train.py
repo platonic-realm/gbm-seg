@@ -20,17 +20,11 @@ from src.utils.misc import configure_logger
 
 @record
 def supervised(_configs):
-    def label_correction_function(_labels):
-        _labels = _labels.astype(int)
-        _labels[_labels == 255] = 1
-        return _labels
 
     if _configs['trainer']['model']['name'] == 'unet_3d':
-        trainer = Unet3DTrainer(_configs,
-                                label_correction_function)
+        trainer = Unet3DTrainer(_configs)
     elif _configs['trainer']['model']['name'] == 'unet_3d_me':
-        trainer = Unet3DMETrainer(_configs,
-                                  label_correction_function)
+        trainer = Unet3DMETrainer(_configs)
     else:
         assert False, "Please provide a valid model name in the config file"
 

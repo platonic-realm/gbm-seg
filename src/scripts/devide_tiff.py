@@ -6,7 +6,7 @@ Date:   06.12.2022
 import tifffile
 
 image = tifffile.imread(
-        './Merged.tif')
+        '/data/afatehi/gbm/data/ds_train/training_ccl_erosion_dilation_inside_final.tif')
 image_shape = image.shape
 
 training = image[:, :, :720, :]

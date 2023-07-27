@@ -74,8 +74,12 @@ class GBMDataset(BaseDataset):
 
     def __getitem__(self, index):
         # Index of the image in image_list
-        image_id = np.min(np.where(self.cumulative_sum > index)[0])
-
+        # Braking the steps for debugging
+        temp = self.cumulative_sum > index
+        temp = np.where(temp)
+        temp = temp[0]
+        image_id = np.min(temp)
+        # image_id = np.min(np.where(self.cumulative_sum > index)[0])
         file_name = self.image_list[image_id]
 
         nephrin = self.images[file_name][:, self.channel_map[0], :, :]
@@ -86,11 +90,11 @@ class GBMDataset(BaseDataset):
             labels = self.images[file_name][:, 3, :, :]
 
         image_shape = nephrin.shape
-        # Image's dimention is like (Z, Y, X)
-        # Sample dimention is like (Z, X, Y)
-        steps_per_x = int((image_shape[2] - self.sample_dimension[1]) //
+        # Image's dimention is like (Z, X, Y)
+        # Sample's dimention is like (Z, X, Y)
+        steps_per_x = int((image_shape[1] - self.sample_dimension[1]) //
                           self.pixel_per_step_x) + 1
-        steps_per_y = int((image_shape[1] - self.sample_dimension[2]) //
+        steps_per_y = int((image_shape[2] - self.sample_dimension[2]) //
                           self.pixel_per_step_y) + 1
 
         # Till now we calculated what image_id the index correspond to,
@@ -127,19 +131,16 @@ class GBMDataset(BaseDataset):
                           x_start: x_start + self.sample_dimension[1],
                           y_start: y_start + self.sample_dimension[2]
                           ]
-        nephrin = torch.from_numpy(nephrin)
 
         wga = wga[z_start: z_start + self.sample_dimension[0],
                   x_start: x_start + self.sample_dimension[1],
                   y_start: y_start + self.sample_dimension[2]
                   ]
-        wga = torch.from_numpy(wga)
 
         collagen4 = collagen4[z_start: z_start + self.sample_dimension[0],
                               x_start: x_start + self.sample_dimension[1],
                               y_start: y_start + self.sample_dimension[2]
                               ]
-        collagen4 = torch.from_numpy(collagen4)
 
         if self.dataset_type == DatasetType.Supervised:
             labels = labels[z_start: z_start + self.sample_dimension[0],
@@ -151,6 +152,10 @@ class GBMDataset(BaseDataset):
         nephrin = np.expand_dims(nephrin, axis=0)
         wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
+
+        nephrin = torch.from_numpy(nephrin)
+        wga = torch.from_numpy(wga)
+        collagen4 = torch.from_numpy(collagen4)
 
         nephrin = nephrin/255
         wga = wga/255
@@ -206,9 +211,17 @@ class GBMDataset(BaseDataset):
             image = image.astype(np.float32)
 
             if self.dataset_type == DatasetType.Supervised:
-                image[:, 3, :, :][image[:, 3, :, :] >= 255] = -1
-                image[:, 3, :, :][image[:, 3, :, :] >= 0] = 255
-                image[:, 3, :, :][image[:, 3, :, :] == -1] = 0
+                mask = np.logical_and(image[:, 3, :, :] >= 0,
+                                      image[:, 3, :, :] < 32)
+                image[:, 3, :, :][mask] = 0
+
+                mask = np.logical_and(image[:, 3, :, :] >= 32,
+                                      image[:, 3, :, :] <= 35)
+                image[:, 3, :, :][mask] = 1
+
+                mask = np.logical_and(image[:, 3, :, :] > 35,
+                                      image[:, 3, :, :] <= 255)
+                image[:, 3, :, :][mask] = 2
 
             if _method is not None:
                 cached_file_path = os.path.join(self.cache_directory,

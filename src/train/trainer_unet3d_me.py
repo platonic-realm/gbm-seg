@@ -20,7 +20,7 @@ from src.utils.metrics.classification import Metrics
 class Unet3DMETrainer(Trainer):
     def __init__(self,
                  _configs: dict,
-                 _label_correction_function):
+                 _label_correction_function=None):
 
         super().__init__(_configs,
                          _label_correction_function)

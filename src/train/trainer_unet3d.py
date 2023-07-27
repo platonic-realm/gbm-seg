@@ -20,7 +20,7 @@ from src.utils.metrics.classification import Metrics
 class Unet3DTrainer(Trainer):
     def __init__(self,
                  _configs: dict,
-                 _label_correction_function):
+                 _label_correction_function=None):
 
         super().__init__(_configs,
                          _label_correction_function)
@@ -118,7 +118,7 @@ class Unet3DTrainer(Trainer):
             logits, results = self.model(sample)
 
             self._visualize_validation(_epoch_id=_epoch_id,
-                                       _batch_id=_batch_id,
+                                       _batch_id=self.step,
                                        _inputs=sample,
                                        _labels=labels,
                                        _predictions=results)
