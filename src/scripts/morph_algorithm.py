@@ -199,9 +199,10 @@ def morph():
     x_slope = field_slope[:, :, :, :, :, 1]
     y_slope = field_slope[:, :, :, :, :, 2]
 
-    z_div = (z_slope > 0).int().float()
-    x_div = (x_slope > 0).int().float()
-    y_div = (y_slope > 0).int().float()
+    # Check if it should be slope != 0 instead of > 0
+    z_div = (z_slope != 0).int().float()
+    x_div = (x_slope != 0).int().float()
+    y_div = (y_slope != 0).int().float()
 
     z_div = F.conv3d(z_div,
                      kernel_average,
@@ -288,19 +289,27 @@ def morph():
 
                     intersection_z_planes = torch.stack((range_z, xx, yy), dim=1)
                     truncated = intersection_z_planes.trunc().int().unique(dim=0)
-                    for target in truncated:
-                        surface_view = surface_mask.view(size_z, size_x, size_y)
-                        index = target.detach().cpu().numpy()
-                        in_range = index[0] > 0 and index[0] < size_z
-                        in_range = in_range and index[1] > 0 and index[1] < size_x
-                        in_range = in_range and index[2] > 0 and index[2] < size_y
-                        if in_range and surface_view[index[0]][index[1]][index[2]]:
-                            distance = target - point
-                            is_valid = torch.dot(distance, slope).detach().cpu().numpy().item() >= 0
-                            distance = torch.dot(distance, distance).detach().cpu().numpy().item()
-                            if is_valid:
-                                if distance < shortest_distance:
-                                    shortest_distance = distance
+                    truncated = truncated[truncated[:, 1] >= 0]
+                    truncated = truncated[truncated[:, 2] >= 0]
+                    truncated = truncated[truncated[:, 1] < size_x]
+                    truncated = truncated[truncated[:, 2] < size_y]
+
+                    condition = surface_mask[0][0][truncated[:, 0],
+                                                   truncated[:, 1],
+                                                   truncated[:, 2]].bool()
+                    truncated = truncated[condition]
+
+                    condition = torch.all(truncated == torch.tensor([z, x, y]), dim=1)
+                    truncated = truncated[~condition]
+
+                    distance = truncated - point
+                    validation = (distance * slope).sum(dim=1)
+                    condition = validation > 0
+                    distance = distance[condition]
+                    if distance.numel() > 0:
+                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
+                        if distance < shortest_distance and distance > 1.7:
+                            shortest_distance = distance
 
                     range_x = torch.arange(0, size_x).to(device)
                     t_x = (range_x - point[1]) / slope[1]
@@ -309,19 +318,27 @@ def morph():
 
                     intersection_x_planes = torch.stack((zz, range_x, yy), dim=1)
                     truncated = intersection_x_planes.trunc().int().unique(dim=0)
-                    for target in truncated:
-                        surface_view = surface_mask.view(size_z, size_x, size_y)
-                        index = target.detach().cpu().numpy()
-                        in_range = index[0] > 0 and index[0] < size_z
-                        in_range = in_range and index[1] > 0 and index[1] < size_x
-                        in_range = in_range and index[2] > 0 and index[2] < size_y
-                        if in_range and surface_view[index[0]][index[1]][index[2]]:
-                            distance = target - point
-                            is_valid = torch.dot(distance, slope).detach().cpu().numpy().item() >= 0
-                            distance = torch.dot(distance, distance).detach().cpu().numpy().item()
-                            if is_valid:
-                                if distance < shortest_distance:
-                                    shortest_distance = distance
+                    truncated = truncated[truncated[:, 0] >= 0]
+                    truncated = truncated[truncated[:, 2] >= 0]
+                    truncated = truncated[truncated[:, 0] < size_z]
+                    truncated = truncated[truncated[:, 2] < size_y]
+
+                    condition = surface_mask[0][0][truncated[:, 0],
+                                                   truncated[:, 1],
+                                                   truncated[:, 2]].bool()
+                    truncated = truncated[condition]
+
+                    condition = torch.all(truncated == torch.tensor([z, x, y]), dim=1)
+                    truncated = truncated[~condition]
+
+                    distance = truncated - point
+                    validation = (distance * slope).sum(dim=1)
+                    condition = validation > 0
+                    distance = distance[condition]
+                    if distance.numel() > 0:
+                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
+                        if distance < shortest_distance and distance > 1.7:
+                            shortest_distance = distance
 
                     range_y = torch.arange(0, size_y).to(device)
                     t_y = (range_y - point[2]) / slope[2]
@@ -330,21 +347,31 @@ def morph():
 
                     intersection_y_planes = torch.stack((zz, xx, range_y), dim=1)
                     truncated = intersection_y_planes.trunc().int().unique(dim=0)
-                    for target in truncated:
-                        surface_view = surface_mask.view(size_z, size_x, size_y)
-                        index = target.detach().cpu().numpy()
-                        in_range = index[0] > 0 and index[0] < size_z
-                        in_range = in_range and index[1] > 0 and index[1] < size_x
-                        in_range = in_range and index[2] > 0 and index[2] < size_y
-                        if in_range and surface_view[index[0]][index[1]][index[2]]:
-                            distance = target - point
-                            is_valid = torch.dot(distance, slope).detach().cpu().numpy().item() >= 0
-                            distance = torch.dot(distance, distance).detach().cpu().numpy().item()
-                            if is_valid:
-                                if distance < shortest_distance:
-                                    shortest_distance = distance
+                    truncated = truncated[truncated[:, 0] >= 0]
+                    truncated = truncated[truncated[:, 1] >= 0]
+                    truncated = truncated[truncated[:, 0] < size_z]
+                    truncated = truncated[truncated[:, 1] < size_x]
 
+                    condition = torch.all(truncated == torch.tensor([z, x, y]), dim=1)
+                    truncated = truncated[~condition]
+
+                    condition = surface_mask[0][0][truncated[:, 0],
+                                                   truncated[:, 1],
+                                                   truncated[:, 2]].bool()
+                    truncated = truncated[condition]
+
+                    distance = truncated - point
+                    validation = (distance * slope).sum(dim=1)
+                    condition = validation > 0
+                    distance = distance[condition]
+                    if distance.numel() > 0:
+                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
+                        if distance < shortest_distance and distance > 1.7:
+                            shortest_distance = distance
+                    print(f"Distance: {shortest_distance}")
                     distance_tesnor[0][0][z][x][y] = shortest_distance
+
+    distance_tesnor[distance_tesnor.isinf()] = 0
 
     draw("distance.gif", distance_tesnor)
     with open("result.npy", 'wb') as f:
