@@ -271,98 +271,172 @@ def morph():
 
     for z, matrix in enumerate(surface_mask[0][0]):
         for x, column in enumerate(matrix):
+            condition = column == 1
+            if condition.int().sum() == 0:
+                continue
+
+            # column = column[condition]
+
             print("=================================")
             print(f"Finding the distance for voxels on: {z}, {x}")
-            for y, voxel in enumerate(column):
-                if voxel != 0:
-                    point = points_tensor[0][0][z][x][y]
-                    slope = field_slope[0][0][z][x][y]
-                    # print(f"The slope is: {slope}")
-                    # print(f"The point is: {point}")
+            points = points_tensor[0][0][z][x]
+            slopes = field_slope[0][0][z][x]
+            # print(f"The slope is: {slope}")
+            # print(f"The point is: {point}")
 
-                    shortest_distance = float('inf')
+            shortest_distance = torch.full_like(column, float('inf'))
 
-                    range_z = torch.arange(0, size_z).to(device)
-                    t_z = (range_z - point[0]) / slope[0]
-                    xx = slope[1] * t_z + point[1]
-                    yy = slope[2] * t_z + point[2]
+            range_z = torch.arange(0, size_z).to(device)
+            range_z = range_z.unsqueeze(1)
+            t_z = (range_z[:] - points[:, 0]) / slopes[:, 0]
+            xx = slopes[:, 1] * t_z + points[:, 1]
+            yy = slopes[:, 2] * t_z + points[:, 2]
 
-                    intersection_z_planes = torch.stack((range_z, xx, yy), dim=1)
-                    truncated = intersection_z_planes.trunc().int().unique(dim=0)
-                    truncated = truncated[truncated[:, 1] >= 0]
-                    truncated = truncated[truncated[:, 2] >= 0]
-                    truncated = truncated[truncated[:, 1] < size_x]
-                    truncated = truncated[truncated[:, 2] < size_y]
+            range_z = range_z.expand(range_z.shape[0], len(column))
 
-                    condition = surface_mask[0][0][truncated[:, 0],
-                                                   truncated[:, 1],
-                                                   truncated[:, 2]].bool()
-                    truncated = truncated[condition]
+            intersection_z_planes = torch.stack((range_z, xx, yy), dim=2)
+            truncated = intersection_z_planes.trunc()
 
-                    distance = truncated - point
-                    validation = (distance * slope).sum(dim=1)
-                    condition = validation > 0
-                    distance = distance[condition]
-                    if distance.numel() > 0:
-                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
-                        if distance < shortest_distance and distance > 1.7:
-                            shortest_distance = distance
+            condition = truncated[:, :, 1] >= 0
+            truncated[~condition] = torch.nan
 
-                    range_x = torch.arange(0, size_x).to(device)
-                    t_x = (range_x - point[1]) / slope[1]
-                    zz = slope[0] * t_x + point[0]
-                    yy = slope[2] * t_x + point[2]
+            condition = truncated[:, :, 2] >= 0
+            truncated[~condition] = torch.nan
 
-                    intersection_x_planes = torch.stack((zz, range_x, yy), dim=1)
-                    truncated = intersection_x_planes.trunc().int().unique(dim=0)
-                    truncated = truncated[truncated[:, 0] >= 0]
-                    truncated = truncated[truncated[:, 2] >= 0]
-                    truncated = truncated[truncated[:, 0] < size_z]
-                    truncated = truncated[truncated[:, 2] < size_y]
+            condition = truncated[:, :, 1] < size_x
+            truncated[~condition] = torch.nan
 
-                    condition = surface_mask[0][0][truncated[:, 0],
-                                                   truncated[:, 1],
-                                                   truncated[:, 2]].bool()
-                    truncated = truncated[condition]
+            condition = truncated[:, :, 2] < size_y
+            truncated[~condition] = torch.nan
 
-                    distance = truncated - point
-                    validation = (distance * slope).sum(dim=1)
-                    condition = validation > 0
-                    distance = distance[condition]
-                    if distance.numel() > 0:
-                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
-                        if distance < shortest_distance and distance > 1.7:
-                            shortest_distance = distance
+            condition = surface_mask[0][0][truncated[:, :, 0].int(),
+                                           truncated[:, :, 1].int(),
+                                           truncated[:, :, 2].int()].bool()
+            truncated[~condition] = torch.nan
 
-                    range_y = torch.arange(0, size_y).to(device)
-                    t_y = (range_y - point[2]) / slope[2]
-                    zz = slope[0] * t_y + point[0]
-                    xx = slope[1] * t_y + point[1]
+            distances = truncated - points
+            validation = (distances * slopes).sum(dim=2)
+            condition = validation > 0
+            distances[~condition] = torch.nan
+            if distances.numel() > 0:
+                distances = (distances * distances).sum(dim=2)
 
-                    intersection_y_planes = torch.stack((zz, xx, range_y), dim=1)
-                    truncated = intersection_y_planes.trunc().int().unique(dim=0)
-                    truncated = truncated[truncated[:, 0] >= 0]
-                    truncated = truncated[truncated[:, 1] >= 0]
-                    truncated = truncated[truncated[:, 0] < size_z]
-                    truncated = truncated[truncated[:, 1] < size_x]
+                condition = distances > 1.7
+                distances[~condition] = torch.nan
+                distances[torch.isnan(distances)] = torch.inf
 
-                    condition = surface_mask[0][0][truncated[:, 0],
-                                                   truncated[:, 1],
-                                                   truncated[:, 2]].bool()
-                    truncated = truncated[condition]
+                distances = torch.min(distances, dim=0)[0]
 
-                    distance = truncated - point
-                    validation = (distance * slope).sum(dim=1)
-                    condition = validation > 0
-                    distance = distance[condition]
-                    if distance.numel() > 0:
-                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
-                        if distance < shortest_distance and distance > 1.7:
-                            shortest_distance = distance
-                    # print(f"Distance: {shortest_distance}")
-                    distance_tesnor[0][0][z][x][y] = shortest_distance
+                condition = distances < shortest_distance
+
+                shortest_distance = torch.where(condition=condition,
+                                                input=distances,
+                                                other=shortest_distance)
+
+            range_x = torch.arange(0, size_x).to(device)
+            range_x = range_x.unsqueeze(1)
+            t_x = (range_x[:] - points[:, 1]) / slopes[:, 1]
+            zz = slopes[:, 0] * t_x + points[:, 0]
+            yy = slopes[:, 2] * t_x + points[:, 2]
+
+            range_x = range_x.expand(range_x.shape[0], len(column))
+
+            condition = surface_mask[0][0][truncated[:, :, 0].int(),
+                                           truncated[:, :, 1].int(),
+                                           truncated[:, :, 2].int()].bool()
+            truncated[~condition] = torch.nan
+
+            intersection_x_planes = torch.stack((zz, range_x, yy), dim=2)
+
+            truncated = intersection_x_planes.trunc()
+
+            condition = truncated[:, :, 0] >= 0
+            truncated[~condition] = torch.nan
+
+            condition = truncated[:, :, 2] >= 0
+            truncated[~condition] = torch.nan
+
+            condition = truncated[:, :, 0] < size_z
+            truncated[~condition] = torch.nan
+
+            condition = truncated[:, :, 2] < size_y
+            truncated[~condition] = torch.nan
+
+            condition = surface_mask[0][0][truncated[:, :, 0].int(),
+                                           truncated[:, :, 1].int(),
+                                           truncated[:, :, 2].int()].bool()
+            truncated[~condition] = torch.nan
+
+            distances = truncated - points
+            validation = (distances * slopes).sum(dim=2)
+            condition = validation > 0
+            distances[~condition] = torch.nan
+
+            if distances.numel() > 0:
+                distances = (distances * distances).sum(dim=2)
+
+                condition = distances > 1.7
+                distances[~condition] = torch.nan
+                distances[torch.isnan(distances)] = torch.inf
+
+                distances = torch.min(distances, dim=0)[0]
+
+                condition = distances < shortest_distance
+                shortest_distance = torch.where(condition=condition,
+                                                input=distances,
+                                                other=shortest_distance)
+
+            range_y = torch.arange(0, size_y).to(device)
+            range_y = range_y.unsqueeze(1)
+            t_y = (range_y[:] - points[:, 2]) / slopes[:, 2]
+            zz = slopes[:, 0] * t_y + points[:, 0]
+            xx = slopes[:, 1] * t_y + points[:, 1]
+
+            range_y = range_y.expand(range_y.shape[0], len(column))
+
+            intersection_y_planes = torch.stack((zz, xx, range_y), dim=2)
+
+            truncated = intersection_y_planes.trunc()
+
+            condition = truncated[:, :, 0] >= 0
+            truncated[~condition] = torch.nan
+
+            condition = truncated[:, :, 1] >= 0
+            truncated[~condition] = torch.nan
+
+            condition = truncated[:, :, 0] < size_z
+            truncated[~condition] = torch.nan
+
+            condition = truncated[:, :, 1] < size_x
+            truncated[~condition] = torch.nan
+
+            condition = surface_mask[0][0][truncated[:, :, 0].int(),
+                                           truncated[:, :, 1].int(),
+                                           truncated[:, :, 2].int()].bool()
+            truncated[~condition] = torch.nan
+
+            distances = truncated - points
+            validation = (distances * slopes).sum(dim=2)
+            condition = validation > 0
+            distances[~condition] = torch.nan
+            if distances.numel() > 0:
+                distances = (distances * distances).sum(dim=2)
+
+                condition = distances > 1.7
+                distances[~condition] = torch.nan
+                distances[torch.isnan(distances)] = torch.inf
+
+                distances = torch.min(distances, dim=0)[0]
+
+                condition = distances < shortest_distance
+                shortest_distance = torch.where(condition=condition,
+                                                input=distances,
+                                                other=shortest_distance)
+
+            distance_tesnor[0][0][z][x][:] = shortest_distance
 
     distance_tesnor[distance_tesnor.isinf()] = 0
+    distance_tesnor[surface_mask <= 0] = 0
 
     draw("distance.gif", distance_tesnor)
     with open("result.npy", 'wb') as f:

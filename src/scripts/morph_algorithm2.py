@@ -1,10 +1,16 @@
 """
 Author: Arash Fatehi
-Date:   24.05.2023
+Date:   08.08.2023
 """
 
 # Python Imports
 import itertools
+import torch.multiprocessing as mp
+from torch.multiprocessing import set_start_method
+try:
+    set_start_method('spawn', force=True)
+except RuntimeError:
+    pass
 
 # Library Imports
 from torch import Tensor
@@ -25,6 +31,8 @@ norm2 = 0.7071
 norm3 = 0.5773
 
 # device = 'cpu'
+
+num_process = 32
 
 direction_vectors = torch.Tensor([[norm1, 0, 0],   # 1. Up
                                   [-norm1, 0, 0],  # 2. Down
@@ -98,6 +106,110 @@ def draw(_file_path, _input):
     with imageio.get_writer(_file_path, mode='I') as writer:
         for index in range(_input.shape[0]):
             writer.append_data(_input[index])
+
+
+def calculate_distance_for_matrix(_z: int,
+                                  _matrix: Tensor,
+                                  _points_tensor: Tensor,
+                                  _slope_tensor: Tensor,
+                                  _surface_mask: Tensor,
+                                  _distance_tesnor: Tensor):
+
+    print(f"Calculating the distance for voxels on Z={_z}")
+    print("=========================")
+    size_z = _surface_mask.shape[2]
+    size_x = _surface_mask.shape[3]
+    size_y = _surface_mask.shape[4]
+
+    for x, column in enumerate(_matrix):
+        print(f"Calculating the distance for voxels on Z={_z}, X={x}")
+        print("==========")
+        for y, voxel in enumerate(column):
+            if voxel != 0:
+                point = _points_tensor[0][0][_z][x][y]
+                slope = _slope_tensor[0][0][_z][x][y]
+
+                shortest_distance = float('inf')
+
+                range_z = torch.arange(0, size_z).to(device)
+                t_z = (range_z - point[0]) / slope[0]
+                xx = slope[1] * t_z + point[1]
+                yy = slope[2] * t_z + point[2]
+
+                intersection_z_planes = torch.stack((range_z, xx, yy), dim=1)
+                truncated = intersection_z_planes.trunc().int().unique(dim=0)
+                truncated = truncated[truncated[:, 1] >= 0]
+                truncated = truncated[truncated[:, 2] >= 0]
+                truncated = truncated[truncated[:, 1] < size_x]
+                truncated = truncated[truncated[:, 2] < size_y]
+
+                condition = _surface_mask[0][0][truncated[:, 0],
+                                                truncated[:, 1],
+                                                truncated[:, 2]].bool()
+                truncated = truncated[condition]
+
+                distance = truncated - point
+                validation = (distance * slope).sum(dim=1)
+                condition = validation > 0
+                distance = distance[condition]
+                if distance.numel() > 0:
+                    distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
+                    if distance < shortest_distance and distance > 1.7:
+                        shortest_distance = distance
+
+                range_x = torch.arange(0, size_x).to(device)
+                t_x = (range_x - point[1]) / slope[1]
+                zz = slope[0] * t_x + point[0]
+                yy = slope[2] * t_x + point[2]
+
+                intersection_x_planes = torch.stack((zz, range_x, yy), dim=1)
+                truncated = intersection_x_planes.trunc().int().unique(dim=0)
+                truncated = truncated[truncated[:, 0] >= 0]
+                truncated = truncated[truncated[:, 2] >= 0]
+                truncated = truncated[truncated[:, 0] < size_z]
+                truncated = truncated[truncated[:, 2] < size_y]
+
+                condition = _surface_mask[0][0][truncated[:, 0],
+                                                truncated[:, 1],
+                                                truncated[:, 2]].bool()
+                truncated = truncated[condition]
+
+                distance = truncated - point
+                validation = (distance * slope).sum(dim=1)
+                condition = validation > 0
+                distance = distance[condition]
+                if distance.numel() > 0:
+                    distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
+                    if distance < shortest_distance and distance > 1.7:
+                        shortest_distance = distance
+
+                range_y = torch.arange(0, size_y).to(device)
+                t_y = (range_y - point[2]) / slope[2]
+                zz = slope[0] * t_y + point[0]
+                xx = slope[1] * t_y + point[1]
+
+                intersection_y_planes = torch.stack((zz, xx, range_y), dim=1)
+                truncated = intersection_y_planes.trunc().int().unique(dim=0)
+                truncated = truncated[truncated[:, 0] >= 0]
+                truncated = truncated[truncated[:, 1] >= 0]
+                truncated = truncated[truncated[:, 0] < size_z]
+                truncated = truncated[truncated[:, 1] < size_x]
+
+                condition = _surface_mask[0][0][truncated[:, 0],
+                                                truncated[:, 1],
+                                                truncated[:, 2]].bool()
+                truncated = truncated[condition]
+
+                distance = truncated - point
+                validation = (distance * slope).sum(dim=1)
+                condition = validation > 0
+                distance = distance[condition]
+                if distance.numel() > 0:
+                    distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
+                    if distance < shortest_distance and distance > 1.7:
+                        shortest_distance = distance
+
+                _distance_tesnor[0][0][_z][x][y] = shortest_distance
 
 
 def morph():
@@ -265,104 +377,32 @@ def morph():
 
     distance_tesnor = torch.zeros(surface_mask.shape).to(device)
 
-    size_z = surface_mask.shape[2]
-    size_x = surface_mask.shape[3]
-    size_y = surface_mask.shape[4]
+    surface_mask.share_memory_()
+    points_tensor.share_memory_()
+    field_slope.share_memory_()
+    distance_tesnor.share_memory_()
 
+    processes = []
     for z, matrix in enumerate(surface_mask[0][0]):
-        for x, column in enumerate(matrix):
-            print("=================================")
-            print(f"Finding the distance for voxels on: {z}, {x}")
-            for y, voxel in enumerate(column):
-                if voxel != 0:
-                    point = points_tensor[0][0][z][x][y]
-                    slope = field_slope[0][0][z][x][y]
-                    # print(f"The slope is: {slope}")
-                    # print(f"The point is: {point}")
+        matrix.share_memory_()
+        process = mp.Process(target=calculate_distance_for_matrix,
+                             args=(z, matrix, points_tensor, field_slope, surface_mask, distance_tesnor))
+        processes.append(process)
 
-                    shortest_distance = float('inf')
-
-                    range_z = torch.arange(0, size_z).to(device)
-                    t_z = (range_z - point[0]) / slope[0]
-                    xx = slope[1] * t_z + point[1]
-                    yy = slope[2] * t_z + point[2]
-
-                    intersection_z_planes = torch.stack((range_z, xx, yy), dim=1)
-                    truncated = intersection_z_planes.trunc().int().unique(dim=0)
-                    truncated = truncated[truncated[:, 1] >= 0]
-                    truncated = truncated[truncated[:, 2] >= 0]
-                    truncated = truncated[truncated[:, 1] < size_x]
-                    truncated = truncated[truncated[:, 2] < size_y]
-
-                    condition = surface_mask[0][0][truncated[:, 0],
-                                                   truncated[:, 1],
-                                                   truncated[:, 2]].bool()
-                    truncated = truncated[condition]
-
-                    distance = truncated - point
-                    validation = (distance * slope).sum(dim=1)
-                    condition = validation > 0
-                    distance = distance[condition]
-                    if distance.numel() > 0:
-                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
-                        if distance < shortest_distance and distance > 1.7:
-                            shortest_distance = distance
-
-                    range_x = torch.arange(0, size_x).to(device)
-                    t_x = (range_x - point[1]) / slope[1]
-                    zz = slope[0] * t_x + point[0]
-                    yy = slope[2] * t_x + point[2]
-
-                    intersection_x_planes = torch.stack((zz, range_x, yy), dim=1)
-                    truncated = intersection_x_planes.trunc().int().unique(dim=0)
-                    truncated = truncated[truncated[:, 0] >= 0]
-                    truncated = truncated[truncated[:, 2] >= 0]
-                    truncated = truncated[truncated[:, 0] < size_z]
-                    truncated = truncated[truncated[:, 2] < size_y]
-
-                    condition = surface_mask[0][0][truncated[:, 0],
-                                                   truncated[:, 1],
-                                                   truncated[:, 2]].bool()
-                    truncated = truncated[condition]
-
-                    distance = truncated - point
-                    validation = (distance * slope).sum(dim=1)
-                    condition = validation > 0
-                    distance = distance[condition]
-                    if distance.numel() > 0:
-                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
-                        if distance < shortest_distance and distance > 1.7:
-                            shortest_distance = distance
-
-                    range_y = torch.arange(0, size_y).to(device)
-                    t_y = (range_y - point[2]) / slope[2]
-                    zz = slope[0] * t_y + point[0]
-                    xx = slope[1] * t_y + point[1]
-
-                    intersection_y_planes = torch.stack((zz, xx, range_y), dim=1)
-                    truncated = intersection_y_planes.trunc().int().unique(dim=0)
-                    truncated = truncated[truncated[:, 0] >= 0]
-                    truncated = truncated[truncated[:, 1] >= 0]
-                    truncated = truncated[truncated[:, 0] < size_z]
-                    truncated = truncated[truncated[:, 1] < size_x]
-
-                    condition = surface_mask[0][0][truncated[:, 0],
-                                                   truncated[:, 1],
-                                                   truncated[:, 2]].bool()
-                    truncated = truncated[condition]
-
-                    distance = truncated - point
-                    validation = (distance * slope).sum(dim=1)
-                    condition = validation > 0
-                    distance = distance[condition]
-                    if distance.numel() > 0:
-                        distance = (distance * distance).sum(dim=1).min().cpu().numpy().item()
-                        if distance < shortest_distance and distance > 1.7:
-                            shortest_distance = distance
-                    # print(f"Distance: {shortest_distance}")
-                    distance_tesnor[0][0][z][x][y] = shortest_distance
-
-    distance_tesnor[distance_tesnor.isinf()] = 0
+    run_process = 0
+    s_index = 0
+    w_index = 0
+    while True:
+        if s_index == len(processes) and w_index == len(processes):
+            break
+        if s_index < len(processes) and num_process - run_process > 0:
+            processes[s_index].start()
+            s_index += 1
+            run_process += 1
+        elif w_index < len(processes):
+            processes[w_index].join()
+            w_index += 1
+            run_process -= 1
 
     draw("distance.gif", distance_tesnor)
     with open("result.npy", 'wb') as f:
@@ -370,4 +410,5 @@ def morph():
 
 
 if __name__ == '__main__':
+    __spec__ = None
     morph()
