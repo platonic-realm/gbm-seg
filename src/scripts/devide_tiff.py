@@ -6,11 +6,11 @@ Date:   06.12.2022
 import tifffile
 
 image = tifffile.imread(
-        '/data/afatehi/gbm/data/ds_train/training_ccl_erosion_dilation_inside_final.tif')
+        '/data/afatehi/gbm/experiments/VA-Big-Mouse/datasets/COL4-mutation.Nephrin1.WGA2.COLIV3.Mask4.tif')
 image_shape = image.shape
 
-training = image[:, :, :720, :]
-validation = image[:, :, 720:, :]
+training = image[:, :, :1440, :]
+validation = image[:, :, 1440:, :]
 
 tifffile.imwrite('training.tiff',
                  training,

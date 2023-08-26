@@ -6,6 +6,7 @@ File:   blocks.py
 
 # Python Imports
 import logging
+import itertools
 
 # Library Imports
 import torch
@@ -21,6 +22,7 @@ class ConvLayer(nn.Module):
                  _output_channels,
                  _kernel_size,
                  _conv_layer_type,
+                 _normalized_shape,
                  _padding):
 
         super().__init__()
@@ -31,20 +33,22 @@ class ConvLayer(nn.Module):
                                      bias=False,
                                      padding=_padding)
 
-        self.batch_normalization = nn.BatchNorm3d(_output_channels)
+        # self.normalization = nn.BatchNorm3d(_output_channels)
+        self.normalization = nn.LayerNorm(_normalized_shape,
+                                          elementwise_affine=False)
 
         self.activation = nn.ReLU(inplace=True)
 
     def forward(self, _x):
         _x = self.convolution(_x)
-        _x = self.batch_normalization(_x)
+        _x = self.normalization(_x)
         _x = self.activation(_x)
         return _x
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
         self.convolution.to(*args, **kwargs)
-        self.batch_normalization.to(*args, **kwargs)
+        self.normalization.to(*args, **kwargs)
 
 
 class EncoderLayer(nn.Module):
@@ -53,6 +57,8 @@ class EncoderLayer(nn.Module):
                  _output_channels,
                  _kernel_size,
                  _conv_layer_type,
+                 _normalized_shape_1,
+                 _normalized_shape_2,
                  _padding,
                  _pooling,
                  _pool_kernel_size):
@@ -67,12 +73,14 @@ class EncoderLayer(nn.Module):
                                        _input_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape_1,
                                        _padding)
 
         self.convolution_2 = ConvLayer(_input_channels,
                                        _output_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape_2,
                                        _padding)
 
     def forward(self, _x):
@@ -99,6 +107,8 @@ class DecoderLayer(nn.Module):
                  _x_channels,
                  _kernel_size,
                  _conv_layer_type,
+                 _normalized_shape_1,
+                 _normalized_shape_2,
                  _padding,
                  _upsampling,
                  _scale_factor):
@@ -118,12 +128,14 @@ class DecoderLayer(nn.Module):
                                        _input_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape_1,
                                        _padding)
 
         self.convolution_2 = ConvLayer(_input_channels,
                                        _output_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape_2,
                                        _padding)
 
     def forward(self, _encoder_features, _x):
@@ -162,6 +174,7 @@ class DecoderLayer_ME(nn.Module):
                  _kernel_size,
                  _conv_layer_type,
                  _padding,
+                 _normalized_shape,
                  _upsampling,
                  _scale_factor):
 
@@ -180,12 +193,14 @@ class DecoderLayer_ME(nn.Module):
                                        _input_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape,
                                        _padding)
 
         self.convolution_2 = ConvLayer(_input_channels,
                                        _output_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape,
                                        _padding)
 
     def forward(self, _encoder_features, _x):
@@ -220,6 +235,7 @@ class DecoderLayer_SS(nn.Module):
                  _x_channels,
                  _kernel_size,
                  _conv_layer_type,
+                 _normalized_shape,
                  _padding,
                  _upsampling,
                  _scale_factor):
@@ -239,12 +255,14 @@ class DecoderLayer_SS(nn.Module):
                                        _input_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape,
                                        _padding)
 
         self.convolution_2 = ConvLayer(_input_channels,
                                        _output_channels,
                                        _kernel_size,
                                        _conv_layer_type,
+                                       _normalized_shape,
                                        _padding)
 
     def forward(self, _encoder_features, _x):
@@ -271,6 +289,7 @@ def create_encoder_layers(_input_channels,
                           _feature_maps,
                           _kernel_size,
                           _padding,
+                          _sample_shape,
                           _conv_layer_type):
     encoder_layers = nn.ModuleList([])
 
@@ -294,12 +313,20 @@ def create_encoder_layers(_input_channels,
         logging.debug("ouput_channels: %s", output_channels)
         logging.debug("pooling: %s", pooling)
 
+        sample_shape = (_sample_shape[0],
+                        int(_sample_shape[1]/(2**i)),
+                        int(_sample_shape[2]/(2**i)))
+        normalized_shape_1 = tuple(itertools.chain((input_channels, ), sample_shape))
+        normalized_shape_2 = tuple(itertools.chain((output_channels, ), sample_shape))
+
         encoder_layers.append(
                 EncoderLayer(input_channels,
                              output_channels,
                              _kernel_size,
                              _conv_layer_type,
                              _padding=_padding,
+                             _normalized_shape_1=normalized_shape_1,
+                             _normalized_shape_2=normalized_shape_2,
                              _pooling=pooling,
                              _pool_kernel_size=(1, 2, 2)))
 
@@ -309,6 +336,7 @@ def create_encoder_layers(_input_channels,
 def create_decoder_layers(_feature_maps,
                           _kernel_size,
                           _padding,
+                          _sample_shape,
                           _conv_layer_type):
     decoder_layers = nn.ModuleList([])
 
@@ -318,7 +346,8 @@ def create_decoder_layers(_feature_maps,
 
     reverse_feature_maps = list(reversed(_feature_maps))
 
-    for i in range(len(reverse_feature_maps) - 1):
+    feature_length = len(reverse_feature_maps) - 1
+    for i in range(feature_length):
 
         if i == 0:
             input_channels = reverse_feature_maps[i]
@@ -334,6 +363,12 @@ def create_decoder_layers(_feature_maps,
         logging.debug("input_channels: %s", input_channels)
         logging.debug("ouput_channels: %s", output_channels)
 
+        sample_shape = (_sample_shape[0],
+                        int(_sample_shape[1]/(2**(feature_length - i - 1))),
+                        int(_sample_shape[2]/(2**(feature_length - i - 1))))
+        normalized_shape_1 = tuple(itertools.chain((input_channels, ), sample_shape))
+        normalized_shape_2 = tuple(itertools.chain((output_channels, ), sample_shape))
+
         decoder_layers.append(
                 DecoderLayer(input_channels,
                              output_channels,
@@ -342,6 +377,8 @@ def create_decoder_layers(_feature_maps,
                              _conv_layer_type=_conv_layer_type,
                              _upsampling=True,
                              _padding=_padding,
+                             _normalized_shape_1=normalized_shape_1,
+                             _normalized_shape_2=normalized_shape_2,
                              _scale_factor=(1, 2, 2)))
 
     return decoder_layers

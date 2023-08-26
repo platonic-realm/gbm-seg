@@ -34,7 +34,10 @@ class Unet3DTrainer(Trainer):
 
         self.model = Unet3D(len(self.channels),
                             self.number_class,
-                            _feature_maps=self.feature_maps)
+                            _encoder_kernel_size=self.configs['model']['encoder_kernel'],
+                            _decoder_kernel_size=self.configs['model']['decoder_kernel'],
+                            _feature_maps=self.feature_maps,
+                            _sample_dimension=self.configs['train_ds']['sample_dimension'])
 
         self._load_snapshot()
 
@@ -179,6 +182,9 @@ class Unet3DTrainer(Trainer):
 
                 # We should calculate once and report twice
                 metrics = self.gpu_metrics.calculate()
+                # The scheduler changes the lr based on the provided metric
+                self.scheduler.step(metrics['Dice'])
+
                 logging.info("Validation, Step: %d\n"
                              "Info: %s",
                              self.step,

@@ -23,6 +23,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.profiler import ProfilerActivity
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 
 # Local Imports
 from src.utils.misc import create_dirs_recursively
@@ -448,6 +450,7 @@ class Trainer(ABC):
             lr: float = self.configs['optim']['lr']
             self.optimizer = torch.optim.Adam(self.model.parameters(),
                                               lr=lr)
+        self.scheduler = ReduceLROnPlateau(self.optimizer, mode='max', verbose=True)
 
     def _prepare_loss(self) -> None:
         if self.ddp:

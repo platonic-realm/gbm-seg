@@ -18,8 +18,6 @@ from src.models.blocks import \
 
 
 class Unet3D(nn.Module):
-    # pylint: disable=too-many-instance-attributes
-
     def __init__(
             self,
             _input_channels,
@@ -64,12 +62,14 @@ class Unet3D(nn.Module):
                                                     _feature_maps,
                                                     _encoder_kernel_size,
                                                     _encoder_padding,
+                                                    _sample_dimension,
                                                     _conv_layer_type)
 
         logging.debug("Creating the decoder layer")
         self.decoder_layers = create_decoder_layers(_feature_maps,
                                                     _decoder_kernel_size,
                                                     _decoder_padding,
+                                                    _sample_dimension,
                                                     _conv_layer_type)
 
         logging.debug("Creating the last layer")
@@ -110,9 +110,9 @@ class Unet3D(nn.Module):
         outputs = self.final_activation(logits)
         outputs = torch.argmax(outputs, dim=1)
 
-        # We devided our voxel space to smaller tiles
+        # We devided our voxel space to smaller patches
         # that overlap on each other. In inderence mode, we
-        # count the predicted class for each of the voxels
+        # count the predicted logits for each of the voxels
         # and store it in the result tensor. We use this tensor
         # to decide about the final class of each of the voxels.
         if self.inference:
@@ -132,7 +132,7 @@ class Unet3D(nn.Module):
                                    x_start + self.sample_dimension[1],
                                    y_start:
                                    y_start + self.sample_dimension[2]
-                                   ] += logits[batch_id, :, :, :, :]
+                                   ] += logits[batch_id, :, :, :, :].to('cuda:0')
 
         return logits, outputs
 

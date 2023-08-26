@@ -4,7 +4,6 @@ Date:   12.12.2022
 """
 
 # Python Imports
-import logging
 import os
 import re
 
@@ -14,9 +13,11 @@ from numpy import array
 import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
+from torch.nn.parallel import DataParallel as DP
 import tifffile
 import imageio
 from tqdm import tqdm
+from skimage import measure, morphology
 
 # Local Imports
 from src.data.ds_infer import InferenceDataset
@@ -24,7 +25,7 @@ from src.models.unet3d import Unet3D
 from src.models.unet3d_me import Unet3DME
 from src.models.unet3d_ss import Unet3DSS
 
-from src.utils.misc import to_numpy, create_dirs_recursively
+from src.utils.misc import create_dirs_recursively
 
 
 class Inference():
@@ -116,7 +117,9 @@ class Inference():
                 model.load_state_dict(state_dict)
 
             device: str = self.configs['device']
+
             model.to(device)
+            model = DP(model)
             model.eval()
 
             for data in tqdm(data_loader,
@@ -130,7 +133,7 @@ class Inference():
                 sample = self.stack_channels(self.configs,
                                              nephrin,
                                              wga,
-                                             collagen4)
+                                             collagen4).to(device)
 
                 with torch.no_grad():
                     if self.model_name == 'unet_3d_me':
@@ -146,9 +149,10 @@ class Inference():
             create_dirs_recursively(
                     os.path.join(output_dir, "dummy"))
 
-            result = model.get_result()
-            result = to_numpy(result)
-            result = np.argmax(result, axis=0)
+            result = model.module.get_result()
+            result = torch.argmax(result, dim=0)
+            result = self.post_processing(result)
+
             self.save_result(dataset.nephrin,
                              dataset.wga,
                              dataset.collagen4,
@@ -224,3 +228,33 @@ class Inference():
                          imagej=True,
                          metadata={'axes': 'ZCYX', 'fps': 10.0},
                          compression='lzw')
+
+    def post_processing(self,
+                        _prediction: Tensor):
+        prediction = _prediction.detach().cpu().numpy()
+        if not self.configs['post_processing']['enabled']:
+            return prediction
+
+        for i in range(prediction.shape[0]):
+            min_size = self.configs['post_processing']['min_size']
+            kernel_size = self.configs['post_processing']['kernel_size']
+
+            kernel = morphology.rectangle(kernel_size, kernel_size)
+            eroded_image = morphology.erosion(prediction[i, :, :], kernel)
+            prediction[i, :, :] = eroded_image
+
+            sample = prediction[i, :, :]
+            labels = measure.label(sample, connectivity=1)
+            # count pixels in each connected component
+            unique_labels, label_counts = np.unique(labels, return_counts=True)
+            # remove small connected components
+            # print(f"mean: {int(np.mean(label_counts))}, std: {int(np.std(label_counts))}, max: {int(np.max(label_counts))}, min: {int(np.min(label_counts))}")
+            for label, count in zip(unique_labels, label_counts):
+                if count < min_size and label != 0:
+                    prediction[i, :, :][labels == label] = 0
+
+            kernel = morphology.rectangle(kernel_size, kernel_size)
+            dilated_image = morphology.dilation(prediction[i, :, :], kernel)
+            prediction[i, :, :] = dilated_image
+
+        return prediction

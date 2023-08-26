@@ -15,7 +15,7 @@ experiments:
               [wga, 1],
               [collagen4, 2]
             ]
-  optimizers: [[adam, lr, 0.0001]]
+  optimizers: [[adam, lr, 0.001]]
   losses: [CrossEntropy, Dice]
   metrics: [
             ['Loss', True],
@@ -219,6 +219,11 @@ inference:
   number_class: 2
   snapshot_path: ''
   device: cuda
+
+  post_processing:
+    enabled: True
+    min_size: 200
+    kernel_size: 3
 
   result_dir: ''
 
