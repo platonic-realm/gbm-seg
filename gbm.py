@@ -48,7 +48,7 @@ if __name__ == '__main__':
                                  _root_path=root)
 
     if args.action == 'train':
-        configure_logger(configs)
+        configure_logger(configs, _log_to_file=True)
         root = configs['experiments']['root']
         name = args.name
         exper.train_experiment(_name=name,
@@ -61,9 +61,9 @@ if __name__ == '__main__':
         exper.delete_experiment(_name=name,
                                 _root_path=root)
     if args.action == 'infer':
-        configure_logger(configs)
-        root = configs['experiments']['root']
+        configure_logger(configs, _log_to_file=False)
         name = args.name
+        root = configs['experiments']['root']
         snapshot = args.snapshot
         batch_size = args.batch_size
         sample_dimension = [item.strip() for

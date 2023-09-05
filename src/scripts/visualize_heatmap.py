@@ -5,9 +5,10 @@ import multiprocessing as mp
 
 
 # define a sphere about [0.5, 0.5, 0.5]
-sphere = np.load('/data/afatehi/result.npy')[0][0]
+sphere = np.load('/data/afatehi/gbm/result.npy')
 
-normalized = (sphere - sphere.min())/(sphere.max() - sphere.min())
+print(f"max={sphere.max()}, min={sphere.min()}")
+normalized = (sphere - sphere.min())/(10000)
 
 print(sphere.std())
 

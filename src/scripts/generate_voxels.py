@@ -23,8 +23,39 @@ def draw(_file_path, _input):
             writer.append_data(_input[index])
 
 
-if __name__ == "__main__":
+def cube():
+    grid = torch.meshgrid(torch.arange(100),
+                          torch.arange(100),
+                          torch.arange(100),
+                          indexing='ij')
 
+    mask0 = torch.logical_and(grid[0] > 25, grid[0] < 75)
+    mask1 = torch.logical_and(grid[1] > 25, grid[1] < 75)
+    mask2 = torch.logical_and(grid[2] > 25, grid[2] < 75)
+
+    mask = torch.logical_and(mask0, mask1)
+    mask = torch.logical_and(mask, mask2).int()
+
+    mask = mask.cpu().numpy()
+
+    mask[mask == 1] = 255
+
+    return mask
+
+
+def circle():
+    pass
+
+
+def cylinder():
+    pass
+
+
+def torus():
+    pass
+
+
+def circle_circle():
     grid = torch.meshgrid(torch.arange(100),
                           torch.arange(100),
                           torch.arange(100),
@@ -52,5 +83,22 @@ if __name__ == "__main__":
     mask = mask.cpu().numpy()
 
     mask[mask == 1] = 255
-    draw("spheres.gif", mask)
-    np.save("spheres.npy", mask)
+
+    return mask
+
+
+def circle_cylinder():
+    pass
+
+
+def cube_circle():
+    pass
+
+
+def cube_cylinder():
+    pass
+
+
+if __name__ == "__main__":
+    cube = circle_circle()
+    np.save("/data/afatehi/gbm/cube.npy", cube)

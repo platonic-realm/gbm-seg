@@ -108,7 +108,7 @@ def morph():
     torch.backends.cudnn.deterministic = True
     torch.autograd.set_grad_enabled(False)
 
-    voxel_space = load_voxel_space('./spheres.npy')
+    voxel_space = load_voxel_space('/data/afatehi/gbm/cube.npy')
 
     voxel_space[voxel_space == 255] = 1
     voxel_space = voxel_space.view(tuple(itertools.chain((1, 1),
@@ -454,8 +454,8 @@ def morph():
     distance_tesnor[distance_tesnor.isinf()] = 0
     distance_tesnor[surface_mask <= 0] = 0
 
-    draw("distance.gif", distance_tesnor)
-    with open("result.npy", 'wb') as f:
+    # draw("distance.gif", distance_tesnor)
+    with open("/data/afatehi/gbm/result.npy", 'wb') as f:
         np.save(f, distance_tesnor.detach().cpu().numpy())
 
 

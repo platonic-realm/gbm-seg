@@ -128,6 +128,9 @@ def parse_exper() -> None:
         parser.print_help(sys.stderr)
         sys.exit(1)
 
+    if hasattr(args, 'name'):
+        configs['root_path'] = os.path.join(configs['experiments']['root'],
+                                            args.name)
     return args, configs
 
 
