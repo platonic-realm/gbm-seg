@@ -23,6 +23,9 @@ def supervised(_configs):
     def label_correction_function(_labels):
         _labels = _labels.astype(int)
         _labels[_labels > 0] = 1
+        _labels[_labels == 1] = 2
+        _labels[_labels == 0] = 1
+        _labels[_labels == 2] = 0
         return _labels
 
     if _configs['trainer']['model']['name'] == 'unet_3d':
@@ -43,6 +46,9 @@ def semi_supervised(_configs):
         def label_correction_function(_labels):
             _labels = _labels.astype(int)
             _labels[_labels > 0] = 1
+            _labels[_labels == 1] = 2
+            _labels[_labels == 0] = 1
+            _labels[_labels == 2] = 0
             return _labels
 
         trainer = Unet3DSemiTrainer(_configs,
@@ -54,7 +60,6 @@ def semi_supervised(_configs):
 
 
 def main_train(_configs):
-    torch.manual_seed(42234213)
     if _configs['logging']['log_summary']:
         args.summerize(_configs)
 

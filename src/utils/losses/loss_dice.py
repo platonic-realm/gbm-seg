@@ -12,18 +12,15 @@ import torch.nn.functional as Fn
 from torch import nn
 from torch.autograd import Variable
 
-# Local Imports
-from src.utils.misc import expand_as_one_hot
-
 
 class _AbstractDiceLoss(nn.Module):
     """
     Base class for different implementations of Dice loss.
     """
 
-    def __init__(self, _weight=None, _normalization='sigmoid'):
+    def __init__(self, _weights=None, _normalization='softmax'):
         super().__init__()
-        self.register_buffer('weight', _weight)
+        self.register_buffer('weight', _weights)
 
         assert _normalization in ['sigmoid', 'softmax', 'none']
         if _normalization == 'sigmoid':
@@ -73,45 +70,6 @@ class BCEDiceLoss(nn.Module):
     def forward(self, _input, _target):
         return self.alpha * self.bce(_input, _target) \
                + self.beta * self.dice(_input, _target)
-
-
-class PixelWiseCrossEntropyLoss(nn.Module):
-    def __init__(self, class_weights=None, ignore_index=None):
-        super().__init__()
-        self.register_buffer('class_weights', class_weights)
-        self.ignore_index = ignore_index
-        self.log_softmax = nn.LogSoftmax(dim=1)
-
-    def forward(self, _input, _target, _weights):
-        assert _target.size() == _weights.size()
-        # normalize the input
-        log_probabilities = self.log_softmax(_input)
-        # standard CrossEntropyLoss requires the target to be (NxDxHxW),
-        # so we need to expand it to (NxCxDxHxW)
-        target = expand_as_one_hot(_target,
-                                   _c=_input.size()[1],
-                                   _ignore_index=self.ignore_index)
-        # expand weights
-        _weights = _weights.unsqueeze(1)
-        _weights = _weights.expand_as(_input)
-
-        # create default class_weights if None
-        if self.class_weights is None:
-            class_weights = torch.ones(
-                    _input.size()[1]).float().to(_input.device)
-        else:
-            class_weights = self.class_weights
-
-        # resize class_weights to be broadcastable into the weights
-        class_weights = class_weights.view(1, -1, 1, 1, 1)
-
-        # multiply weights tensor by class weights
-        _weights = class_weights * _weights
-
-        # compute the losses
-        result = -_weights * target * log_probabilities
-        # average the losses
-        return result.mean()
 
 
 class WeightedCrossEntropyLoss(nn.Module):
@@ -173,6 +131,8 @@ def compute_per_channel_dice(_input, _target, _epsilon=1e-6, _weight=None):
          weight (torch.Tensor): Cx1 tensor of weight per channel/class
     """
 
+    _target = Fn.one_hot(_target, 2)
+    _target = _target.permute(0, 4, 1, 2, 3)
     # input and target shapes must match
     assert _input.size() == _target.size(), \
            "'input' and 'target' must have the same shape"

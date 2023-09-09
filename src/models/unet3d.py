@@ -85,7 +85,8 @@ class Unet3D(nn.Module):
             assert self.sample_dimension is not None, \
                 "I need sample dimension to produce the result."
             self.result_tensor = torch.zeros(_result_shape,
-                                             requires_grad=False)
+                                             requires_grad=False,
+                                             device='cpu')
 
     def forward(self, _x, _offsets=None):
         encoder_features = []
@@ -132,7 +133,7 @@ class Unet3D(nn.Module):
                                    x_start + self.sample_dimension[1],
                                    y_start:
                                    y_start + self.sample_dimension[2]
-                                   ] += logits[batch_id, :, :, :, :].to('cuda:0')
+                                   ] += logits[batch_id, :, :, :, :].to('cpu')
 
         return logits, outputs
 
@@ -143,9 +144,6 @@ class Unet3D(nn.Module):
         for decoder in self.decoder_layers:
             decoder.to(*args, **kwargs)
         self.last_layer.to(*args, **kwargs)
-        if self.inference:
-            self.result_tensor = \
-                    self.result_tensor.to(*args, **kwargs)
 
         return self
 

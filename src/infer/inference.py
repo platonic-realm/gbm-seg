@@ -18,12 +18,14 @@ import tifffile
 import imageio
 from tqdm import tqdm
 from skimage import measure, morphology
+from scipy import ndimage
 
 # Local Imports
 from src.data.ds_infer import InferenceDataset
 from src.models.unet3d import Unet3D
 from src.models.unet3d_me import Unet3DME
 from src.models.unet3d_ss import Unet3DSS
+from src.infer.morph import Morph
 
 from src.utils.misc import create_dirs_recursively
 
@@ -48,6 +50,9 @@ class Inference():
         self.batch_size: int = self.configs['inference_ds']['batch_size']
         self.scale_factor: int = self.configs['inference_ds']['scale_factor']
         self.channel_map: list = self.configs['inference_ds']['channel_map']
+
+        self.morph = Morph(_device=self.device,
+                           _ave_kernel_size=5)
 
     def infer(self):
         directory_path = os.path.join(self.root_path,
@@ -118,12 +123,12 @@ class Inference():
 
             device: str = self.configs['device']
 
-            model.to(device)
             model = DP(model)
+            model.to(device)
             model.eval()
 
             for data in tqdm(data_loader,
-                             desc="Prcossing"):
+                             desc="Segmentation"):
 
                 nephrin = data['nephrin'].to(device)
                 wga = data['wga'].to(device)
@@ -153,10 +158,20 @@ class Inference():
             result = torch.argmax(result, dim=0)
             result = self.post_processing(result)
 
+            del model
+            del nephrin
+            del wga
+            del collagen4
+            del offsets
+            del sample
+
+            morph_result = self.morph(torch.from_numpy(result).float()).detach().cpu().numpy()
+
             self.save_result(dataset.nephrin,
                              dataset.wga,
                              dataset.collagen4,
                              result,
+                             morph_result,
                              output_dir,
                              dataset.tiff_tags)
 
@@ -197,20 +212,24 @@ class Inference():
                     _wga: array,
                     _collagen4: array,
                     _prediction: array,
+                    _morph_results: array,
                     _output_path: str,
                     _tiff_tags: dict,
                     _multiplier: int = 120):
 
         prediction_tif_path = os.path.join(_output_path, "prediction.tif")
         prediction_gif_path = os.path.join(_output_path, "prediction.gif")
+        morph_npy_path = os.path.join(_output_path, "morph_result.npy")
 
         _prediction = _prediction * _multiplier
         _prediction = _prediction.astype(np.uint8)
 
-        # if self.configs['save_npy']:
-        #     np.save(os.path.join(_output_path,
-        #                          "prediction.npy"),
-        #             _prediction)
+        np.save(os.path.join(_output_path,
+                             "prediction.npy"),
+                _prediction)
+
+        with open(morph_npy_path, 'wb') as morph_npy_file:
+            np.save(morph_npy_file, _morph_results)
 
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):
@@ -256,5 +275,12 @@ class Inference():
             kernel = morphology.rectangle(kernel_size, kernel_size)
             dilated_image = morphology.dilation(prediction[i, :, :], kernel)
             prediction[i, :, :] = dilated_image
+
+        labels, labels_num = ndimage.label(prediction)
+        # count pixels in each connected component
+        for label_index in range(labels_num):
+            voxel_count = np.sum(labels == label_index)
+            if voxel_count < 400:
+                prediction[labels == label] = 0
 
         return prediction

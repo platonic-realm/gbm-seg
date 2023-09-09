@@ -5,6 +5,7 @@ Date:   15.08.2023
 
 # Python Imports
 import itertools
+import logging
 
 # Library Imports
 import torch
@@ -12,12 +13,27 @@ import torch.nn.functional as F
 from torch import nn
 from torch import Tensor
 
+import imageio
+import numpy as np
+
+from tqdm import tqdm
+
 # Local Imports
 
 # Constants
 norm1 = 1
 norm2 = 0.7071
 norm3 = 0.5773
+
+
+def draw(_file_path, _input):
+    _input = torch.squeeze(_input)
+    _input = torch.squeeze(_input)
+    _input[_input > 0] == 255
+    _input = _input.cpu().numpy().astype(np.uint8)
+    with imageio.get_writer(_file_path, mode='I') as writer:
+        for index in range(_input.shape[0]):
+            writer.append_data(_input[index])
 
 
 direction_vectors = torch.Tensor([[norm1, 0, 0],   # 1. Up
@@ -77,28 +93,27 @@ displacement_vectors = torch.Tensor([[1.0, 0.5, 0.5],  # 1. Up
                                      ], device='cpu')
 
 
-class Morph(nn.module):
+class Morph(nn.Module):
     def __init__(self,
                  _device: str,
                  _calc_displayments: bool = True,
-                 _calc_displayments_on_cpu: bool = False,
-                 _ave_kernel_size: int = 5,
-                 _inside_voxel_weight: float = 1.0):
+                 _calc_displayments_on_cpu: bool = True,
+                 _ave_kernel_size: int = 5):
 
         global direction_vectors
         global displacement_vectors
 
-        self.prime_no = 29
+        super().__init__()
+
         self.device = _device
         self.calc_displacements = _calc_displayments
         self.ave_kernel_size = _ave_kernel_size
-        self.inside_voxel_weight = _inside_voxel_weight
         self.calc_displacements_on_cpu = _calc_displayments_on_cpu
 
         # Taking care of tensor's location
-        direction_vectors = direction_vectors.to(self.device)
-        if self.calc_displayments:
+        if self.calc_displacements and not _calc_displayments_on_cpu:
             displacement_vectors = displacement_vectors.to(self.device)
+            direction_vectors = direction_vectors.to(self.device)
 
         # Using this kernel we count and sum the number of voxels in the neighbourhood
         # of the center voxel, the value the background would be zero, and the forground
@@ -116,7 +131,7 @@ class Morph(nn.module):
                            [1., 1., 1.]],
                           ], device=self.device)
         # Reshaping the kernel to be compatible with conv3d operation
-        self.surface_kernel = self.kernel.view(1, 1, 3, 3, 3)
+        self.surface_kernel = self.surface_kernel.view(1, 1, 3, 3, 3)
 
         ########################################
         # In the forward pass we are calculating a vector pointing inside the shape
@@ -148,221 +163,215 @@ class Morph(nn.module):
                                                  self.ave_kernel_size,
                                                  self.ave_kernel_size),
                                            device=self.device)
-        self.averaging_kernel = self.kernel_average.view(1, 1,
-                                                         self.ave_kernel_size,
-                                                         self.ave_kernel_size,
-                                                         self.ave_kernel_size)
+        self.averaging_kernel = self.averaging_kernel.view(1, 1,
+                                                           self.ave_kernel_size,
+                                                           self.ave_kernel_size,
+                                                           self.ave_kernel_size)
 
-    @torch.no_grad
     def forward(self,
                 _voxel_space):
+        with torch.no_grad():
+            if _voxel_space.device != self.device:
+                voxel_space = _voxel_space.to(self.device)
+            else:
+                voxel_space = _voxel_space.clone()
+            # Addint two dimenstions to the voxel_space, so it would be compatiple
+            # with conv3d operation
+            voxel_space = voxel_space.view(tuple(itertools.chain((1, 1),
+                                                 voxel_space.shape)))
 
-        if self.voxel_space.device == self.device:
-            voxel_space = _voxel_space.to(self.device)
-        else:
-            voxel_space = _voxel_space.clone()
-        # Addint two dimenstions to the voxel_space, so it would be compatiple
-        # with conv3d operation
-        voxel_space = voxel_space.view(tuple(itertools.chain((1, 1),
-                                             voxel_space.shape)))
+            # Finding the surface voxels using a 3D convultion operation and surface_kernel
+            surface_voxels = F.conv3d(voxel_space,
+                                      self.surface_kernel,
+                                      stride=1,
+                                      padding='same')
 
-        # Finding the surface voxels using a 3D convultion operation and surface_kernel
-        surface_voxels = F.conv3d(voxel_space,
-                                  self.surface_kernel,
-                                  stride=1,
-                                  padding='same')
+            # The conv3d operation calcualte all the forground voxels in the neighbourhood,
+            # it does this for all voxels, even for the background voxels, threfore therefore
+            # the next step is to filter out background voxels by performing an element-wise
+            # multiplication between surface_voxels and voxel_space
+            surface_voxels = surface_voxels * voxel_space
 
-        # The conv3d operation calcualte all the forground voxels in the neighbourhood,
-        # it does this for all voxels, even for the background voxels, threfore therefore
-        # the next step is to filter out background voxels by performing an element-wise
-        # multiplication between surface_voxels and voxel_space
-        surface_voxels = surface_voxels * voxel_space
+            # At this point, all the needed information is stored in surface_voxels tensor
+            # so we don't need the voxel_space anymore, we delete it and empty the cuda cache
+            # in case, we were performing the operation on GPU
+            del voxel_space
+            del _voxel_space
+            self.empty_cache()
 
-        # At this point, all the needed information is stored in surface_voxels tensor
-        # so we don't need the voxel_space anymore, we delete it and empty the cuda cache
-        # in case, we were performing the operation on GPU
-        del voxel_space
-        del _voxel_space
-        self.empty_cache()
+            # We dont want background voxels to be included while checking surface_voxels < 26
+            surface_voxels[surface_voxels == 0] = 128.0
 
-        # We dont want background voxels to be included while checking surface_voxels < 26
-        surface_voxels[surface_voxels == 0] = 128.0
+            # All the surface voxels would be 1.0 from now on
+            surface_voxels[surface_voxels < 26] = 1.0
 
-        # All the surface voxels would be 1.0 from now on
-        surface_voxels[surface_voxels < 26] = 1.0
+            # Set the background back to 0.0
+            surface_voxels[surface_voxels == 128] = 0.0
 
-        # All the inside voxels would be prime_no from now on, in the next step we need to
-        # calculate a vector that point into the inside of the shape for each of the surface voxels
-        # we need to be able to differnciate between inside and surface voxels for that, if later
-        # we want to give the inside voxels more wieghts
-        surface_voxels[surface_voxels == 26] = self.prime_no
+            # The surface_mask only consists of surface voxels
+            surface_mask = (surface_voxels == 1.0).int().float()
 
-        # Set the background back to 0.0
-        surface_voxels[surface_voxels == 128] = 0.0
+            # Now that we have the surface_mask, we can set the value of
+            # all voxels to 1.0 to calculate the slopes
+            surface_voxels[surface_voxels == 26] = 1.0
 
-        # The surface_mask only consists of surface voxels
-        surface_mask = (surface_voxels == 1.0).int().float()
+            # Calculating the X element of slope vectors for all the surface voxels
+            x_slope = F.conv3d(surface_voxels,
+                               self.x_slope_kernel,
+                               stride=1,
+                               padding='same')
+            # We are only interested in surface voxels
+            x_slope = x_slope * surface_mask
 
-        # Calculating the X element of slope vectors for all the surface voxels
-        x_slope = F.conv2d(surface_voxels,
-                           self.kernel_x_slope,
-                           stride=1,
-                           padding='same')
-        # We are only interested in surface voxels
-        x_slope = x_slope * surface_mask
+            # Calculating the Y element of slope vectors for all the surface voxels
+            y_slope = F.conv3d(surface_voxels,
+                               self.y_slope_kernel,
+                               stride=1,
+                               padding='same')
+            # We are only interested in surface voxels
+            y_slope = y_slope * surface_mask
 
-        # Calculating the Y element of slope vectors for all the surface voxels
-        y_slope = F.conv3d(surface_voxels,
-                           self.kernel_y_slope,
-                           stride=1,
-                           padding='same')
-        # We are only interested in surface voxels
-        y_slope = y_slope * surface_mask
+            # Calculating the Z element of slope vectors for all the surface voxels
+            z_slope = F.conv3d(surface_voxels,
+                               self.z_slope_kernel,
+                               stride=1,
+                               padding='same')
+            # We are only interested in surface voxels
+            z_slope = z_slope * surface_mask
 
-        # Calculating the Z element of slope vectors for all the surface voxels
-        z_slope = F.conv3d(surface_voxels,
-                           self.kernel_z_slope,
-                           stride=1,
-                           padding='same')
-        # We are only interested in surface voxels
-        z_slope = z_slope * surface_mask
+            slope_tensor = torch.stack((z_slope,
+                                        x_slope,
+                                        y_slope), dim=len(x_slope.shape))
 
-        slope_tensor = torch.stack((z_slope,
-                                    x_slope,
-                                    y_slope), dim=len(x_slope.shape))
+            del x_slope
+            del y_slope
+            del z_slope
+            self.empty_cache()
 
-        ########################################
-        # This mechanism is added to give inside voxels more weights if needed
-        # When applying the conv3d operations for each surface voxel we add one
-        # but prime_no for each inside voxel, here we are setting the weights for
-        # inside voxels
-        slope_tensor = slope_tensor / self.prime_no
+            z_slope = slope_tensor[:, :, :, :, :, 0]
+            x_slope = slope_tensor[:, :, :, :, :, 1]
+            y_slope = slope_tensor[:, :, :, :, :, 2]
 
-        slope_trunc = torch.trunc(slope_tensor)
-        slope_tensor = slope_tensor - slope_trunc
+            # Check if it should be slope != 0 instead of > 0
+            z_div = (z_slope != 0).int().float()
+            x_div = (x_slope != 0).int().float()
+            y_div = (y_slope != 0).int().float()
 
-        slope_tensor = slope_tensor * self.prime_no
-        slope_tensor = slope_tensor + slope_trunc * self.inside_voxel_weight
-        ########################################
+            z_div = F.conv3d(z_div,
+                             self.averaging_kernel,
+                             stride=1,
+                             padding='same')
+            z_div[z_div == 0] = 1
 
-        del x_slope
-        del y_slope
-        del z_slope
-        del slope_trunc
-        self.empty_cache()
+            slope_tensor[:, :, :, :, :, 0] = F.conv3d(z_slope,
+                                                      self.averaging_kernel,
+                                                      stride=1,
+                                                      padding='same') / z_div
 
-        z_slope = slope_tensor[:, :, :, :, :, 0]
-        x_slope = slope_tensor[:, :, :, :, :, 1]
-        y_slope = slope_tensor[:, :, :, :, :, 2]
+            del z_div
+            self.empty_cache()
 
-        # Check if it should be slope != 0 instead of > 0
-        z_div = (z_slope != 0).int().float()
-        x_div = (x_slope != 0).int().float()
-        y_div = (y_slope != 0).int().float()
+            x_div = F.conv3d(x_div,
+                             self.averaging_kernel,
+                             stride=1,
+                             padding='same')
+            x_div[x_div == 0] = 1
 
-        z_div = F.conv3d(z_div,
-                         self.averaging_kernel,
-                         stride=1,
-                         padding='same')
-        z_div[z_div == 0] = 1
+            slope_tensor[:, :, :, :, :, 1] = F.conv3d(x_slope,
+                                                      self.averaging_kernel,
+                                                      stride=1,
+                                                      padding='same') / x_div
+            del x_div
+            self.empty_cache()
 
-        slope_tensor[:, :, :, :, :, 0] = F.conv3d(z_slope,
-                                                  self.averaging_kernel,
-                                                  stride=1,
-                                                  padding='same') / z_div
+            y_div = F.conv3d(y_div,
+                             self.averaging_kernel,
+                             stride=1,
+                             padding='same')
+            y_div[y_div == 0] = 1
 
-        x_div = F.conv3d(x_div,
-                         self.averaging_kernel,
-                         stride=1,
-                         padding='same')
-        x_div[x_div == 0] = 1
+            slope_tensor[:, :, :, :, :, 2] = F.conv3d(y_slope,
+                                                      self.averaging_kernel,
+                                                      stride=1,
+                                                      padding='same') / y_div
 
-        slope_tensor[:, :, :, :, :, 1] = F.conv3d(x_slope,
-                                                  self.averaging_kernel,
-                                                  stride=1,
-                                                  padding='same') / x_div
+            del z_slope
+            del x_slope
+            del y_slope
+            del y_div
+            self.empty_cache()
 
-        y_div = F.conv3d(y_div,
-                         self.averaging_kernel,
-                         stride=1,
-                         padding='same')
-        y_div[y_div == 0] = 1
+            displacement_device = 'cpu' if self.calc_displacements_on_cpu else self.device
+            slope_tensor = slope_tensor.to(displacement_device)
 
-        slope_tensor[:, :, :, :, :, 2] = F.conv3d(y_slope,
-                                                  self.averaging_kernel,
-                                                  stride=1,
-                                                  padding='same') / y_div
+            self.empty_cache()
 
-        # In order to chose a point on the voxel to calculate the distance from
-        # we are predefining 26 unit vector directions and their correspondent displacement on
-        # a voxel, and first we calculate the dot product of the slope of the vector to each
-        # of those unit vectors and select the index of the vector that resulted in the max value
-        directions = torch.tensordot(slope_tensor,
-                                     direction_vectors,
-                                     dims=([5], [1]))
-        directions = torch.argmax(directions, dim=5)
+            # In order to chose a point on the voxel to calculate the distance from
+            # we are predefining 26 unit vector directions and their correspondent displacement on
+            # a voxel, and first we calculate the dot product of the slope of the vector to each
+            # of those unit vectors and select the index of the vector that resulted in the max value
+            directions = torch.tensordot(slope_tensor,
+                                         direction_vectors,
+                                         dims=([5], [1]))
+            directions = torch.argmax(directions, dim=5)
 
-        displacement_device = 'cpu' if self.calc_displacements_on_cpu else self.device
+            directions.to(displacement_device)
+            # Here we use that indexes to select a displacement out of the 26 available for each voxel
+            points_tensor = displacement_vectors[directions]
+            index_z, index_x, index_y = torch.meshgrid(torch.arange(points_tensor.shape[2]),
+                                                       torch.arange(points_tensor.shape[3]),
+                                                       torch.arange(points_tensor.shape[4]),
+                                                       indexing='ij')
 
-        directions.to(displacement_device)
-        # Here we use that indexes to select a displacement out of the 26 available for each voxel
-        points_tensor = displacement_vectors[directions]
-        index_z, index_x, index_y = torch.meshgrid(torch.arange(points_tensor.shape[2]),
-                                                   torch.arange(points_tensor.shape[3]),
-                                                   torch.arange(points_tensor.shape[4]),
-                                                   indexing='ij').to(displacement_device)
+            index_tensor = torch.stack((index_z, index_x, index_y),
+                                       dim=len(index_z.shape)).to(displacement_device)
+            index_tensor = index_tensor.view(tuple(itertools.chain((1, 1),
+                                                                   index_tensor.shape)))
 
-        index_tensor = torch.stack((index_z, index_x, index_y),
-                                   dim=len(index_z.shape)).to(displacement_device)
-        index_tensor = index_tensor.view(tuple(itertools.chain((1, 1),
-                                                               index_tensor.shape)))
+            points_tensor += index_tensor
 
-        points_tensor += index_tensor
+            del index_z
+            del index_x
+            del index_y
+            del index_tensor
+            del directions
+            self.empty_cache()
 
-        points_tensor = points_tensor.to(self.device)
+            distance_tesnor = torch.zeros(surface_mask.shape, device=self.device)
 
-        del z_slope
-        del x_slope
-        del y_slope
-        del z_div
-        del x_div
-        del y_div
-        del index_z
-        del index_x
-        del index_y
-        del index_tensor
-        del directions
-        self.empty_cache()
+            size_z = surface_mask.shape[2]
+            size_x = surface_mask.shape[3]
+            size_y = surface_mask.shape[4]
+            for z, matrix in tqdm(enumerate(surface_mask[0][0]),
+                                  desc="Morph Analysis"):
+                for x, column in enumerate(matrix):
+                    logging.debug("######################")
+                    logging.debug("Calculating the distances for column Z=%d and X=%d", z, x)
 
-        distance_tesnor = torch.zeros(surface_mask.shape, device=self.device)
+                    condition = column == 1
+                    if condition.int().sum() == 0:
+                        logging.debug("Not surface voxel on this cloumn, skipping...")
+                        continue
 
-        size_z = surface_mask.shape[2]
-        size_x = surface_mask.shape[3]
-        size_y = surface_mask.shape[4]
-
-        for z, matrix in enumerate(surface_mask[0][0]):
-            for x, column in enumerate(matrix):
-                condition = column == 1
-                if condition.int().sum() == 0:
-                    points = points_tensor[0][0][z][x]
-                    slopes = slope_tensor[0][0][z][x]
+                    points = points_tensor[0][0][z][x].to(self.device)
+                    slopes = slope_tensor[0][0][z][x].to(self.device)
                     shortest_distance = torch.full_like(column, float('inf'))
+
                     for axis in range(3):
-                        self.calculate_intersections(_axis=axis,
-                                                     _column=column,
-                                                     _shortest_distance=shortest_distance,
-                                                     _points=points,
-                                                     _slopes=slopes,
-                                                     _surface_mask=surface_mask,
-                                                     _size=[size_z, size_x, size_y])
+                        shortest_distance = self.calculate_intersections(axis,
+                                                                         column,
+                                                                         shortest_distance,
+                                                                         points,
+                                                                         slopes,
+                                                                         surface_mask,
+                                                                         [size_z, size_x, size_y])
 
-                distance_tesnor[0][0][z][x][:] = shortest_distance
-                self.empty_cache()
+                    distance_tesnor[0][0][z][x][:] = shortest_distance
+                    self.empty_cache()
 
-        distance_tesnor[distance_tesnor.isinf()] = 0
-        distance_tesnor[surface_mask <= 0] = 0
-
-        return distance_tesnor
+            distance_tesnor[distance_tesnor.isinf()] = 0
+            distance_tesnor[surface_mask <= 0] = 0
+            return distance_tesnor[0][0]
 
     def calculate_intersections(self,
                                 _axis: int,
@@ -396,12 +405,21 @@ class Morph(nn.module):
 
         range = range.expand(range.shape[0], len(_column))
 
-        intersection_planes = torch.stack((range,
-                                           other_axis_1,
-                                           other_axis_2), dim=2)
+        if _axis == 0:
+            intersection_planes = torch.stack((range,
+                                               other_axis_1,
+                                               other_axis_2), dim=2)
+        elif _axis == 1:
+            intersection_planes = torch.stack((other_axis_1,
+                                               range,
+                                               other_axis_2), dim=2)
+        elif _axis == 2:
+            intersection_planes = torch.stack((other_axis_1,
+                                               other_axis_2,
+                                               range), dim=2)
+
         # Here I am truncating the intercestions to interpret them as the base of the voxel
         truncated = intersection_planes.trunc()
-
         # We filter out out of bound values, because we are only interested in the
         # intercestions inside the voxel space
         condition = truncated[:, :, axis_list[0]] >= 0
@@ -416,7 +434,7 @@ class Morph(nn.module):
         condition = truncated[:, :, axis_list[1]] < _size[1]
         truncated[~condition] = torch.nan
 
-        # Another filter to just keep intercestions that are surface voxels
+        # Another filter to keep only intercestions that are surface voxels
         condition = _surface_mask[0][0][truncated[:, :, 0].int(),
                                         truncated[:, :, 1].int(),
                                         truncated[:, :, 2].int()].bool()
@@ -428,6 +446,7 @@ class Morph(nn.module):
         validation = (distances * _slopes).sum(dim=2)
         condition = validation > 0
         distances[~condition] = torch.nan
+
         if distances.numel() > 0:
             distances = (distances * distances).sum(dim=2)
 
@@ -443,6 +462,11 @@ class Morph(nn.module):
                                              input=distances,
                                              other=_shortest_distance)
 
+        return _shortest_distance
+
     def empty_cache(self):
-        if self.device.contains('cuda'):
+        if "cuda" in self.device:
             torch.cuda.empty_cache()
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)

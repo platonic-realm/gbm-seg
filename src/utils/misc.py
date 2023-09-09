@@ -20,7 +20,7 @@ def basic_logger() -> None:
                         format=log_format)
 
 
-def configure_logger(_configs: dict) -> None:
+def configure_logger(_configs: dict, _log_to_file: bool = True) -> None:
     LOG_LEVEL = _configs['logging']['log_level']
     root_path = _configs['root_path']
     log_file = os.path.join(root_path,
@@ -38,7 +38,7 @@ def configure_logger(_configs: dict) -> None:
         ddp = False
 
     handlers = []
-    if log_file is not None:
+    if _log_to_file and log_file is not None:
         log_file = Path(log_file)
         create_dirs_recursively(log_file)
         if ddp:

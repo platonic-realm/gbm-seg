@@ -85,10 +85,14 @@ displacement_vectors = torch.Tensor([[1.0, 0.5, 0.5],  # 1. Up
 
 
 def load_voxel_space(_path: str) -> Tensor:
-    with tifffile.TiffFile(_path) as tiff:
-        image = tiff.asarray()
-        # image = image[0:10, 400:500, 400:500]
-        return torch.tensor(image, device=device, requires_grad=False)
+    vs = np.load(_path).astype(np.float32)
+    return torch.from_numpy(vs).to(device)
+
+# def load_voxel_space(_path: str) -> Tensor:
+#     with tifffile.TiffFile(_path) as tiff:
+#         image = tiff.asarray()
+#         # image = image[0:10, 400:500, 400:500]
+#         return torch.tensor(image, device=device, requires_grad=False)
 
 
 def draw(_file_path, _input):
@@ -104,7 +108,8 @@ def morph():
     torch.backends.cudnn.deterministic = True
     torch.autograd.set_grad_enabled(False)
 
-    voxel_space = load_voxel_space('/data/afatehi/prediction.tif')
+    # voxel_space = load_voxel_space('/data/afatehi/prediction.tif')
+    voxel_space = load_voxel_space('/data/afatehi/gbm/cube.npy')
 
     voxel_space[voxel_space == 255] = 1
     voxel_space = voxel_space.view(tuple(itertools.chain((1, 1),
@@ -136,8 +141,6 @@ def morph():
     surface_voxels[surface_voxels == 128] = 0.0
 
     surface_mask = (surface_voxels == 1.0).int().float()
-
-    # draw('surface.gif', surface_mask)
 
     pos = torch.ones(3, 3).to(device)
     zero = torch.zeros(3, 3).to(device)
@@ -438,8 +441,8 @@ def morph():
     distance_tesnor[distance_tesnor.isinf()] = 0
     distance_tesnor[surface_mask <= 0] = 0
 
-    draw("distance.gif", distance_tesnor)
-    with open("result.npy", 'wb') as f:
+    # draw("distance.gif", distance_tesnor)
+    with open("/data/afatehi/gbm/result.npy", 'wb') as f:
         np.save(f, distance_tesnor.detach().cpu().numpy())
 
 

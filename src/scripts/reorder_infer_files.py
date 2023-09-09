@@ -4,9 +4,9 @@ from pathlib import Path
 
 path = "/data/afatehi/gbm/experiments"
 inlcude = "results-infer"
-exclude = "1128128_6"
+exclude = "16464_6"
 filelist = []
-dist = '/data/afatehi/gbm/mouse-results/'
+dist = '/data/afatehi/gbm/human-results/'
 
 for root, dirs, files in os.walk(path):
     for file in files:

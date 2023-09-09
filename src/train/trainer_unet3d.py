@@ -182,8 +182,10 @@ class Unet3DTrainer(Trainer):
 
                 # We should calculate once and report twice
                 metrics = self.gpu_metrics.calculate()
+
                 # The scheduler changes the lr based on the provided metric
-                self.scheduler.step(metrics['Dice'])
+                if _epoch > 0:
+                    self.scheduler.step(metrics['Dice'])
 
                 logging.info("Validation, Step: %d\n"
                              "Info: %s",

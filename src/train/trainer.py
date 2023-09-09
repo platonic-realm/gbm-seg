@@ -31,6 +31,7 @@ from src.utils.misc import create_dirs_recursively
 from src.utils.visual import VisualizerUnet3D
 from src.data.ds_train import GBMDataset
 from src.utils.losses.loss_dice import DiceLoss
+from src.utils.losses.loss_iou import IoULoss
 from src.utils.losses.loss_ss import SelfSupervisedLoss
 from src.utils.metrics.memory import GPURunningMetrics
 
@@ -142,6 +143,7 @@ class Trainer(ABC):
 
     def train(self):
         for epoch in range(self.epoch_resume, self.epochs):
+            torch.manual_seed(88233474)
             self._train_epoch(epoch)
 
     # Channels list in the configuration determine
@@ -464,7 +466,9 @@ class Trainer(ABC):
 
             loss_name: str = self.configs['loss']
             if loss_name == 'Dice':
-                self.loss = DiceLoss(_weight=weights)
+                self.loss = DiceLoss(_weights=weights)
+            if loss_name == 'IoU':
+                self.loss = IoULoss(_weights=weights)
             if loss_name == 'CrossEntropy':
                 self.loss = nn.CrossEntropyLoss(weight=weights)
         else:
