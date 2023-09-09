@@ -231,6 +231,9 @@ class Inference():
         with open(morph_npy_path, 'wb') as morph_npy_file:
             np.save(morph_npy_file, _morph_results)
 
+        with open(morph_npy_path, 'wb') as morph_npy_file:
+            np.save(morph_npy_file, _morph_results)
+
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):
                 writer.append_data(_prediction[index])
