@@ -27,31 +27,16 @@ def configure_logger(_configs: dict, _log_to_file: bool = True) -> None:
                             _configs['trainer']['result_path'],
                             _configs['logging']['log_file'])
     log_std = _configs['logging']['log_std']
-    ddp = _configs['trainer']['ddp']['enabled']
-
-    # Adding node and rank info to log format if dpp is enabled
-    try:
-        rank = int(os.environ["RANK"])
-        node = int(os.environ["GROUP_RANK"])
-        ddp = True
-    except KeyError:
-        ddp = False
 
     handlers = []
     if _log_to_file and log_file is not None:
         log_file = Path(log_file)
         create_dirs_recursively(log_file)
-        if ddp:
-            log_stem = log_file.stem
-            log_file = os.path.dirname(log_file) + f"/{log_stem}-{rank}.log"
         handlers.append(logging.FileHandler(log_file))
     if log_std:
         handlers.append(logging.StreamHandler(sys.stdout))
 
-    if ddp:
-        log_format = f"%(asctime)s [%(levelname)s] [{node},{rank}] %(message)s"
-    else:
-        log_format = "%(asctime)s [%(levelname)s] %(message)s"
+    log_format = "%(asctime)s [%(levelname)s] %(message)s"
 
     logging.basicConfig(level=LOG_LEVEL,
                         format=log_format,

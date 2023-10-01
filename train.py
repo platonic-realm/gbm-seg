@@ -67,6 +67,7 @@ def main_train(_configs):
         torch.backends.cudnn.benchmark = True
         logging.info("Enabling cudnn benchmarking")
 
+    torch.manual_seed(88233474)
     if _configs['trainer']['mode'] == 'supervised':
         supervised(_configs)
     elif _configs['trainer']['mode'] == 'semi_supervised':

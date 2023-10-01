@@ -18,10 +18,8 @@ import threading
 import sqlite3
 import torch
 from torch import Tensor, nn
-from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 from torch.profiler import ProfilerActivity
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -75,19 +73,6 @@ class Trainer(ABC):
         # Data Parallelism
         self.dp = self.configs['dp']
 
-        # Distributed Data Parallelism Configurations
-        self.ddp: bool = self.configs['ddp']['enabled']
-        self.node: int = \
-            self.configs['ddp']['node'] if self.ddp else 0
-        self.local_rank: int = \
-            self.configs['ddp']['local_rank'] if self.ddp else 0
-        self.rank: int = \
-            self.configs['ddp']['rank'] if self.ddp else 0
-        self.local_size: int = \
-            self.configs['ddp']['local_size'] if self.ddp else 1
-        self.world_size: int = \
-            self.configs['ddp']['world_size'] if self.ddp else 1
-
         self.visualization: bool = \
             self.configs['visualization']['enabled']
         self.visualization_chance: float = \
@@ -112,16 +97,10 @@ class Trainer(ABC):
                               self.configs['tensorboard']['path']))
         self.tensorboard_path.mkdir(parents=True, exist_ok=True)
 
-        if self.device == 'cuda':
-            self.device_id: int = self.local_rank % torch.cuda.device_count()
-        else:
-            self.device_id = self.device
+        self.device_id = torch.cuda.current_device()
 
         if self.snapshot_path is not None:
             create_dirs_recursively(self.snapshot_path)
-
-        if self.ddp:
-            init_process_group(backend="nccl")
 
         self.gpu_metrics = GPURunningMetrics(self.configs,
                                              self.device)
@@ -137,13 +116,8 @@ class Trainer(ABC):
         self._prepare_data()
         self._prepare_database()
 
-    def __del__(self):
-        if self.ddp:
-            destroy_process_group()
-
     def train(self):
         for epoch in range(self.epoch_resume, self.epochs):
-            torch.manual_seed(88233474)
             self._train_epoch(epoch)
 
     # Channels list in the configuration determine
@@ -253,8 +227,6 @@ class Trainer(ABC):
                                  _metrics: dict) -> None:
         if not self.tensorboard:
             return
-        if self.ddp and self.rank != 0:
-            return
 
         tb_writer = SummaryWriter(self.tensorboard_path.resolve())
 
@@ -284,13 +256,7 @@ class Trainer(ABC):
         batch_size = len(_inputs)
         sample_id = random.randint(0, batch_size-1)
 
-        if self.ddp:
-            base_path: str = self.visualization_path + \
-                             f"/worker-{self.rank:02}/epoch-{_epoch_id}" + \
-                             f"/batch-{_batch_id}/"
-        else:
-            base_path: str = self.visualization_path + \
-                             f"/epoch-{_epoch_id}/batch-{_batch_id}/"
+        base_path: str = self.visualization_path + f"/epoch-{_epoch_id}/batch-{_batch_id}/"
 
         if _all:
             for index in range(batch_size):
@@ -323,14 +289,12 @@ class Trainer(ABC):
     def _save_sanpshot(self, _epoch: int) -> None:
         if self.snapshot_path is None:
             return
-        if self.rank > 0:
-            return
         snapshot = {}
         snapshot['EPOCHS'] = _epoch
         snapshot['STEP'] = self.step
         snapshot['SEEN_LABELS'] = self.seen_labels
         snapshot['RESUME_COUNT'] = self.resume_count
-        if self.ddp or self.dp:
+        if self.dp:
             snapshot['MODEL_STATE'] = self.model.module.state_dict()
         else:
             snapshot['MODEL_STATE'] = self.model.state_dict()
@@ -419,20 +383,12 @@ class Trainer(ABC):
                     'ignore_stride_mismatch'],
                 _label_correction_function=self.label_correction)
 
-        if self.ddp:
-            train_sampler = DistributedSampler(training_dataset)
-            valid_sampler = DistributedSampler(validation_dataset)
-        else:
-            train_sampler = None
-            valid_sampler = None
-
         training_batch_size: int = self.configs['train_ds']['batch_size']
         self.training_batch_size = training_batch_size
         training_shuffle: bool = self.configs['train_ds']['shuffle']
         self.training_loader = DataLoader(training_dataset,
                                           batch_size=training_batch_size,
                                           shuffle=training_shuffle,
-                                          sampler=train_sampler,
                                           num_workers=self.configs
                                           ['train_ds']['workers'])
 
@@ -442,7 +398,6 @@ class Trainer(ABC):
         self.validation_loader = DataLoader(validation_dataset,
                                             batch_size=validation_batch_size,
                                             shuffle=validation_shuffle,
-                                            sampler=valid_sampler,
                                             num_workers=self.configs
                                             ['valid_ds']['workers'])
 
@@ -455,11 +410,7 @@ class Trainer(ABC):
         self.scheduler = ReduceLROnPlateau(self.optimizer, mode='max', verbose=True)
 
     def _prepare_loss(self) -> None:
-        if self.ddp:
-            device = self.device_id
-        else:
-            device = self.device
-
+        device = self.device
         weights = torch.tensor(self.configs['loss_weights']).to(device)
 
         if self.configs['mode'] == 'supervised':

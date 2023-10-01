@@ -30,10 +30,6 @@ def parse_exper() -> None:
     subparsers = \
         parser.add_subparsers(title='commands', dest='action')
 
-    # Define a subparser for the 'tui' action
-    subparsers.add_parser('tui',
-                          help='manage experiments in a ncurses ui')
-
     # Define a subparser for the 'list' action
     list_parser = \
         subparsers.add_parser('list',
@@ -192,40 +188,6 @@ def sanity_check(_configs: dict) -> dict:
     if _configs['trainer']['device'] == 'cpu':
         _configs['trainer']['cudnn_benchmark'] = False
         _configs['trainer']['nvtx_patching'] = False
-
-    # Checking if script has been run via torchrun
-    # and add the environment variables to configs
-    try:
-        local_rank = int(os.environ["LOCAL_RANK"])
-        _configs['trainer']['ddp']['local_rank'] = local_rank
-
-        rank = int(os.environ["RANK"])
-        _configs['trainer']['ddp']['rank'] = rank
-
-        node = int(os.environ["GROUP_RANK"])
-        _configs['trainer']['ddp']['node'] = node
-
-        local_size = int(os.environ["LOCAL_WORLD_SIZE"])
-        _configs['trainer']['ddp']['local_size'] = local_size
-
-        world_size = int(os.environ["WORLD_SIZE"])
-        _configs['trainer']['ddp']['world_size'] = world_size
-
-        master_address = os.environ["MASTER_ADDR"]
-        _configs['trainer']['ddp']['master_address'] = master_address
-
-        master_port = int(os.environ["MASTER_PORT"])
-        _configs['trainer']['ddp']['master_port'] = master_port
-
-        ddp = True
-
-    except KeyError:
-        ddp = False
-
-    if ddp:
-        _configs['trainer']['dp'] = False
-
-    _configs['trainer']['ddp']['enabled'] = ddp
 
     return _configs
 

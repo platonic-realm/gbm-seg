@@ -8,7 +8,6 @@ import logging
 
 # Library Imports
 import torch
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.parallel import DataParallel as DP
 
 # Local Imports
@@ -45,9 +44,6 @@ class Unet3DMETrainer(Trainer):
         else:
             self.model.to(self.device)
 
-        if self.ddp:
-            self.model = DDP(self.model, device_ids=[self.local_rank])
-
         if self.dp:
             self.model = DP(self.model)
 
@@ -61,10 +57,7 @@ class Unet3DMETrainer(Trainer):
 
         self.step += 1
 
-        if self.ddp:
-            device = self.device_id
-        else:
-            device = self.device
+        device = self.device
 
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
@@ -99,10 +92,7 @@ class Unet3DMETrainer(Trainer):
                        _batch_id: int,
                        _data: dict) -> dict:
 
-        if self.ddp:
-            device = self.device_id
-        else:
-            device = self.device
+        device = self.device
 
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)

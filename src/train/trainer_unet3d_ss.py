@@ -9,7 +9,6 @@ import logging
 
 # Library Imports
 import torch
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.parallel import DataParallel as DP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -52,9 +51,6 @@ class Unet3DSemiTrainer(Trainer):
         else:
             self.model.to(self.device)
 
-        if self.ddp:
-            self.model = DDP(self.model, device_ids=[self.local_rank])
-
         if self.dp:
             self.model = DP(self.model)
 
@@ -73,10 +69,7 @@ class Unet3DSemiTrainer(Trainer):
                        _data: dict) -> dict:
         self.step += 1
 
-        if self.ddp:
-            device = self.device_id
-        else:
-            device = self.device
+        device = self.device
 
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
@@ -133,10 +126,7 @@ class Unet3DSemiTrainer(Trainer):
                        _batch_id: int,
                        _data: dict) -> dict:
 
-        if self.ddp:
-            device = self.device_id
-        else:
-            device = self.device
+        device = self.device
 
         nephrin = _data['nephrin'].to(device)
         wga = _data['wga'].to(device)
@@ -278,16 +268,10 @@ class Unet3DSemiTrainer(Trainer):
                 _ignore_stride_mismatch=self.configs['unlabeled_ds']
                 ['ignore_stride_mismatch'])
 
-        if self.ddp:
-            unlabeled_sampler = DistributedSampler(unlabeled_dataset)
-        else:
-            unlabeled_sampler = None
-
         unlabeled_batch_size: int = self.configs['unlabeled_ds']['batch_size']
         unlabeled_shuffle: bool = self.configs['unlabeled_ds']['shuffle']
         self.unlabeled_loader = DataLoader(unlabeled_dataset,
                                            batch_size=unlabeled_batch_size,
                                            shuffle=unlabeled_shuffle,
-                                           sampler=unlabeled_sampler,
                                            num_workers=self.configs
                                            ['unlabeled_ds']['workers'])

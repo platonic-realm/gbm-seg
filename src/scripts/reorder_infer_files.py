@@ -6,7 +6,7 @@ path = "/data/afatehi/gbm/experiments"
 inlcude = "results-infer"
 exclude = "16464_6"
 filelist = []
-dist = '/data/afatehi/gbm/human-results/'
+dist = '/data/afatehi/gbm/mouse-results/'
 
 for root, dirs, files in os.walk(path):
     for file in files:

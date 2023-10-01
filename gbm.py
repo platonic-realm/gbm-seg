@@ -15,17 +15,12 @@ from pudb import set_trace
 from src.utils.misc import configure_logger, basic_logger
 from src.utils import args
 from src.utils import exper
-from src.tui.main import MainWindow
 
 if __name__ == '__main__':
     args, configs = args.parse_exper()
 
     if args.debug:
         set_trace()
-
-    if args.action == 'tui':
-        main_window = MainWindow(configs)
-        main_window.run()
 
     if args.action == 'create':
         basic_logger()

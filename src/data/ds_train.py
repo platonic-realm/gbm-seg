@@ -13,6 +13,7 @@ import torch
 import torch.multiprocessing as mp
 import numpy as np
 import tifffile
+import cv2
 
 # Local Imports
 from src.data.ds_base import DatasetType, BaseDataset
@@ -74,12 +75,8 @@ class GBMDataset(BaseDataset):
 
     def __getitem__(self, index):
         # Index of the image in image_list
-        # Braking the steps for debugging
-        temp = self.cumulative_sum > index
-        temp = np.where(temp)
-        temp = temp[0]
-        image_id = np.min(temp)
-        # image_id = np.min(np.where(self.cumulative_sum > index)[0])
+        image_id = np.min(np.where(self.cumulative_sum > index)[0])
+
         file_name = self.image_list[image_id]
 
         nephrin = self.images[file_name][:, self.channel_map[0], :, :]
@@ -90,8 +87,7 @@ class GBMDataset(BaseDataset):
             labels = self.images[file_name][:, 3, :, :]
 
         image_shape = nephrin.shape
-        # Image's dimention is like (Z, X, Y)
-        # Sample's dimention is like (Z, X, Y)
+        # Sample dimention is like (Z, X, Y)
         steps_per_x = int((image_shape[1] - self.sample_dimension[1]) //
                           self.pixel_per_step_x) + 1
         steps_per_y = int((image_shape[2] - self.sample_dimension[2]) //
@@ -131,16 +127,19 @@ class GBMDataset(BaseDataset):
                           x_start: x_start + self.sample_dimension[1],
                           y_start: y_start + self.sample_dimension[2]
                           ]
+        nephrin = torch.from_numpy(nephrin)
 
         wga = wga[z_start: z_start + self.sample_dimension[0],
                   x_start: x_start + self.sample_dimension[1],
                   y_start: y_start + self.sample_dimension[2]
                   ]
+        wga = torch.from_numpy(wga)
 
         collagen4 = collagen4[z_start: z_start + self.sample_dimension[0],
                               x_start: x_start + self.sample_dimension[1],
                               y_start: y_start + self.sample_dimension[2]
                               ]
+        collagen4 = torch.from_numpy(collagen4)
 
         if self.dataset_type == DatasetType.Supervised:
             labels = labels[z_start: z_start + self.sample_dimension[0],
@@ -153,13 +152,9 @@ class GBMDataset(BaseDataset):
         wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
 
-        nephrin = torch.from_numpy(nephrin)
-        wga = torch.from_numpy(wga)
-        collagen4 = torch.from_numpy(collagen4)
-
-        nephrin = nephrin/255
-        wga = wga/255
-        collagen4 = collagen4/255
+        nephrin = self._intensity_shift(nephrin/255)
+        wga = self._intensity_shift(wga/255)
+        collagen4 = self._intensity_shift(collagen4/255)
 
         if self.dataset_type == DatasetType.Supervised:
             return {
@@ -196,7 +191,7 @@ class GBMDataset(BaseDataset):
             image_path = os.path.join(self.source_directory, file_name)
 
             if _method is not None:
-                file_name = f"{file_name}{_method[0]}_{_method[1]}"
+                file_name = f"{file_name}{_method[0]}_{_method[1]}.tiff"
 
             with tifffile.TiffFile(image_path) as tiff:
                 image = tiff.asarray()
@@ -211,17 +206,9 @@ class GBMDataset(BaseDataset):
             image = image.astype(np.float32)
 
             if self.dataset_type == DatasetType.Supervised:
-                mask = np.logical_and(image[:, 3, :, :] >= 0,
-                                      image[:, 3, :, :] < 32)
-                image[:, 3, :, :][mask] = 0
-
-                mask = np.logical_and(image[:, 3, :, :] >= 32,
-                                      image[:, 3, :, :] <= 35)
-                image[:, 3, :, :][mask] = 1
-
-                mask = np.logical_and(image[:, 3, :, :] > 35,
-                                      image[:, 3, :, :] <= 255)
-                image[:, 3, :, :][mask] = 2
+                image[:, 3, :, :][image[:, 3, :, :] >= 255] = -1
+                image[:, 3, :, :][image[:, 3, :, :] >= 0] = 255
+                image[:, 3, :, :][image[:, 3, :, :] == -1] = 0
 
             if _method is not None:
                 cached_file_path = os.path.join(self.cache_directory,
@@ -235,7 +222,6 @@ class GBMDataset(BaseDataset):
                                      image,
                                      shape=image.shape,
                                      imagej=True,
-                                     metadata=self.images_metadata[file_name],
                                      compression="lzw")
                 else:
                     with tifffile.TiffFile(cached_file_path) as tiff:
@@ -259,6 +245,37 @@ class GBMDataset(BaseDataset):
             self.samples_per_image.append(steps_per_z *
                                           steps_per_x *
                                           steps_per_y)
+
+    def _intensity_shift(self, _sample):
+        random_shift = (torch.rand(1) * 0.2) - 0.1
+        random_scale = (torch.rand(1) * 0.2) + 0.9
+        return random_scale * _sample + random_shift
+
+    def _zoom(self, _image, _factor, _workers):
+        image_shape = _image.shape
+        zoomed_image = None
+
+        for c in range(image_shape[0] - 1):
+            for z in range(image_shape[1]):
+                resized = cv2.resize(_image[c][z],
+                                     None,
+                                     fx=_factor,
+                                     fy=_factor)
+                if zoomed_image is None:
+                    zoomed_image = np.zeros((image_shape[0],
+                                             image_shape[1],
+                                             resized.shape[0],
+                                             resized.shape[1]), dtype=np.int16)
+                zoomed_image[c][z] = resized
+
+        for z in range(image_shape[1]):
+            zoomed_image[3][z] = cv2.resize(_image[3][z],
+                                            None,
+                                            fx=_factor,
+                                            fy=_factor,
+                                            interpolation=cv2.INTER_NEAREST)
+
+        return zoomed_image
 
     def _twist_clock(self, _image, _step_angle, _workers):
         z_angles = []
