@@ -15,6 +15,7 @@ from src.utils import args
 from src.train.trainer_unet3d_me import Unet3DMETrainer
 from src.train.trainer_unet3d import Unet3DTrainer
 from src.train.trainer_unet3d_ss import Unet3DSemiTrainer
+from src.train.trainer_swinunetr import SwinUNETRTrainer
 from src.utils.misc import configure_logger
 
 
@@ -34,6 +35,9 @@ def supervised(_configs):
     elif _configs['trainer']['model']['name'] == 'unet_3d_me':
         trainer = Unet3DMETrainer(_configs,
                                   label_correction_function)
+    elif _configs['trainer']['model']['name'] == 'swinunetr':
+        trainer = SwinUNETRTrainer(_configs,
+                                   label_correction_function)
     else:
         assert False, "Please provide a valid model name in the config file"
 
