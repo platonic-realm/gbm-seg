@@ -1,5 +1,5 @@
 experiments:
-  root: '/data/afatehi/gbm/experiments/'
+  root: '/projects/ag-bozek/arash/gbm/experiments/'
   models: ['unet_3d',
            'unet_3d_me',
            'unet_3d_ss',
@@ -47,7 +47,7 @@ experiments:
 
   # I am expecting train_ds, valid_ds, test_ds and unlabeled_ds directories
   default_channels: [0, 1, 2]
-  default_data_path: '/data/afatehi/gbm/data/ds_human/'
+  default_data_path: '/projects/ag-bozek/arash/gbm/data/ds_human/'
   default_ds_workers: 4
   default_aug_workers: 32
   default_kernel_size: [3, 3, 3]

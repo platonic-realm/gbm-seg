@@ -205,11 +205,6 @@ class GBMDataset(BaseDataset):
             image = np.array(image)
             image = image.astype(np.float32)
 
-            if self.dataset_type == DatasetType.Supervised:
-                image[:, 3, :, :][image[:, 3, :, :] >= 255] = -1
-                image[:, 3, :, :][image[:, 3, :, :] >= 0] = 255
-                image[:, 3, :, :][image[:, 3, :, :] == -1] = 0
-
             if _method is not None:
                 cached_file_path = os.path.join(self.cache_directory,
                                                 file_name)

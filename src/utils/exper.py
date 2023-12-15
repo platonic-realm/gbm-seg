@@ -99,12 +99,8 @@ def infer_experiment(_name: str,
     configs['inference']['model']['feature_maps'] =\
         configs['trainer']['model']['feature_maps']
 
-    if _channel_map is not None:
-        configs['inference']['model']['channels'] =\
-                [int(item) for item in _sample_dimension]
-    else:
-        configs['inference']['model']['channels'] =\
-            configs['trainer']['model']['channels']
+    configs['inference']['model']['channels'] =\
+        configs['trainer']['model']['channels']
 
     configs['inference']['snapshot_path'] =\
         os.path.join(_root_path,
@@ -127,7 +123,12 @@ def infer_experiment(_name: str,
 
     configs['inference']['inference_ds']['pixel_stride'] = _stride
 
-    configs['inference']['inference_ds']['channel_map'] = _channel_map
+    if _channel_map is not None:
+        configs['inference']['inference_ds']['channel_map'] =\
+                [int(item) for item in _channel_map]
+    else:
+        configs['inference']['inference_ds']['channel_map'] =\
+            configs['trainer']['train_ds']['channel_map']
 
     configs['inference']['inference_ds']['scale_factor'] = _scale
 
