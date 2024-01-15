@@ -1,19 +1,13 @@
-"""
-Author: Arash Fatehi
-Date:   12.12.2022
-"""
-
 # Python Imports
 import os
-import re
 
 # Library Imports
 import numpy as np
 from numpy import array
 import torch
+from torch import nn
 from torch import Tensor
 from torch.utils.data import DataLoader
-from torch.nn.parallel import DataParallel as DP
 import tifffile
 import imageio
 from tqdm import tqdm
@@ -21,191 +15,77 @@ from skimage import measure, morphology
 from scipy import ndimage
 
 # Local Imports
-from src.data.ds_infer import InferenceDataset
-from src.models.unet3d import Unet3D
-from src.models.unet3d_me import Unet3DME
-from src.models.unet3d_ss import Unet3DSS
+from src.train.snapper import Snapper
 from src.infer.morph import Morph
+from torch.nn.parallel import DataParallel as DP
 
 from src.utils.misc import create_dirs_recursively
 
 
 class Inference():
     def __init__(self,
-                 _configs: dict):
-        self.root_path = _configs['root_path']
-        self.base_configs = _configs
-        self.configs = _configs['inference']
+                 _model: nn.Module,
+                 _data_loader: DataLoader,
+                 _morph_module: Morph,
+                 _snapper: Snapper,
+                 _device: str,
+                 _results_path: str,
+                 _snapshot_path: str,
+                 _dp: bool,
+                 _post_processing: bool,
+                 _psp_obj_min_size: int,
+                 _psp_kernel_size: int):
 
-        self.device: str = self.configs['device']
-        self.model_name: str = self.configs['model']['name']
-        self.number_class: int = self.configs['number_class']
-        self.feature_maps: list = self.configs['model']['feature_maps']
-        self.channels: list = self.configs['model']['channels']
-        self.input_path: str = self.configs['inference_ds']['path']
-        self.sample_dimension: list = \
-            self.configs['inference_ds']['sample_dimension']
-        self.pixel_stride: list = \
-            self.configs['inference_ds']['pixel_stride']
-        self.batch_size: int = self.configs['inference_ds']['batch_size']
-        self.scale_factor: int = self.configs['inference_ds']['scale_factor']
-        self.channel_map: list = self.configs['inference_ds']['channel_map']
+        self.data_loader = _data_loader
+        self.morph = _morph_module
+        self.device = _device
+        self.results_path = _results_path
+        self.psp_enabled = _post_processing
+        self.psp_obj_min_size = _psp_obj_min_size
+        self.psp_kernel_size = _psp_kernel_size
 
-        self.morph = Morph(_device=self.device,
-                           _ave_kernel_size=5)
+        _model.to(self.device)
+        _snapper.load(_model, self.device, _snapshot_path)
+
+        if _dp:
+            self.model = DP(_model)
+        else:
+            self.model = _model
+
+        self.model.eval()
 
     def infer(self):
-        directory_path = os.path.join(self.root_path,
-                                      self.input_path)
-        directory_content = os.listdir(directory_path)
-        directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
-                                        _x),
-                                        directory_content))
 
-        for file_name in directory_content:
-            file_path = os.path.join(directory_path, file_name)
-            dataset = InferenceDataset(
-                    _file_path=file_path,
-                    _sample_dimension=self.sample_dimension,
-                    _pixel_per_step=self.pixel_stride,
-                    _channel_map=self.channel_map,
-                    _scale_factor=self.scale_factor)
+        for data in tqdm(self.data_loader,
+                         desc="Segmentation"):
 
-            data_loader = DataLoader(dataset,
-                                     batch_size=self.batch_size,
-                                     shuffle=False)
+            sample = data['sample'].to(self.device)
+            offsets = data['offsets'].to(self.device)
 
-            result_shape: list = []
-            list(dataset.image_shape)
-            result_shape.append(self.number_class)
-            result_shape.append(dataset.image_shape[0])
-            result_shape.append(dataset.image_shape[2])
-            result_shape.append(dataset.image_shape[3])
+            with torch.no_grad():
+                _, _ = self.model(sample, offsets)
 
-            if self.model_name == 'unet_3d':
-                model = Unet3D(len(self.channels),
-                               self.number_class,
-                               _feature_maps=self.feature_maps,
-                               _inference=True,
-                               _result_shape=result_shape,
-                               _sample_dimension=self.sample_dimension)
-            elif self.model_name == 'unet_3d_me':
-                model = Unet3DME(1,
-                                 self.number_class,
-                                 _feature_maps=self.feature_maps,
-                                 _inference=True,
-                                 _result_shape=result_shape,
-                                 _sample_dimension=self.sample_dimension)
-            elif self.model_name == 'unet_3d_ss':
-                model = Unet3DSS(len(self.channels),
-                                 self.number_class,
-                                 _feature_maps=self.feature_maps,
-                                 _inference=True,
-                                 _result_shape=result_shape,
-                                 _sample_dimension=self.sample_dimension)
+        output_dir = os.path.join(self.results_path,
+                                  self.data_loader.dataset.file_name)
 
-            snapshot_path: str = self.configs['snapshot_path']
-            snapshot_path = os.path.join(self.root_path,
-                                         snapshot_path)
-            snapshot = torch.load(snapshot_path,
-                                  map_location=torch.device(self.device))
+        create_dirs_recursively(os.path.join(output_dir, "dummy"))
 
-            # Check if the state dict was created with data parallelism
-            state_dict = snapshot['MODEL_STATE']
-            if 'module' in list(state_dict.keys())[0]:
-                corrected_state_dict = {}
-                for k, v in state_dict.items():
-                    name = k[7:]  # remove `module.`
-                    corrected_state_dict[name] = v
-                model.load_state_dict(corrected_state_dict)
-            else:
-                model.load_state_dict(state_dict)
+        result = self.model.module.get_result()
+        result = torch.argmax(result, dim=0)
+        result = self.post_processing(result)
 
-            device: str = self.configs['device']
+        del offsets
+        del sample
 
-            model = DP(model)
-            model.to(device)
-            model.eval()
+        morph_result = self.morph(torch.from_numpy(result).float()).detach().cpu().numpy()
 
-            for data in tqdm(data_loader,
-                             desc="Segmentation"):
-
-                nephrin = data['nephrin'].to(device)
-                wga = data['wga'].to(device)
-                collagen4 = data['collagen4'].to(device)
-                offsets = data['offsets'].to(device)
-
-                sample = self.stack_channels(self.configs,
-                                             nephrin,
-                                             wga,
-                                             collagen4).to(device)
-
-                with torch.no_grad():
-                    if self.model_name == 'unet_3d_me':
-                        _ = model(nephrin, wga, collagen4, offsets)
-                    else:
-                        _ = model(sample, offsets)
-
-            output_dir = os.path.join(
-                    self.root_path,
-                    self.configs['result_dir'],
-                    file_name)
-
-            create_dirs_recursively(
-                    os.path.join(output_dir, "dummy"))
-
-            result = model.module.get_result()
-            result = torch.argmax(result, dim=0)
-            result = self.post_processing(result)
-
-            del model
-            del nephrin
-            del wga
-            del collagen4
-            del offsets
-            del sample
-
-            morph_result = self.morph(torch.from_numpy(result).float()).detach().cpu().numpy()
-
-            self.save_result(dataset.nephrin,
-                             dataset.wga,
-                             dataset.collagen4,
-                             result,
-                             morph_result,
-                             output_dir,
-                             dataset.tiff_tags)
-
-    # Channels list in the configuration determine
-    # Which channels to be stacked
-    @staticmethod
-    def stack_channels(_configs,
-                       _nephrin: Tensor,
-                       _wga: Tensor,
-                       _collagen4: Tensor) -> Tensor:
-
-        channels: list = _configs['model']['channels']
-
-        if len(channels) == 3:
-            result = torch.cat((_nephrin, _wga, _collagen4), dim=1)
-        elif len(channels) == 2:
-            if channels in ([0, 1], [1, 0]):
-                result = torch.cat((_nephrin, _wga), dim=1)
-            if channels in ([0, 2], [2, 0]):
-                result = torch.cat((_nephrin, _collagen4), dim=1)
-            if channels in ([1, 2], [2, 1]):
-                result = torch.cat((_wga, _collagen4), dim=1)
-        elif len(channels) == 1:
-            # Nephrin -> 0, WGA -> 1, Collagen4 -> 2
-            if channels[0] == 0:
-                result = _nephrin
-            if channels[0] == 1:
-                result = _wga
-            if channels[0] == 2:
-                result = _collagen4
-        else:
-            assert True, "Wrong channels list configuration"
-
-        return result
+        self.save_result(self.data_loader.dataset.nephrin,
+                         self.data_loader.dataset.wga,
+                         self.data_loader.dataset.collagen4,
+                         result,
+                         morph_result,
+                         output_dir,
+                         self.data_loader.dataset.tiff_tags)
 
     def save_result(self,
                     _nephrin: array,
@@ -254,14 +134,12 @@ class Inference():
     def post_processing(self,
                         _prediction: Tensor):
         prediction = _prediction.detach().cpu().numpy()
-        if not self.configs['post_processing']['enabled']:
+        if not self.psp_enabled:
             return prediction
 
         for i in range(prediction.shape[0]):
-            min_size = self.configs['post_processing']['min_size']
-            kernel_size = self.configs['post_processing']['kernel_size']
 
-            kernel = morphology.rectangle(kernel_size, kernel_size)
+            kernel = morphology.rectangle(self.psp_kernel_size, self.psp_kernel_size)
             eroded_image = morphology.erosion(prediction[i, :, :], kernel)
             prediction[i, :, :] = eroded_image
 
@@ -272,10 +150,10 @@ class Inference():
             # remove small connected components
             # print(f"mean: {int(np.mean(label_counts))}, std: {int(np.std(label_counts))}, max: {int(np.max(label_counts))}, min: {int(np.min(label_counts))}")
             for label, count in zip(unique_labels, label_counts):
-                if count < min_size and label != 0:
+                if count < self.psp_obj_min_size and label != 0:
                     prediction[i, :, :][labels == label] = 0
 
-            kernel = morphology.rectangle(kernel_size, kernel_size)
+            kernel = morphology.rectangle(self.psp_kernel_size, self.psp_kernel_size)
             dilated_image = morphology.dilation(prediction[i, :, :], kernel)
             prediction[i, :, :] = dilated_image
 

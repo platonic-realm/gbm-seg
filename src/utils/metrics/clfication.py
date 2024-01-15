@@ -1,9 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   06.02.2022
-Links: https://en.wikipedia.org/wiki/Confusion_matrix
-"""
-
 # Python Imports
 
 # Library Imports
@@ -32,10 +26,24 @@ class Metrics():
                                                     requires_grad=False)
         for i in range(self.number_of_classes):
             self.confusion_matrix[:, i] = \
-                    self.calcualte_confusion_matrix_for_class_id(i)
+                    self.calcualteConfusionMatrixForClassID(i)
 
-    def calcualte_confusion_matrix_for_class_id(self,
-                                                _class_id: int) -> Tensor:
+    def reportMetrics(self,
+                      _metric_list,
+                      _loss):
+        results = {}
+        results['Loss'] = _loss
+
+        for metric in _metric_list[1:]:
+            if metric == 'Accuracy':
+                results[metric] = getattr(self, metric)()
+            else:
+                results[metric] = getattr(self, metric)(_class_id=1)
+
+        return results
+
+    def calcualteConfusionMatrixForClassID(self,
+                                           _class_id: int) -> Tensor:
 
         assert _class_id < self.number_of_classes, \
                 "Out of range index, class ids "\

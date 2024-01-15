@@ -1,13 +1,8 @@
-"""
-Author: Arash Fatehi
-Date:   25.04.2022
-"""
-
 # Library Imports
 import torch
 
 # Local Imports
-from src.utils.misc import to_numpy
+import src.utils.misc as misc
 
 
 class CPURunningMetric():
@@ -28,16 +23,12 @@ class CPURunningMetric():
 
 class GPURunningMetrics():
     def __init__(self,
-                 _configs,
                  _device,
-                 _metrics=None):
+                 _metrics):
 
         self.device = _device
 
-        if _metrics is None:
-            self.metrics = _configs['metrics']
-        else:
-            self.metrics = _metrics
+        self.metrics = _metrics
 
         self.values = torch.zeros(len(self.metrics),
                                   device=self.device,
@@ -64,7 +55,7 @@ class GPURunningMetrics():
                                    device=self.device,
                                    dtype=torch.float32)
 
-        results_numpy = to_numpy(results_tensor)
+        results_numpy = misc.to_numpy(results_tensor)
 
         for i, metric in enumerate(self.metrics):
             results[metric] = results_numpy[i]

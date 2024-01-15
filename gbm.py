@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-Author: Arash Fatehi
-Date:   30.04.2022
-"""
-
 # Python Imprts
 import os
 
@@ -65,8 +60,6 @@ if __name__ == '__main__':
                             item in args.sample_dimension.split(",")]
         stride = [item.strip() for
                   item in args.stride.split(",")]
-        channel_map = [item.strip() for
-                       item in args.channel_map.split(",")]
         scale = args.scale_factor
 
         exper.infer_experiment(_name=name,
@@ -75,5 +68,4 @@ if __name__ == '__main__':
                                _batch_size=batch_size,
                                _sample_dimension=sample_dimension,
                                _stride=stride,
-                               _scale=scale,
-                               _channel_map=channel_map)
+                               _scale=scale)

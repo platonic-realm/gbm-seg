@@ -1,9 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   20.10.2022
-File:   blocks.py
-"""
-
 # Python Imports
 import logging
 import itertools

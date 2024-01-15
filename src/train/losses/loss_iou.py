@@ -1,9 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   08.09.2023
-File:   loss_iou.py
-"""
-
 # Python Imports
 
 # Library Imports

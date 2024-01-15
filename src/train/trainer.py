@@ -1,542 +1,158 @@
-"""
-Author: Arash Fatehi
-Date:   22.11.2022
-"""
-
 # Python Imports
-# Python's wierd implementation of abstract methods
-from abc import ABC, abstractmethod
-from pathlib import Path
-import os
-import glob
-import random
-import logging
-from datetime import datetime
-import threading
 
-# Libary Imports
-import sqlite3
+# Library Imports
 import torch
-from torch import Tensor, nn
-from torch.utils.tensorboard import SummaryWriter
+from torch import nn
 from torch.utils.data import DataLoader
-from torch.profiler import ProfilerActivity
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
+from torch.nn.parallel import DataParallel as DP
 
 # Local Imports
-from src.utils.misc import create_dirs_recursively
-from src.utils.visual import VisualizerUnet3D
-from src.data.ds_train import GBMDataset
-from src.utils.losses.loss_dice import DiceLoss
-from src.utils.losses.loss_iou import IoULoss
-from src.utils.losses.loss_ss import SelfSupervisedLoss
+from src.utils.metrics.clfication import Metrics
+from src.train.stepper import StepperInterface
+from src.train.snapper import Snapper
+from src.train.profiler import Profiler
+from src.utils.visual.training import TrainVisualizer
 from src.utils.metrics.memory import GPURunningMetrics
+from src.utils.metrics.log.metric_logger import MetricLogger
 
 
-# Tip for using abstract methods in python... dont use
-# double __ for the abstract method as python name
-# mangeling will mess them and you are going to have a hard time
-class Trainer(ABC):
+class Unet3DTrainer():
     def __init__(self,
-                 _configs: dict,
-                 _label_correction_function=None):
-        self.configs: dict = _configs['trainer']
+                 _model: nn.Module,
+                 _loss_funtion,
+                 _stepper: StepperInterface,
+                 _snapper: Snapper,
+                 _profiler: Profiler,
+                 _visualizer: TrainVisualizer,
+                 _metric_logger: MetricLogger,
+                 _lr_scheduler: ReduceLROnPlateau,
+                 _training_loader: DataLoader,
+                 _validation_loader: DataLoader,
+                 _no_of_classes: int,
+                 _metric_list: list,
+                 _device: str,
+                 _freq: int,
+                 _epochs: int,
+                 _dp: bool):
 
-        # these variables are declared because some methods need
-        # them, but they will be defined in the subclasses
-        self.model = None
-        self.optimizer = None
-        self.loss = None
+        if _dp:
+            self.model = DP(_model)
+        else:
+            self.model = _model
 
-        self.label_correction = _label_correction_function
+        self.loss_function = _loss_funtion
+        self.stepper = _stepper
+        self.snapper = _snapper
+        self.profiler = _profiler
+        self.visualizer = _visualizer
+        self.metric_logger = _metric_logger
+        self.scheduler = _lr_scheduler
 
-        self.root_path = _configs['root_path']
+        self.training_loader = _training_loader
+        self.validation_loader = _validation_loader
 
-        # Note we are using self.configs from now on ...
-        self.model_name = self.configs['model']['name']
-        self.epochs: int = self.configs['epochs']
-        self.epoch_resume = 0
-        self.step = 0
-        self.result_path = os.path.join(self.root_path,
-                                        self.configs['result_path'])
-        self.snapshot_path = os.path.join(self.root_path,
-                                          self.result_path,
-                                          self.configs['snapshot_path'])
-        self.device: str = self.configs['device']
-        self.mixed_precision: bool = self.configs['mixed_precision']
-        if self.mixed_precision:
-            # Needed for gradient scaling
-            # https://pytorch.org/docs/stable/notes/amp_examples.html
-            self.scaler = torch.cuda.amp.GradScaler()
+        self.no_of_classes = _no_of_classes
 
-        # Data Parallelism
-        self.dp = self.configs['dp']
-
-        self.visualization: bool = \
-            self.configs['visualization']['enabled']
-        self.visualization_chance: float = \
-            self.configs['visualization']['chance']
-        self.visualization_path = \
-            os.path.join(self.root_path,
-                         self.result_path,
-                         self.configs['visualization']['path'])
-
-        self.visualizer = VisualizerUnet3D(
-                _generate_tif=self.configs['visualization']['tif'],
-                _generate_gif=self.configs['visualization']['gif'],
-                _generate_mesh=self.configs['visualization']['mesh'])
-
-        self.tensorboard: bool = \
-            self.configs['tensorboard']['enabled']
-        self.tensorboard_ls: bool =\
-            self.configs['tensorboard']['label_seen']
-        self.tensorboard_path = \
-            Path(os.path.join(self.root_path,
-                              self.result_path,
-                              self.configs['tensorboard']['path']))
-        self.tensorboard_path.mkdir(parents=True, exist_ok=True)
-
-        self.device_id = torch.cuda.current_device()
-
-        if self.snapshot_path is not None:
-            create_dirs_recursively(self.snapshot_path)
-
-        self.gpu_metrics = GPURunningMetrics(self.configs,
-                                             self.device)
-
-        self.sqlite = self.configs['sqlite']
-        self.database_path = os.path.join(self.root_path,
-                                          'report.db')
-
-        self.seen_labels = 0
-        self.resume_count = 0
-
-        self._prepare_profiling()
-        self._prepare_data()
-        self._prepare_database()
+        self.metric_list = _metric_list
+        self.device = _device
+        self.freq = _freq
+        self.epochs = _epochs
 
     def train(self):
-        for epoch in range(self.epoch_resume, self.epochs):
-            self._train_epoch(epoch)
-
-    # Channels list in the configuration determine
-    # Which channels to be stacked
-    def _stack_channels(self,
-                        _nephrin: Tensor,
-                        _wga: Tensor,
-                        _collagen4: Tensor) -> Tensor:
-
-        channels: list = self.configs['model']['channels']
-
-        if len(channels) == 3:
-            result = torch.cat((_nephrin, _wga, _collagen4), dim=1)
-        elif len(channels) == 2:
-            if channels in ([0, 1], [1, 0]):
-                result = torch.cat((_nephrin, _wga), dim=1)
-            if channels in ([0, 2], [2, 0]):
-                result = torch.cat((_nephrin, _collagen4), dim=1)
-            if channels in ([1, 2], [2, 1]):
-                result = torch.cat((_wga, _collagen4), dim=1)
-        elif len(channels) == 1:
-            # Nephrin -> 0, WGA -> 1, Collagen4 -> 2
-            if channels[0] == 0:
-                result = _nephrin
-            if channels[0] == 1:
-                result = _wga
-            if channels[0] == 2:
-                result = _collagen4
-        else:
-            assert True, "Wrong channels list configuration"
-
-        return result
-
-    def _init_tensorboard(self):
-        if self.step > 0:
-            return
-
-        if not self.tensorboard:
-            return
-        if self.ddp and self.rank != 0:
-            return
-
-        zero_metrics = GPURunningMetrics(self.configs,
-                                         self.device)
-
-        for index, data in enumerate(self.validation_loader):
-
-            results = self._validate_step(_epoch_id=0,
-                                          _batch_id=index,
-                                          _data=data)
-
-            self.gpu_metrics.add(results)
-
-        zero_metrics = zero_metrics.calculate()
-        self._log_tensorboard_metrics(0,
-                                      'train',
-                                      zero_metrics)
-        self._log_tensorboard_metrics(0,
-                                      'valid',
-                                      zero_metrics)
-
-    def _log_metrics(self,
-                     _epoch: int,
-                     _step: int,
-                     _tag: str,
-                     _metrics: dict) -> None:
-
-        self._log_database_metrics(_epoch, _step, _tag, _metrics)
-        self._log_tensorboard_metrics(_step, _tag, _metrics)
-
-        if self.tensorboard_ls:
-            self._log_tensorboard_metrics(self.seen_labels,
-                                          f"{_tag}_ls",
-                                          _metrics)
-
-    def _log_database_metrics(self,
-                              _epoch: int,
-                              _step: int,
-                              _tag: str,
-                              _metrics: dict) -> None:
-        if not self.sqlite:
-            return
-
-        with sqlite3.connect(self.database_path) as con:
-            cursor = con.cursor()
-
-            insert_query = '''
-                INSERT INTO metrics (resume, epoch, step,
-                                     lseen, tag, name, value)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                           '''
-
-            values = [(self.resume_count,
-                       _epoch,
-                       _step,
-                       self.seen_labels,
-                       _tag,
-                       name,
-                       float(value)) for name, value in _metrics.items()]
-
-            cursor.executemany(insert_query, values)
-            con.commit()
-
-    def _log_tensorboard_metrics(self,
-                                 _n_iter: int,
-                                 _mode: str,
-                                 _metrics: dict) -> None:
-        if not self.tensorboard:
-            return
-
-        tb_writer = SummaryWriter(self.tensorboard_path.resolve())
-
-        for metric in _metrics.keys():
-            tb_writer.add_scalar(f'{metric}/{_mode}',
-                                 _metrics[metric],
-                                 _n_iter)
-
-        tb_writer.close()
-
-    def _visualize_validation(self,
-                              _epoch_id: int,
-                              _batch_id: int,
-                              _inputs,
-                              _labels,
-                              _predictions,
-                              _all: bool = False):
-
-        if not self.visualization:
-            return
-
-        random.seed(datetime.now().timestamp())
-        dice = random.random()
-        if dice > self.visualization_chance:
-            return
-
-        batch_size = len(_inputs)
-        sample_id = random.randint(0, batch_size-1)
-
-        base_path: str = self.visualization_path + f"/epoch-{_epoch_id}/batch-{_batch_id}/"
-
-        if _all:
-            for index in range(batch_size):
-                path: Path = Path(f"{base_path}{index}/")
-                path.mkdir(parents=True, exist_ok=True)
-                output_dir: str = path.resolve()
-                self.visualizer.draw_channels(_inputs[index],
-                                              output_dir,
-                                              _multiplier=127)
-                self.visualizer.draw_labels(_labels[index],
-                                            output_dir,
-                                            _multiplier=127)
-                self.visualizer.draw_predictions(_predictions[index],
-                                                 output_dir,
-                                                 _multiplier=255)
-        else:
-            path: Path = Path(f"{base_path}")
-            path.mkdir(parents=True, exist_ok=True)
-            output_dir: str = path.resolve()
-
-            self.visualizer.draw_channels(_inputs[sample_id],
-                                          output_dir)
-            self.visualizer.draw_labels(_labels[sample_id],
-                                        output_dir,
-                                        _multiplier=127)
-            self.visualizer.draw_predictions(_predictions[sample_id],
-                                             output_dir,
-                                             _multiplier=127)
-
-    def _save_sanpshot(self, _epoch: int) -> None:
-        if self.snapshot_path is None:
-            return
-        snapshot = {}
-        snapshot['EPOCHS'] = _epoch
-        snapshot['STEP'] = self.step
-        snapshot['SEEN_LABELS'] = self.seen_labels
-        snapshot['RESUME_COUNT'] = self.resume_count
-        if self.dp:
-            snapshot['MODEL_STATE'] = self.model.module.state_dict()
-        else:
-            snapshot['MODEL_STATE'] = self.model.state_dict()
-
-        thread = threading.Thread(target=self._save_snapshot_async,
-                                  args=(snapshot, _epoch))
-        thread.start()
-
-    def _save_snapshot_async(self, _snapshot: dict, _epoch: int) -> None:
-
-        save_path = \
-            os.path.join(self.snapshot_path,
-                         f"{_epoch:03d}-{self.step:04d}.pt")
-        torch.save(_snapshot, save_path)
-        logging.info("Snapshot saved on epoch: %d, step: %d",
-                     _epoch+1,
-                     self.step)
-
-    def _load_snapshot(self) -> None:
-        if not os.path.exists(self.snapshot_path):
-            return
-
-        snapshot_list = sorted(filter(os.path.isfile,
-                                      glob.glob(self.snapshot_path + '*')),
-                               reverse=True)
-
-        if len(snapshot_list) <= 0:
-            return
-
-        load_path = snapshot_list[0]
-
-        snapshot = torch.load(load_path,
-                              map_location=torch.device(self.device_id))
-
-        self.model.load_state_dict(snapshot['MODEL_STATE'])
-        self.epoch_resume = snapshot['EPOCHS'] + 1
-        self.step = snapshot['STEP'] + 1
-        self.seen_labels = snapshot['SEEN_LABELS']
-        self.resume_count = snapshot['RESUME_COUNT'] + 1
-
-        logging.info("Resuming training at epoch: %d", self.epoch_resume)
-        logging.info("Resuming training at step: %d", self.step)
-
-    def _prepare_data(self) -> None:
-
-        training_ds_dir: str = os.path.join(self.root_path,
-                                            self.configs['train_ds']['path'])
-        training_sample_dimension: list = \
-            self.configs['train_ds']['sample_dimension']
-        training_pixel_stride: list = \
-            self.configs['train_ds']['pixel_stride']
-        training_channel_map: list = \
-            self.configs['train_ds']['channel_map']
-        training_augmentation = None
-        if self.configs['train_ds']['augmentation']['enabled']:
-            training_augmentation = \
-                self.configs['train_ds']['augmentation']['methods']
-        training_dataset = GBMDataset(
-                _source_directory=training_ds_dir,
-                _sample_dimension=training_sample_dimension,
-                _pixel_per_step=training_pixel_stride,
-                _channel_map=training_channel_map,
-                _ignore_stride_mismatch=self.configs['train_ds'][
-                    'ignore_stride_mismatch'],
-                _label_correction_function=self.label_correction,
-                _augmentation=training_augmentation,
-                _augmentation_workers=self.configs['train_ds'][
-                    'augmentation']['workers'])
-
-        self.number_class = training_dataset.get_number_of_classes()
-
-        validation_ds_dir: str = os.path.join(self.root_path,
-                                              self.configs['valid_ds']['path'])
-        validation_sample_dimension: list = \
-            self.configs['valid_ds']['sample_dimension']
-        validation_pixel_stride: list = \
-            self.configs['valid_ds']['pixel_stride']
-        validation_channel_map: list = \
-            self.configs['valid_ds']['channel_map']
-        validation_dataset = GBMDataset(
-                _source_directory=validation_ds_dir,
-                _sample_dimension=validation_sample_dimension,
-                _pixel_per_step=validation_pixel_stride,
-                _channel_map=validation_channel_map,
-                _ignore_stride_mismatch=self.configs['valid_ds'][
-                    'ignore_stride_mismatch'],
-                _label_correction_function=self.label_correction)
-
-        training_batch_size: int = self.configs['train_ds']['batch_size']
-        self.training_batch_size = training_batch_size
-        training_shuffle: bool = self.configs['train_ds']['shuffle']
-        self.training_loader = DataLoader(training_dataset,
-                                          batch_size=training_batch_size,
-                                          shuffle=training_shuffle,
-                                          num_workers=self.configs
-                                          ['train_ds']['workers'])
-
-        validation_batch_size: int = self.configs['valid_ds']['batch_size']
-        self.validation_batch_size = validation_batch_size
-        validation_shuffle: bool = self.configs['valid_ds']['shuffle']
-        self.validation_loader = DataLoader(validation_dataset,
-                                            batch_size=validation_batch_size,
-                                            shuffle=validation_shuffle,
-                                            num_workers=self.configs
-                                            ['valid_ds']['workers'])
-
-    def _prepare_optimizer(self) -> None:
-        optimizer_name: str = self.configs['optim']['name']
-        if optimizer_name == 'adam':
-            lr: float = self.configs['optim']['lr']
-            self.optimizer = torch.optim.Adam(self.model.parameters(),
-                                              lr=lr)
-        self.scheduler = ReduceLROnPlateau(self.optimizer, mode='max', verbose=True)
-
-    def _prepare_loss(self) -> None:
-        device = self.device
-        weights = torch.tensor(self.configs['loss_weights']).to(device)
-
-        if self.configs['mode'] == 'supervised':
-
-            loss_name: str = self.configs['loss']
-            if loss_name == 'Dice':
-                self.loss = DiceLoss(_weights=weights)
-            if loss_name == 'IoU':
-                self.loss = IoULoss(_weights=weights)
-            if loss_name == 'CrossEntropy':
-                self.loss = nn.CrossEntropyLoss(weight=weights)
-        else:
-            self.loss = SelfSupervisedLoss(self.epochs,
-                                           weights)
-
-    def _prepare_database(self) -> None:
-        if not self.sqlite:
-            return
-
-        with sqlite3.connect(self.database_path) as con:
-            cursor = con.cursor()
-
-        create_table = '''
-            CREATE TABLE IF NOT EXISTS metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                resume INTEGER NOT NULL,
-                epoch INTEGER NOT NULL,
-                step INTEGER NOT NULL,
-                lseen INTEGER NOT NULL,
-                tag TEXT NOT NULL,
-                name TEXT NOT NULL,
-                value REAL NOT NULL)
-                       '''
-        cursor.execute(create_table)
-
-        con.commit()
-
-    def _prepare_profiling(self) -> None:
-        if self.configs['profiling']['enabled']:
-            scheduler_wait = self.configs['profiling']['scheduler']['wait']
-            scheduler_warmup = self.configs['profiling']['scheduler']['warmup']
-            scheduler_active = self.configs['profiling']['scheduler']['active']
-            scheduler_repeat = self.configs['profiling']['scheduler']['repeat']
-
-            save_path = os.path.join(self.root_path,
-                                     self.result_path,
-                                     self.configs['profiling']['path'])
-
-            profile_memory = self.configs['profiling']['profile_memory']
-            record_shapes = self.configs['profiling']['record_shapes']
-            with_flops = self.configs['profiling']['with_flops']
-            with_stack = self.configs['profiling']['with_stack']
-
-            tb_trace_handler = \
-                torch.profiler.tensorboard_trace_handler(save_path)
-
-            trace_file = os.path.join(save_path,
-                                      "trace.txt")
-
-            def txt_trace_handler(prof):
-                with open(trace_file, 'w', encoding='UTF-8') as file:
-                    file.write(prof.key_averages().table(
-                                    sort_by="self_cuda_time_total",
-                                    row_limit=-1))
-
-            def print_trace_handler(prof):
-                print(prof.key_averages().table(
-                                sort_by="self_cuda_time_total",
-                                row_limit=-1))
-
-            def trace_handler(prof):
-                if self.configs['profiling']['save']['tensorboard']:
-                    tb_trace_handler(prof)
-
-                if self.configs['profiling']['save']['text']:
-                    txt_trace_handler(prof)
-
-                if self.configs['profiling']['save']['print']:
-                    print_trace_handler(prof)
-
-            self.pytorch_profiling = True
-            self.prof = torch.profiler.profile(
-                    activities=[ProfilerActivity.CUDA,
-                                ProfilerActivity.CPU],
-                    schedule=torch.profiler.schedule(wait=scheduler_wait,
-                                                     warmup=scheduler_warmup,
-                                                     active=scheduler_active,
-                                                     repeat=scheduler_repeat),
-                    on_trace_ready=trace_handler,
-                    profile_memory=profile_memory,
-                    record_shapes=record_shapes,
-                    with_flops=with_flops,
-                    with_stack=with_stack)
-        else:
-            self.pytorch_profiling = False
-
-    def _reports_metrics(self,
-                         _metrics,
-                         _loss):
-        results = {}
-        results['Loss'] = _loss
-
-        metric_list = self.configs['metrics']
-
-        for metric in metric_list[1:]:
-            if metric == 'Accuracy':
-                results[metric] = getattr(_metrics, metric)()
-            else:
-                results[metric] = getattr(_metrics, metric)(_class_id=1)
-
-        return results
-
-    @abstractmethod
-    def _training_step(self,
-                       _epoch_id: int,
-                       _batch_id: int,
-                       _data: dict) -> (dict, dict):
-        pass
-
-    @abstractmethod
-    def _validate_step(self,
-                       _epoch_id: int,
-                       _batch_id: int,
-                       _data: dict) -> (dict, dict):
-        pass
-
-    @abstractmethod
-    def _train_epoch(self, _epoch: int) -> None:
-        pass
+        self.model.to(self.device)
+        for epoch in range(0, self.epochs):
+            self.trainEpoch(epoch)
+
+    def trainEpoch(self, _epoch: int):
+
+        self.profiler.start()
+
+        train_running_metrics = GPURunningMetrics(self.device,
+                                                  self.metric_list)
+
+        for index, data in enumerate(self.training_loader):
+
+            results = self.trainStep(_epoch, index, data)
+            train_running_metrics.add(results)
+
+            self.profiler.step()
+
+            if self.stepper.getSteps() % self.freq == 0:
+                self.metric_logger.log(_epoch,
+                                       self.stepper.getSteps(),
+                                       self.stepper.getSeenLabels(),
+                                       'Train',
+                                       train_running_metrics.calculate())
+
+                # Save the snapshot
+                self.snapper.save(self.model,
+                                  _epoch,
+                                  self.stepper.getSteps(),
+                                  self.stepper.getSeenLabels())
+
+                valid_running_metrics = GPURunningMetrics(self.device,
+                                                          self.metric_list)
+                for index, data in enumerate(self.validation_loader):
+
+                    results = self.validStep(_epoch_id=_epoch,
+                                             _batch_id=index,
+                                             _data=data)
+
+                    valid_running_metrics.add(results)
+
+                metrics = valid_running_metrics.calculate()
+
+                # The scheduler changes the lr based on the provided metric
+                if _epoch > 0:
+                    self.scheduler.step(metrics['Dice'])
+
+                self.metric_logger.log(_epoch,
+                                       self.stepper.getSteps(),
+                                       self.stepper.getSeenLabels(),
+                                       'Valid',
+                                       metrics)
+
+        self.profiler.stop()
+
+    def trainStep(self,
+                  _epoch_id: int,
+                  _batch_id: int,
+                  _data: dict) -> dict:
+
+        sample = _data['sample'].to(self.device)
+        labels = _data['labels'].to(self.device).long()
+
+        logits, results, loss = self.stepper.step(sample, labels)
+
+        metrics = Metrics(self.no_of_classes,
+                          results,
+                          labels)
+
+        return metrics.reportMetrics(self.metric_list, loss)
+
+    def validStep(self,
+                  _epoch_id: int,
+                  _batch_id: int,
+                  _data: dict) -> dict:
+
+        sample = _data['sample'].to(self.device)
+        labels = _data['labels'].to(self.device).long()
+
+        with torch.no_grad():
+
+            logits, results = self.model(sample)
+
+            self.visualizer.draw(_channels=sample,
+                                 _labels=labels,
+                                 _predictions=results,
+                                 _epoch_id=_epoch_id,
+                                 _batch_id=_batch_id)
+
+            metrics = Metrics(self.no_of_classes,
+                              results,
+                              labels)
+
+            loss = self.loss_function(logits, labels)
+
+            return metrics.reportMetrics(self.metric_list, loss)

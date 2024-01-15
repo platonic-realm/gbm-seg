@@ -1,8 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   12.12.2022
-"""
-
 # Python Imprts
 
 # Library Imports
@@ -10,16 +5,35 @@ Date:   12.12.2022
 # Local Imports
 from src.utils.misc import configure_logger
 from src.utils import args
-from src.infer.inference import Inference
+from src.train.factory import Factory
 
 
 def main_infer(_configs):
-    inference = Inference(_configs)
-    inference.infer()
+    factory = Factory(_configs)
+
+    data_loaders = factory.createInferenceDataLoaders()
+
+    morph = factory.createMorphModule()
+
+    snapper = factory.createSnapper()
+
+    for data_loader in data_loaders:
+
+        model = factory.createModel(data_loader.dataset.getNumberOfChannels(),
+                                    data_loader.dataset.getNumberOfClasses(),
+                                    _inference=True,
+                                    _result_shape=data_loader.dataset.getResultShape())
+
+        inferer = factory.createInferer(model,
+                                        data_loader,
+                                        morph,
+                                        snapper)
+
+        inferer.infer()
 
 
 if __name__ == '__main__':
-    configs = args.parse("Inferance -> GBM segmentation")
+    _, configs = args.parse_indep("Inferance -> GBM segmentation")
     configure_logger(configs)
 
     main_infer(configs)

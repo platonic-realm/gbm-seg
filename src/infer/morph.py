@@ -1,8 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   15.08.2023
-"""
-
 # Python Imports
 import itertools
 import logging

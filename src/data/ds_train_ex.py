@@ -1,3 +1,8 @@
+"""
+Author: Arash Fatehi
+Date:   27.10.2022
+"""
+
 # Python Imports
 import os
 import re
@@ -9,6 +14,7 @@ import torch.multiprocessing as mp
 import numpy as np
 import tifffile
 import cv2
+from scipy.ndimage import zoom
 
 # Local Imports
 from src.data.ds_base import DatasetType, BaseDataset
@@ -21,6 +27,7 @@ class GBMDataset(BaseDataset):
                  _source_directory,
                  _sample_dimension,
                  _pixel_per_step,
+                 _channel_map,
                  _scale_facor=1,
                  _dataset_type=DatasetType.Supervised,
                  _ignore_stride_mismatch=False,
@@ -30,6 +37,7 @@ class GBMDataset(BaseDataset):
 
         super().__init__(_sample_dimension,
                          _pixel_per_step,
+                         _channel_map,
                          _scale_facor,
                          _dataset_type,
                          _ignore_stride_mismatch,
@@ -41,6 +49,7 @@ class GBMDataset(BaseDataset):
         self.samples_per_image = []
         self.images = {}
         self.images_metadata = {}
+        self.images_padded = {}
 
         directory_content = os.listdir(self.source_directory)
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
@@ -72,9 +81,9 @@ class GBMDataset(BaseDataset):
 
         file_name = self.image_list[image_id]
 
-        nephrin = self.images[file_name][:, 0, :, :]
-        wga = self.images[file_name][:, 1, :, :]
-        collagen4 = self.images[file_name][:, 2, :, :]
+        nephrin = self.images[file_name][:, self.channel_map[0], :, :]
+        wga = self.images[file_name][:, self.channel_map[1], :, :]
+        collagen4 = self.images[file_name][:, self.channel_map[2], :, :]
 
         if self.dataset_type == DatasetType.Supervised:
             labels = self.images[file_name][:, 3, :, :]
@@ -116,37 +125,96 @@ class GBMDataset(BaseDataset):
         x_start = xy_id % steps_per_x
         x_start = x_start * self.pixel_per_step_x
 
+        padding_values = ((self.sample_dimension[0], self.sample_dimension[0]),
+                          (self.sample_dimension[1], self.sample_dimension[1]),
+                          (self.sample_dimension[2], self.sample_dimension[2]))
+
+        if file_name in self.images_padded:
+            padded_nephrin = self.images_padded[file_name][0, :, :, :]
+            padded_wga = self.images_padded[file_name][1, :, :, :]
+            padded_collagen4 = self.images_padded[file_name][2, :, :, :]
+        else:
+            padded_nephrin = np.pad(nephrin, pad_width=padding_values)
+            padded_wga = np.pad(wga, pad_width=padding_values)
+            padded_collagen4 = np.pad(collagen4, pad_width=padding_values)
+
+            padded_sample = np.stack((padded_nephrin,
+                                      padded_wga,
+                                      padded_collagen4), axis=0)
+            self.images_padded[file_name] = padded_sample
+
+        lm_z_start = z_start
+        lm_z_end = z_start + self.sample_dimension[0] * 3
+        lm_x_start = x_start
+        lm_x_end = x_start + self.sample_dimension[1] * 3
+        lm_y_start = y_start
+        lm_y_end = y_start + self.sample_dimension[2] * 3
+
+        lm_nephrin = padded_nephrin[lm_z_start: lm_z_end,
+                                    lm_x_start: lm_x_end,
+                                    lm_y_start: lm_y_end]
+
+        lm_nephrin = zoom(lm_nephrin, zoom=1/3, order=1)
+
+        lm_nephrin = torch.from_numpy(lm_nephrin)
+
+        lm_wga = padded_wga[lm_z_start: lm_z_end,
+                            lm_x_start: lm_x_end,
+                            lm_y_start: lm_y_end]
+
+        lm_wga = zoom(lm_wga, zoom=1/3, order=1)
+        lm_wga = torch.from_numpy(lm_wga)
+
+        lm_collagen4 = padded_collagen4[lm_z_start: lm_z_end,
+                                        lm_x_start: lm_x_end,
+                                        lm_y_start: lm_y_end]
+
+        lm_collagen4 = zoom(lm_collagen4, zoom=1/3, order=1)
+        lm_collagen4 = torch.from_numpy(lm_collagen4)
+
         nephrin = nephrin[z_start: z_start + self.sample_dimension[0],
                           x_start: x_start + self.sample_dimension[1],
                           y_start: y_start + self.sample_dimension[2]
                           ]
+        nephrin = torch.from_numpy(nephrin)
 
         wga = wga[z_start: z_start + self.sample_dimension[0],
                   x_start: x_start + self.sample_dimension[1],
                   y_start: y_start + self.sample_dimension[2]
                   ]
+        wga = torch.from_numpy(wga)
 
         collagen4 = collagen4[z_start: z_start + self.sample_dimension[0],
                               x_start: x_start + self.sample_dimension[1],
                               y_start: y_start + self.sample_dimension[2]
                               ]
+        collagen4 = torch.from_numpy(collagen4)
 
-        labels = labels[z_start: z_start + self.sample_dimension[0],
-                        x_start: x_start + self.sample_dimension[1],
-                        y_start: y_start + self.sample_dimension[2]
-                        ]
-
-        labels = torch.from_numpy(labels)
+        if self.dataset_type == DatasetType.Supervised:
+            labels = labels[z_start: z_start + self.sample_dimension[0],
+                            x_start: x_start + self.sample_dimension[1],
+                            y_start: y_start + self.sample_dimension[2]
+                            ]
+            labels = torch.from_numpy(labels)
 
         nephrin = np.expand_dims(nephrin, axis=0)
         wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
 
+        lm_nephrin = np.expand_dims(lm_nephrin, axis=0)
+        lm_wga = np.expand_dims(lm_wga, axis=0)
+        lm_collagen4 = np.expand_dims(lm_collagen4, axis=0)
+
         nephrin = self._intensity_shift(nephrin/255)
         wga = self._intensity_shift(wga/255)
         collagen4 = self._intensity_shift(collagen4/255)
 
-        sample = torch.cat((nephrin, collagen4, wga), dim=0)
+        lm_nephrin = self._intensity_shift(lm_nephrin/255)
+        lm_wga = self._intensity_shift(lm_wga/255)
+        lm_collagen4 = self._intensity_shift(lm_collagen4/255)
+
+        sample = torch.cat((nephrin, collagen4, wga,
+                            lm_nephrin, lm_collagen4, lm_wga), dim=0)
 
         return {
             'sample': sample,
@@ -159,14 +227,10 @@ class GBMDataset(BaseDataset):
     def get_number_of_images(self):
         return len(self.image_list)
 
-    def getNumberOfClasses(self):
+    def get_number_of_classes(self):
         labels = self.images[self.image_list[0]][:, 3, :, :]
         unique_labels = np.unique(labels)
         return len(unique_labels)
-
-    def getNumberOfChannels(self):
-        # Channels are the second axis, -1 is for the labels
-        return self.images[self.image_list[0]].shape[1] - 1
 
     def _prepare_images(self,
                         _directory,
@@ -209,16 +273,9 @@ class GBMDataset(BaseDataset):
                     with tifffile.TiffFile(cached_file_path) as tiff:
                         image = tiff.asarray()
 
-            def label_correction_function(_labels):
-                _labels = _labels.astype(int)
-                _labels[_labels > 0] = 1
-                # _labels[_labels == 1] = 2
-                # _labels[_labels == 0] = 1
-                # _labels[_labels == 2] = 0
-                return _labels
-
-            image[:, 3, :, :] = \
-                label_correction_function(image[:, 3, :, :])
+            if self.label_correction_function is not None:
+                image[:, 3, :, :] = \
+                    self.label_correction_function(image[:, 3, :, :])
 
             self.images[file_name] = image
 
@@ -236,9 +293,9 @@ class GBMDataset(BaseDataset):
                                           steps_per_y)
 
     def _intensity_shift(self, _sample):
-        return torch.from_numpy(_sample)
-        # random_shift = (torch.rand(1) * 0.1)
-        # random_scale = (torch.rand(1) * 0.1) + 0.95
+        return _sample
+        # random_shift = (torch.rand(1) * 0.2) - 0.1
+        # random_scale = (torch.rand(1) * 0.2) + 0.9
         # return random_scale * _sample + random_shift
 
     def _zoom(self, _image, _factor, _workers):
@@ -343,34 +400,9 @@ class GBMDataset(BaseDataset):
     @staticmethod
     def _rotate_plane(_plane, _angle):
         shape = _plane.shape
-        center = np.array([shape[0] / 2, shape[1] / 2])
-        result_plane = np.zeros(shape)
-
-        rotation_matrix = np.array([[np.cos(np.radians(_angle)),
-                                     -np.sin(np.radians(_angle))],
-                                    [np.sin(np.radians(_angle)),
-                                     np.cos(np.radians(_angle))]])
-
-        # loop through each pixel in the plane
-        for i in range(shape[0]):
-            for j in range(shape[1]):
-                # get the coordinates of this pixel
-                coordinates = np.array([i, j])
-                # translate the coordinates to the center of the plane
-                translated_coordinates = coordinates - center
-                # rotate the coordinates using the rotation matrix
-                rotated_coordinates = np.dot(rotation_matrix,
-                                             translated_coordinates)
-                # translate the rotated coordinates back to the original
-                final_coordinates = rotated_coordinates + center
-                # round the final coordinates to the nearest integer
-                final_coordinates = np.round(final_coordinates).astype(int)
-                # check if the final coordinates are within the bounderies
-                if (final_coordinates[0] >= 0 and
-                        final_coordinates[0] < shape[0] and
-                        final_coordinates[1] >= 0 and
-                        final_coordinates[1] < shape[1]):
-                    result_plane[i][j] = \
-                        _plane[final_coordinates[0]][final_coordinates[1]]
-
+        h = shape[0]
+        w = shape[1]
+        center = (h/2, w/2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, _angle, 1.0)
+        result_plane = cv2.warpAffine(_plane, rotation_matrix, (h, w))
         return result_plane

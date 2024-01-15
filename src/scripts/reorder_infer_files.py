@@ -2,7 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
-path = "/data/afatehi/gbm/experiments"
+path = "/data/afatehi/gbm/experiments/POD-Anot/results-infer/002-0640.pt_6256256_16464_1/"
 inlcude = "results-infer"
 exclude = "16464_6"
 filelist = []

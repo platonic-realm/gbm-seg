@@ -1,9 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   07.09.2023
-File:   loss_dice.py
-"""
-
 # Library Imports
 import torch
 import torch.nn.functional as Fn

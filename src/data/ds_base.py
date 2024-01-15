@@ -1,11 +1,6 @@
-"""
-Author: Arash Fatehi
-Date:   26.04.2023
-"""
-
 # Python Imports
 from enum import Enum
-from abc import ABC
+from abc import ABC, abstractmethod
 
 # Library Imports
 from torch.utils.data import Dataset
@@ -24,15 +19,12 @@ class BaseDataset(Dataset, ABC):
     def __init__(self,
                  _sample_dimension,
                  _pixel_per_step,
-                 _channel_map,
                  _scale_facor=1,
                  _dataset_type=DatasetType.Supervised,
                  _ignore_stride_mismatch=False,
                  _label_correction_function=None):
 
         self.sample_dimension = _sample_dimension
-
-        self.channel_map = _channel_map
 
         self.scale_factor = _scale_facor
 
@@ -47,6 +39,14 @@ class BaseDataset(Dataset, ABC):
         self.pixel_per_step_x = _pixel_per_step[2]
         self.pixel_per_step_y = _pixel_per_step[1]
         self.pixel_per_step_z = _pixel_per_step[0]
+
+    @abstractmethod
+    def getNumberOfClasses(self):
+        pass
+
+    @abstractmethod
+    def getNumberOfChannels(self):
+        pass
 
     def scale(self, image):
         # The shape is Depth, Channel, Height, Width

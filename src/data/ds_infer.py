@@ -1,8 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   10.12.2022
-"""
-
 # Python Imports
 import os
 
@@ -16,18 +11,16 @@ from src.data.ds_base import BaseDataset, DatasetType
 
 
 class InferenceDataset(BaseDataset):
-    # pylint: disable=too-many-instance-attributes
 
     def __init__(self,
                  _file_path,
                  _sample_dimension,
                  _pixel_per_step,
-                 _channel_map,
-                 _scale_factor):
+                 _scale_factor,
+                 _no_of_classes):
 
         super().__init__(_sample_dimension,
                          _pixel_per_step,
-                         _channel_map,
                          _scale_factor,
                          _dataset_type=DatasetType.Inference,
                          _ignore_stride_mismatch=False,
@@ -49,9 +42,11 @@ class InferenceDataset(BaseDataset):
         self.check_image_shape_compatibility(self.image_shape,
                                              self.file_name)
 
-        self.nephrin = self.image[:, self.channel_map[0], :, :]
-        self.wga = self.image[:, self.channel_map[1], :, :]
-        self.collagen4 = self.image[:, self.channel_map[2], :, :]
+        self.no_of_classes = _no_of_classes
+
+        self.nephrin = self.image[:, 0, :, :]
+        self.wga = self.image[:, 1, :, :]
+        self.collagen4 = self.image[:, 2, :, :]
 
         sample_per_z = int((self.image_shape[0] - self.sample_dimension[0]) //
                            self.pixel_per_step_z) + 1
@@ -101,18 +96,32 @@ class InferenceDataset(BaseDataset):
         wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
 
-        nephrin = nephrin/255
-        wga = wga/255
-        collagen4 = collagen4/255
+        nephrin = torch.from_numpy(nephrin/255)
+        wga = torch.from_numpy(wga/255)
+        collagen4 = torch.from_numpy(collagen4/255)
+
+        sample = torch.cat((nephrin, collagen4, wga), dim=0)
 
         return {
-            'nephrin': torch.from_numpy(nephrin),
-            'wga': torch.from_numpy(wga),
-            'collagen4': torch.from_numpy(collagen4),
+            'sample': sample,
             'offsets': torch.from_numpy(
                 np.array([index,
                           x_start,
                           y_start,
-                          z_start])
-            ).int()
-        }
+                          z_start])).int()}
+
+    def getNumberOfClasses(self):
+        return self.no_of_classes
+
+    def getNumberOfChannels(self):
+        return self.image.shape[1]
+
+    def getResultShape(self):
+        image_shape = self.image_shape
+        result_shape: list = []
+        result_shape.append(self.getNumberOfClasses())
+        result_shape.append(image_shape[0])
+        result_shape.append(image_shape[2])
+        result_shape.append(image_shape[3])
+
+        return result_shape

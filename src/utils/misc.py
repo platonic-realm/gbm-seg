@@ -1,17 +1,20 @@
-"""
-Author: Arash Fatehi
-Date:   01.11.2022
-"""
-
 # Python Imports
 import logging
 import sys
 import os
 import shutil
 from pathlib import Path
+from io import StringIO
 
 # Library Imports
 import torch
+import yaml
+from torch import nn
+from torch.utils.data import DataLoader
+
+# Local Imports
+from src.utils.metrics.memory import GPURunningMetrics
+from src.utils.metrics.clfication import Metrics
 
 
 def basic_logger() -> None:
@@ -103,3 +106,78 @@ def expand_as_one_hot(_input, _c, _ignore_index=None):
 
     # Else: scatter to get the one-hot tensor
     return torch.zeros(shape).to(_input.device).scatter_(1, _input, 1)
+
+
+# Check the configurations and changes
+# some if needed.
+def sanity_check(_configs: dict) -> dict:
+    assert not _configs['trainer']['train_ds']['path'] is None, \
+           "Please provide path to the training dataset"
+
+    assert not _configs['trainer']['valid_ds']['path'] is None, \
+           "Please provide path to the validation dataset"
+
+    if _configs['trainer']['visualization']['enabled']:
+        assert not _configs['trainer']['visualization']['path'] is None, \
+               "Please provide path to store visualization files"
+
+    if _configs['trainer']['tensorboard']['enabled']:
+        assert not _configs['trainer']['tensorboard']['path'] is None, \
+               "Please provide path for tensorboard logs"
+
+    if torch.cuda.device_count() == 0:
+        _configs['trainer']['device'] = 'cpu'
+        _configs['trainer']['mixed_precision'] = False
+        _configs['inference']['device'] = 'cpu'
+
+    if _configs['trainer']['device'] == 'cpu':
+        _configs['trainer']['cudnn_benchmark'] = False
+        _configs['trainer']['nvtx_patching'] = False
+
+    return _configs
+
+
+def blind_test(_model: nn.Module,
+               _dataloader: DataLoader,
+               _loss,
+               _device: str,
+               _no_of_classes: int,
+               _metric_list: list):
+
+    running_metrics = GPURunningMetrics(_device, _metric_list)
+    _model.to(_device)
+
+    for index, data in enumerate(_dataloader):
+
+        sample = data['sample'].to(_device)
+        labels = data['labels'].to(_device).long()
+
+        with torch.no_grad():
+
+            logits, results = _model(sample)
+
+            metrics = Metrics(_no_of_classes,
+                              results,
+                              labels)
+            loss = _loss(logits, labels)
+
+            running_metrics.add(metrics.reportMetrics(_metric_list, loss))
+
+    return running_metrics.calculate()
+
+
+def read_configs(_config_path: str):
+    with open(_config_path, encoding='UTF-8') as config_file:
+        configs = yaml.safe_load(config_file)
+
+    return sanity_check(configs)
+
+
+def summerize_configs(_configs: dict) -> None:
+    with StringIO() as configs_dump:
+        yaml.dump(_configs,
+                  configs_dump,
+                  default_flow_style=None,
+                  sort_keys=False)
+        logging.info("Configurations\n%s******************",
+                     configs_dump.getvalue())
