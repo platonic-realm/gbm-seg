@@ -1,8 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   01.01.2024
-"""
-
 # Python Imports
 from pathlib import Path
 

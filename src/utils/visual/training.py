@@ -6,7 +6,6 @@ from pathlib import Path
 # Library Imports
 import numpy as np
 from torch import Tensor
-from torch.nn.parallel import DataParallel as DP
 
 # Local Imports
 from src.utils.misc import to_numpy

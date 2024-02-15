@@ -1,8 +1,3 @@
-"""
-Author: Arash Fatehi
-Date:   27.10.2022
-"""
-
 # Python Imports
 import os
 import re

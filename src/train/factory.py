@@ -347,7 +347,6 @@ class Factory:
                       _ave_kernel_size=5)
         return morph
 
-
     def createInferer(self,
                       _model: nn.Module,
                       _data_loaders: list,
