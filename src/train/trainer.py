@@ -5,7 +5,6 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.nn.parallel import DataParallel as DP
 
 # Local Imports
 from src.utils.metrics.clfication import Metrics
@@ -33,14 +32,9 @@ class Unet3DTrainer():
                  _metric_list: list,
                  _device: str,
                  _freq: int,
-                 _epochs: int,
-                 _dp: bool):
+                 _epochs: int):
 
-        if _dp:
-            self.model = DP(_model)
-        else:
-            self.model = _model
-
+        self.model = _model
         self.loss_function = _loss_funtion
         self.stepper = _stepper
         self.snapper = _snapper
@@ -82,7 +76,7 @@ class Unet3DTrainer():
                 self.metric_logger.log(_epoch,
                                        self.stepper.getSteps(),
                                        self.stepper.getSeenLabels(),
-                                       'Train',
+                                       'train',
                                        train_running_metrics.calculate())
 
                 # Save the snapshot
@@ -110,7 +104,7 @@ class Unet3DTrainer():
                 self.metric_logger.log(_epoch,
                                        self.stepper.getSteps(),
                                        self.stepper.getSeenLabels(),
-                                       'Valid',
+                                       'valid',
                                        metrics)
 
         self.profiler.stop()

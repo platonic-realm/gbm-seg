@@ -145,6 +145,7 @@ def blind_test(_model: nn.Module,
                _metric_list: list):
 
     running_metrics = GPURunningMetrics(_device, _metric_list)
+
     _model.to(_device)
 
     for index, data in enumerate(_dataloader):

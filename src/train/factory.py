@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.nn.parallel import DataParallel as DP
 from torch.utils.data import DataLoader
 
 # Local Imports
@@ -41,8 +42,11 @@ class Factory:
     def createModel(self,
                     _no_of_channles: int,
                     _no_of_classes: int,
-                    _result_shape: list,
-                    _inference: bool = False) -> nn.Module:
+                    _result_shape: list = None,
+                    _inference: bool = False,
+                    _dp: bool = True) -> nn.Module:
+
+        dp = self.configs['trainer']['dp']
 
         model = Unet3D(self.configs['trainer']['model']['name'],
                        _no_of_channles,
@@ -53,6 +57,10 @@ class Factory:
                        _sample_dimension=self.configs['trainer']['train_ds']['sample_dimension'],
                        _inference=_inference,
                        _result_shape=_result_shape)
+
+        # This is used during the inference
+        if dp and _dp:
+            model = DP(model)
 
         return model
 
@@ -116,7 +124,6 @@ class Factory:
         device = self.configs['trainer']['device']
         report_freq = self.configs['trainer']['report_freq']
         epochs = self.configs['trainer']['epochs']
-        dp = self.configs['trainer']['dp']
 
         if self.configs['trainer']['model']['name'] == 'unet_3d':
             trainer = Unet3DTrainer(_model,
@@ -133,8 +140,7 @@ class Factory:
                                     metrics_list,
                                     device,
                                     report_freq,
-                                    epochs,
-                                    dp)
+                                    epochs)
         else:
             assert False, "Please provide a valid model name in the config file"
 

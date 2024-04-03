@@ -8,7 +8,13 @@ import numpy as np
 import random
 
 source_list = [
-        '/projects/ag-bozek/arash/gbm/experiments/debug/datasets/ds_train/POD-mut.BDP669.Series011.Nephrin1.WGA2.COLIV3.RE.20231211.tif',
+        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.COL4-mutation.tif',
+        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Control-mouse.01.tif',
+        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Pod-mutation.BDP669.Series005.tif',
+        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Pod-mutation.BDP669.Series011.tif',
+        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Pod-mutation.BDP672.Series004.tif',
+        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.COL4-mutation.CKM104.Series2.Annotated.tif',
+        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.COL4-mutation.CKM104.Series005.Annotated.tif',
         ]
 
 size = 3
