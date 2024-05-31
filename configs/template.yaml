@@ -116,6 +116,7 @@ trainer:
     path: ./visuals/
     gif: True
     tif: False
+    blender: True
 
   profiling:
     enabled: False

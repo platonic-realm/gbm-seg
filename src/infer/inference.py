@@ -87,6 +87,35 @@ class Inference():
                          output_dir,
                          self.data_loader.dataset.tiff_tags)
 
+        self.blender_visualization(_morph_results=morph_result,
+                                   _output_path=os.path.join(output_dir,
+                                                             "blender"))
+
+    def blender_visualization(self,
+                              _morph_results: array,
+                              _output_path: str):
+
+        create_dirs_recursively(os.path.join(_output_path, "dummy"))
+
+        mean = np.mean(_morph_results[_morph_results != 0])
+        layer = _morph_results[0]
+        layer[layer != 0] = mean/2
+        _morph_results[0] = layer
+
+        layer = _morph_results[_morph_results.shape[0]-1]
+        layer[layer != 0] = mean/2
+        _morph_results[_morph_results.shape[0]-1] = layer
+
+        verts, faces, normals, values = measure.marching_cubes(volume=_morph_results,
+                                                               level=0.1,
+                                                               step_size=1.1,
+                                                               allow_degenerate=False)
+
+        np.save(os.path.join(_output_path, "verts.npy"), verts)
+        np.save(os.path.join(_output_path, "faces.npy"), faces)
+        np.save(os.path.join(_output_path, "values.npy"), values)
+        np.save(os.path.join(_output_path, "normals.npy"), normals)
+
     def save_result(self,
                     _nephrin: array,
                     _wga: array,

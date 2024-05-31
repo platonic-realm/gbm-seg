@@ -1,3 +1,6 @@
+# Python Imports
+import math
+
 # Library Imports
 import torch
 
@@ -11,8 +14,9 @@ class CPURunningMetric():
         self.counter: int = 0
 
     def add(self, _value: any) -> None:
-        self.value += float(_value)
-        self.counter += 1
+        if not math.isnan(_value):
+            self.value += float(_value)
+            self.counter += 1
 
     def calcualte(self) -> float:
         result: float = self.value / self.counter
@@ -33,17 +37,20 @@ class GPURunningMetrics():
         self.values = torch.zeros(len(self.metrics),
                                   device=self.device,
                                   dtype=torch.float32)
-        self.counter = torch.zeros(1,
+        self.counter = torch.zeros(len(self.metrics),
                                    device=self.device,
                                    dtype=torch.float32)
 
     def add(self, _values) -> None:
         for i, metric in enumerate(self.metrics):
             if len(_values[metric].shape) > 0:
-                self.values[i] += _values[metric].squeeze()
+                _value = _values[metric].squeeze()
             else:
-                self.values[i] += _values[metric]
-        self.counter += 1
+                _value = _values[metric]
+
+            if not torch.isnan(_value):
+                self.values[i] += _value
+                self.counter[i] += 1
 
     def calculate(self) -> dict:
         results = dict.fromkeys(self.metrics)
@@ -51,7 +58,7 @@ class GPURunningMetrics():
         self.values = torch.zeros(len(self.metrics),
                                   device=self.device,
                                   dtype=torch.float32)
-        self.counter = torch.zeros(1,
+        self.counter = torch.zeros(len(self.metrics),
                                    device=self.device,
                                    dtype=torch.float32)
 

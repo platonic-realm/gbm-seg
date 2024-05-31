@@ -5,6 +5,7 @@
 # Local Imports
 from src.utils.misc import configure_logger
 from src.utils import args
+from src.utils.misc import blender_render
 from src.train.factory import Factory
 
 
@@ -31,6 +32,8 @@ def main_infer(_configs):
                                         snapper)
 
         inferer.infer()
+
+    blender_render(_configs['inference']['result_dir'])
 
 
 if __name__ == '__main__':
