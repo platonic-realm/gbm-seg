@@ -290,9 +290,9 @@ class Morph(nn.Module):
                                                       stride=1,
                                                       padding='same') / y_div
 
-            del z_slope
-            del x_slope
-            del y_slope
+            z_slope = z_slope.to('cpu')
+            x_slope = x_slope.to('cpu')
+            y_slope = y_slope.to('cpu')
             del y_div
             self.empty_cache()
 
@@ -366,7 +366,51 @@ class Morph(nn.Module):
 
             distance_tesnor[distance_tesnor.isinf()] = 0
             distance_tesnor[surface_mask <= 0] = 0
-            return distance_tesnor[0][0]
+            distance_tesnor = distance_tesnor[0][0]
+
+            x_slope_std = self.calculate_patched_std(x_slope, surface_mask)
+            self.empty_cache()
+            y_slope_std = self.calculate_patched_std(y_slope, surface_mask)
+            self.empty_cache()
+            z_slope_std = self.calculate_patched_std(z_slope, surface_mask)
+            self.empty_cache()
+
+            bumpiness_tensor = x_slope_std**2 + y_slope_std**2 + z_slope_std**2
+            bumpiness_tensor = bumpiness_tensor.squeeze(-1).squeeze(-1).squeeze(-1)
+            bumpiness_tensor = F.conv3d(bumpiness_tensor,
+                                        self.averaging_kernel,
+                                        stride=1,
+                                        padding='same')
+            bumpiness_tensor[surface_mask == 0] = 0
+            bumpiness_tensor = bumpiness_tensor.squeeze()
+
+            return distance_tesnor, bumpiness_tensor
+
+    def calculate_patched_std(self,
+                              _slope: Tensor,
+                              _surface_mask: Tensor,
+                              _kernel_size: int = 5):
+
+        slope = _slope.to(self.device)
+
+        padding = _kernel_size // 2
+        padded = F.pad(slope,
+                       (padding, padding, padding, padding, padding, padding),
+                       mode='reflect')
+
+        # Use unfold to create patches
+        patches = padded.unfold(2,
+                                _kernel_size,
+                                1).unfold(3,
+                                          _kernel_size,
+                                          1).unfold(4,
+                                                    _kernel_size,
+                                                    1)
+        # Calculate mean across the last three dimensions
+        std = patches.std(dim=(-1, -2, -3), keepdim=True)
+        std[_surface_mask == 0] = 0
+
+        return std
 
     def calculate_intersections(self,
                                 _axis: int,

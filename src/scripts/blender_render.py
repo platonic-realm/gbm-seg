@@ -50,15 +50,19 @@ col = bpy.data.collections["Collection"]
 col.objects.link(obj)
 
 # Create a new attribute for the object
-obj.data.attributes.new(name='distances', type='FLOAT', domain='POINT')
+obj.data.attributes.new(name='values', type='FLOAT', domain='POINT')
 
-# Normalize the values to fit in the 0-1 range for colors
-min_value = np.min(values)
-max_value = np.max(values)
-normalized_values = (values - min_value) / (max_value - min_value) * 255
+# Normalize the values
+none_zero_values = values[values > 0]
+none_zero_3std = np.mean(none_zero_values) + 3 * np.std(none_zero_values)
+values[values > none_zero_3std] = none_zero_3std
 
-# Store the energies in the new attribute
-obj.data.attributes['distances'].data.foreach_set('value', normalized_values)
+# The min is always zero, so we remove it from the equation
+normalized_values = values / np.max(values)
+
+
+# Store the values in the new attribute
+obj.data.attributes['values'].data.foreach_set('value', normalized_values)
 
 # Rotate the object -90 degrees around the Y-axis
 rotation_angle = -90  # in degrees
@@ -98,7 +102,7 @@ if material.use_nodes:
 
     # Add Attribute node
     attr_node = tree.nodes.new(type='ShaderNodeAttribute')
-    attr_node.attribute_name = "distances"
+    attr_node.attribute_name = "values"
 
     # Add ColorRamp node
     color_ramp_node = tree.nodes.new(type='ShaderNodeValToRGB')
@@ -132,6 +136,16 @@ if material.use_nodes:
 
     # Link ColorRamp node to Base Color input of Principled BSDF node
     tree.links.new(color_ramp_node.outputs['Color'], bsdf.inputs['Base Color'])
+
+    # Add the Decimate modifier
+    decimate_modifier = obj.modifiers.new(name="Decimate", type='DECIMATE')
+
+    # Set the ratio for decimation (0.5 reduces the number of faces by half)
+    decimate_modifier.ratio = 0.125
+
+    # Apply the modifier
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.modifier_apply(modifier=decimate_modifier.name)
 
 bpy.ops.wm.save_as_mainfile(filepath=output_blend_path)
 

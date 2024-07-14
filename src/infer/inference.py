@@ -77,58 +77,86 @@ class Inference():
         del offsets
         del sample
 
-        morph_result = self.morph(torch.from_numpy(result).float()).detach().cpu().numpy()
+        distance_result, fd_result = self.morph(torch.from_numpy(result).float())
+        distance_result = distance_result.detach().cpu().numpy()
+        fd_result = fd_result.detach().cpu().numpy()
 
         self.save_result(self.data_loader.dataset.nephrin,
                          self.data_loader.dataset.wga,
                          self.data_loader.dataset.collagen4,
                          result,
-                         morph_result,
+                         distance_result,
+                         fd_result,
                          output_dir,
                          self.data_loader.dataset.tiff_tags)
 
-        self.blender_visualization(_morph_results=morph_result,
+        self.blender_visualization(_distance_results=distance_result,
+                                   _fd_results=fd_result,
                                    _output_path=os.path.join(output_dir,
                                                              "blender"))
 
     def blender_visualization(self,
-                              _morph_results: array,
+                              _distance_results: array,
+                              _fd_results: array,
                               _output_path: str):
 
         create_dirs_recursively(os.path.join(_output_path, "dummy"))
 
-        mean = np.mean(_morph_results[_morph_results != 0])
-        layer = _morph_results[0]
-        layer[layer != 0] = mean/2
-        _morph_results[0] = layer
+        mean = np.mean(_distance_results[_distance_results != 0])
+        first_layer = _distance_results[0]
+        first_layer[first_layer != 0] = mean/2
+        _distance_results[0] = first_layer
 
-        layer = _morph_results[_morph_results.shape[0]-1]
-        layer[layer != 0] = mean/2
-        _morph_results[_morph_results.shape[0]-1] = layer
+        last_layer = _distance_results[_distance_results.shape[0]-1]
+        last_layer[last_layer != 0] = mean/2
+        _distance_results[_distance_results.shape[0]-1] = last_layer
 
-        verts, faces, normals, values = measure.marching_cubes(volume=_morph_results,
+        pad_width = ((1, 1), (1, 1), (1, 1))
+
+        _distance_results = np.pad(_distance_results, pad_width, mode="constant", constant_values=0)
+        verts, faces, normals, values = measure.marching_cubes(volume=_distance_results,
                                                                level=0.1,
                                                                step_size=1.1,
                                                                allow_degenerate=False)
 
-        np.save(os.path.join(_output_path, "verts.npy"), verts)
-        np.save(os.path.join(_output_path, "faces.npy"), faces)
-        np.save(os.path.join(_output_path, "values.npy"), values)
-        np.save(os.path.join(_output_path, "normals.npy"), normals)
+        np.save(os.path.join(_output_path, "verts_distance.npy"), verts)
+        np.save(os.path.join(_output_path, "faces_distance.npy"), faces)
+        np.save(os.path.join(_output_path, "values_distance.npy"), values)
+
+        mean = np.mean(_fd_results[_fd_results != 0])
+        first_layer = _fd_results[0]
+        first_layer[first_layer != 0] = mean/2
+        _fd_results[0] = first_layer
+
+        last_layer = _fd_results[_fd_results.shape[0]-1]
+        last_layer[last_layer != 0] = mean/2
+        _fd_results[_fd_results.shape[0]-1] = last_layer
+
+        _fd_results = np.pad(_fd_results, pad_width, mode="constant", constant_values=0)
+        verts, faces, normals, values = measure.marching_cubes(volume=_fd_results,
+                                                               level=0.1,
+                                                               step_size=1.1,
+                                                               allow_degenerate=False)
+
+        np.save(os.path.join(_output_path, "verts_bumpiness.npy"), verts)
+        np.save(os.path.join(_output_path, "faces_bumpiness.npy"), faces)
+        np.save(os.path.join(_output_path, "values_bumpiness.npy"), values)
 
     def save_result(self,
                     _nephrin: array,
                     _wga: array,
                     _collagen4: array,
                     _prediction: array,
-                    _morph_results: array,
+                    _distance_results: array,
+                    _fd_results: array,
                     _output_path: str,
                     _tiff_tags: dict,
                     _multiplier: int = 120):
 
         prediction_tif_path = os.path.join(_output_path, "prediction.tif")
         prediction_gif_path = os.path.join(_output_path, "prediction.gif")
-        morph_npy_path = os.path.join(_output_path, "morph_result.npy")
+        distance_npy_path = os.path.join(_output_path, "distance_result.npy")
+        fd_npy_path = os.path.join(_output_path, "fd_result.npy")
 
         _prediction = _prediction * _multiplier
         _prediction = _prediction.astype(np.uint8)
@@ -137,11 +165,11 @@ class Inference():
                              "prediction.npy"),
                 _prediction)
 
-        with open(morph_npy_path, 'wb') as morph_npy_file:
-            np.save(morph_npy_file, _morph_results)
+        with open(distance_npy_path, 'wb') as distance_npy_file:
+            np.save(distance_npy_file, _distance_results)
 
-        with open(morph_npy_path, 'wb') as morph_npy_file:
-            np.save(morph_npy_file, _morph_results)
+        with open(fd_npy_path, 'wb') as fd_npy_file:
+            np.save(fd_npy_file, _fd_results)
 
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):

@@ -193,7 +193,7 @@ def blender_render(_inference_dir: str) -> None:
     # Get number of GPUs
     num_gpus = torch.cuda.device_count()
     gpu_index = 0
-    gpu_capacity = 12
+    gpu_capacity = 4
 
     # List all items in the current directory
     all_files = os.listdir(_inference_dir)
@@ -203,17 +203,25 @@ def blender_render(_inference_dir: str) -> None:
                                                                             item)) and item not in ['.', '..']]
     commands = []
     for directory in directories:
-        verts_path = os.path.join(_inference_dir, directory, "blender", "verts.npy")
-        faces_path = os.path.join(_inference_dir, directory, "blender", "faces.npy")
-        values_path = os.path.join(_inference_dir, directory, "blender", "values.npy")
-        result_blend_path = os.path.join(_inference_dir, directory, "blender", "result.blend")
-        result_anim_path = os.path.join(_inference_dir, directory, "blender", "result.mp4")
+        verts_path = os.path.join(_inference_dir, directory, "blender", "verts_distance.npy")
+        faces_path = os.path.join(_inference_dir, directory, "blender", "faces_distance.npy")
+        values_path = os.path.join(_inference_dir, directory, "blender", "values_distance.npy")
+        result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_distance.blend")
+        result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_distance.mp4")
+        commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
+        gpu_index = (gpu_index + 1) % num_gpus
+
+        verts_path = os.path.join(_inference_dir, directory, "blender", "verts_bumpiness.npy")
+        faces_path = os.path.join(_inference_dir, directory, "blender", "faces_bumpiness.npy")
+        values_path = os.path.join(_inference_dir, directory, "blender", "values_bumpiness.npy")
+        result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.blend")
+        result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.mp4")
         commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
         gpu_index = (gpu_index + 1) % num_gpus
 
     compute_limit = num_gpus * gpu_capacity
     for i in range(int(len(commands)/compute_limit) + 1):
-        sub_commands = commands[i*compute_limit:compute_limit]
+        sub_commands = commands[i*compute_limit:(i+1)*compute_limit]
         processes = [subprocess.Popen(cmd, shell=True, executable='/bin/bash') for cmd in sub_commands]
 
         # Wait for all processes to complete
