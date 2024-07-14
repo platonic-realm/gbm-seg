@@ -6,17 +6,23 @@ This project is a work in progress.
 
 In collaboration with KTH Royal Institute of Technology, we aim to leverage deep learning and high-resolution microscopy to invent a novel technique for nano-scale 3D segmentation and reconstruction of Glomerular Basement Membrane (GBM), a ribbon-like extracellular matrix that lies between the endothelium and the podocyte foot processes.
 
-<div align="center" width="100%">
-    <img src="res/prediction.jpg" alt="prediction" width="90%"/>
-</div>
+<br/>
+
+<p align="center">
+  <img src="res/prediction.jpg" alt="prediction" width="80%" style="border-radius: 10px; box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);">
+</p>
+
+<br/>
 
 Additionally, we focus on developing GPU-based algorithms to extract useful morphometric features from the 3D reconstruction to acquire a better understanding of GBM's role as a filtration barrier and its alteration in pathological scenarios.
 
+<br/>
 
-<div align="center" width="100%">
-    <img src="res/gbm_render.jpg" alt="prediction" width="90%"/>
-</div>
+<p align="center">
+  <img src="res/gbm_render.jpg" alt="GBM Render" width="80%" style="border-radius: 10px; box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);">
+</p>
 
+<br/>
 
 ## Installation
 
@@ -38,7 +44,7 @@ The application uses a command-line interface with several subcommands. Here's a
 
 List created experiments or snapshots of a specific experiment.
 
-```
+```bash
 python main.py list [-r] [-s SNAPSHOTS]
 ```
 
@@ -50,7 +56,7 @@ Options:
 
 Create a new experiment with the given name.
 
-```
+```bash
 python main.py create <name> [-bs BATCH_SIZE]
 ```
 
@@ -61,7 +67,7 @@ Options:
 
 Delete the selected experiment.
 
-```
+```bash
 python main.py delete <name>
 ```
 
@@ -69,7 +75,7 @@ python main.py delete <name>
 
 Start or continue training for the specified experiment.
 
-```
+```bash
 python main.py train <name>
 ```
 
@@ -77,7 +83,7 @@ python main.py train <name>
 
 Create an inference session for the specified experiment.
 
-```
+```bash
 python main.py infer <name> -s SNAPSHOT [-bs BATCH_SIZE] [-sd SAMPLE_DIMENSION] [-st STRIDE] [-sf SCALE_FACTOR]
 ```
 
@@ -95,22 +101,22 @@ The application uses a YAML configuration file located at `./configs/template.ya
 ### Examples
 
 1. Create a new experiment:
-   ```
+   ```bash
    python main.py create my_experiment --batch-size 16
    ```
 
 2. List all experiments:
-   ```
+   ```bash
    python main.py list
    ```
 
 3. Train an experiment:
-   ```
+   ```bash
    python main.py train my_experiment
    ```
 
 4. Run inference:
-   ```
+   ```bash
    python main.py infer my_experiment --snapshot best_model --batch-size 4 --sample-dimension "24, 512, 512" --stride "2, 128, 128" --scale-factor 2
    ```
 
