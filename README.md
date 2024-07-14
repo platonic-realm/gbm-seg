@@ -45,7 +45,7 @@ The application uses a command-line interface with several subcommands. Here's a
 List created experiments or snapshots of a specific experiment.
 
 ```bash
-python main.py list [-r] [-s SNAPSHOTS]
+python gbm.py list [-r] [-s SNAPSHOTS]
 ```
 
 Options:
@@ -57,7 +57,7 @@ Options:
 Create a new experiment with the given name.
 
 ```bash
-python main.py create <name> [-bs BATCH_SIZE]
+python gbm.py create <name> [-bs BATCH_SIZE]
 ```
 
 Options:
@@ -68,7 +68,7 @@ Options:
 Delete the selected experiment.
 
 ```bash
-python main.py delete <name>
+python gbm.py delete <name>
 ```
 
 #### Train an Experiment
@@ -76,7 +76,7 @@ python main.py delete <name>
 Start or continue training for the specified experiment.
 
 ```bash
-python main.py train <name>
+python gbm.py train <name>
 ```
 
 #### Run Inference
@@ -84,7 +84,7 @@ python main.py train <name>
 Create an inference session for the specified experiment.
 
 ```bash
-python main.py infer <name> -s SNAPSHOT [-bs BATCH_SIZE] [-sd SAMPLE_DIMENSION] [-st STRIDE] [-sf SCALE_FACTOR]
+python gbm.py infer <name> -s SNAPSHOT [-bs BATCH_SIZE] [-sd SAMPLE_DIMENSION] [-st STRIDE] [-sf SCALE_FACTOR]
 ```
 
 Options:
@@ -102,22 +102,22 @@ The application uses a YAML configuration file located at `./configs/template.ya
 
 1. Create a new experiment:
    ```bash
-   python main.py create my_experiment --batch-size 16
+   python gbm.py create my_experiment --batch-size 16
    ```
 
 2. List all experiments:
    ```bash
-   python main.py list
+   python gbm.py list
    ```
 
 3. Train an experiment:
    ```bash
-   python main.py train my_experiment
+   python gbm.py train my_experiment
    ```
 
 4. Run inference:
    ```bash
-   python main.py infer my_experiment --snapshot best_model --batch-size 4 --sample-dimension "24, 512, 512" --stride "2, 128, 128" --scale-factor 2
+   python gbm.py infer my_experiment --snapshot best_model --batch-size 4 --sample-dimension "24, 512, 512" --stride "2, 128, 128" --scale-factor 2
    ```
 
 ## Debugging
