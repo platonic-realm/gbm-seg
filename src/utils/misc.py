@@ -193,7 +193,7 @@ def blender_render(_inference_dir: str) -> None:
     # Get number of GPUs
     num_gpus = torch.cuda.device_count()
     gpu_index = 0
-    gpu_capacity = 4
+    gpu_capacity = 10
 
     # List all items in the current directory
     all_files = os.listdir(_inference_dir)
@@ -208,14 +208,6 @@ def blender_render(_inference_dir: str) -> None:
         values_path = os.path.join(_inference_dir, directory, "blender", "values_distance.npy")
         result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_distance.blend")
         result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_distance.mp4")
-        commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
-        gpu_index = (gpu_index + 1) % num_gpus
-
-        verts_path = os.path.join(_inference_dir, directory, "blender", "verts_bumpiness.npy")
-        faces_path = os.path.join(_inference_dir, directory, "blender", "faces_bumpiness.npy")
-        values_path = os.path.join(_inference_dir, directory, "blender", "values_bumpiness.npy")
-        result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.blend")
-        result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.mp4")
         commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
         gpu_index = (gpu_index + 1) % num_gpus
 

@@ -137,7 +137,7 @@ trainer:
 
   tensorboard:
     enabled: True
-    label_seen: True
+    label_seen: False
     path: ./tensorboard/
 
   sqlite: False

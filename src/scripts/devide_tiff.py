@@ -8,13 +8,16 @@ import numpy as np
 import random
 
 source_list = [
-        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.COL4-mutation.tif',
-        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Control-mouse.01.tif',
-        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Pod-mutation.BDP669.Series005.tif',
-        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Pod-mutation.BDP669.Series011.tif',
-        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.Pod-mutation.BDP672.Series004.tif',
-        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.COL4-mutation.CKM104.Series2.Annotated.tif',
-        '/data/afatehi/gbm/experiments/pod-full/datasets/ds_raw/NCWM.COL4-mutation.CKM104.Series005.Annotated.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.CKM104.Series002.Annotated-mutation.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.CKM104.Series005.Annotated-mutation.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.AUY380.Series008.Control.20240723.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.AUY381.Series002.Control-mouse.20240805.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.BDP669.Series005.Pod-mutation.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.BDP669.Series011.Pod-mutation.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.BDP672.Series004.Pod.Done.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.BDP675.Series008.Pod-mutation.20240722.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.CKM103.Series004.Control-mouse.tif',
+        '/data/afatehi/gbm/data/ds_mouse/ds_train/raw/NCWM.CKM104.Series003.COL4-mutation.tif',
         ]
 
 size = 3
