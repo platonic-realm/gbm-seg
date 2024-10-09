@@ -86,18 +86,26 @@ trainer:
     ignore_stride_mismatch: True
     workers: 4
     augmentation:
-      enabled: True
+      enabled_offline: True
       workers: 8
-      methods: [
-                ['_zoom', 2],
-                ['_zoom', 1.7],
-                ['_zoom', 1.3],
-                ['_zoom', 0.7],
-                ['_zoom', 0.5],
-                ['_twist_clock', '0.5',],
-                ['_twist_reverse', '0.5'],
-                ['_rotate_random', '0.2'],
-               ]
+      methods_offline: [
+                        ['_zoom', 2],
+                        ['_zoom', 1.7],
+                        ['_zoom', 1.3],
+                        ['_zoom', 0.7],
+                        ['_zoom', 0.5],
+                        ['_twist_clock', '0.5',],
+                        ['_twist_reverse', '0.5'],
+                        ['_rotate_random', '0.2'],
+                       ]
+      enabled_online: True
+      methods_online: 
+        scale: 6
+        # Numbers are chance of happening
+        rotate: 0.2
+        blur: 0.2
+        crop: 0.2
+        channel_drop: 0.3
 
   valid_ds:
     path: ./data/gbm_valid_ds/

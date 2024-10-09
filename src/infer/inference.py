@@ -218,7 +218,7 @@ class Inference():
         # count pixels in each connected component
         for label_index in range(labels_num):
             voxel_count = np.sum(labels == label_index)
-            if voxel_count < 400:
+            if voxel_count < 1000:
                 prediction[labels == label] = 0
 
         return prediction

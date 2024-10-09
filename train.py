@@ -3,6 +3,7 @@ import logging
 
 # Library Imports
 import torch
+from torch.utils.data import random_split
 
 # Local Imports
 from src.utils import args
@@ -26,11 +27,20 @@ def main_train(_configs):
     train_dataset = factory.createTrainDataset()
     train_dataloader = factory.createTrainDataLoader(train_dataset)
 
-    valid_dataset = factory.createValidDataset()
+    # analyze_dataset(train_dataset)
+    # Define the split ratio
+    train_ratio = 0.8
+    # Calculate the lengths of train and validation sets
+    train_size = int(train_ratio * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+
+    train_dataset, valid_dataset = random_split(train_dataset,
+                                                [train_size, val_size])
+
     valid_dataloader = factory.createValidDataLoader(valid_dataset)
 
-    model = factory.createModel(train_dataset.getNumberOfChannels(),
-                                train_dataset.getNumberOfClasses())
+    model = factory.createModel(train_dataset.dataset.getNumberOfChannels(),
+                                train_dataset.dataset.getNumberOfClasses())
     loss_function = factory.createLoss()
     optimizer = factory.createOptimizer(model)
     lr_scheduler = factory.createScheduler(optimizer)
@@ -43,7 +53,7 @@ def main_train(_configs):
     metric_logger = factory.createMetricLogger(model,
                                                valid_dataloader,
                                                loss_function,
-                                               train_dataset.getNumberOfClasses())
+                                               train_dataset.dataset.getNumberOfClasses())
 
     trainer = factory.createTrainer(model,
                                     loss_function,
@@ -55,7 +65,7 @@ def main_train(_configs):
                                     lr_scheduler,
                                     train_dataloader,
                                     valid_dataloader,
-                                    train_dataset.getNumberOfClasses())
+                                    train_dataset.dataset.getNumberOfClasses())
 
     trainer.train()
 

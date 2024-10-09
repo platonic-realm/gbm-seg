@@ -51,6 +51,7 @@ if __name__ == '__main__':
         name = args.name
         exper.delete_experiment(_name=name,
                                 _root_path=root)
+
     if args.action == 'infer':
         configure_logger(configs, _log_to_file=False)
         name = args.name

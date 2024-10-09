@@ -43,7 +43,7 @@ class Snapper():
                              f"{_epoch:03d}-{_step:04d}.pt")
             torch.save(snapshot, save_path)
             logging.info("Snapshot saved on epoch: %d, step: %d",
-                         _epoch+1,
+                         _epoch,
                          _step)
         if _async:
             thread = threading.Thread(target=save_state)

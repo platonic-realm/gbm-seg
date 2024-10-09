@@ -55,7 +55,7 @@ class Unet3DTrainer():
 
     def train(self):
         self.model.to(self.device)
-        for epoch in range(0, self.epochs):
+        for epoch in range(0, self.epochs + 1):
             self.trainEpoch(epoch)
 
     def trainEpoch(self, _epoch: int):

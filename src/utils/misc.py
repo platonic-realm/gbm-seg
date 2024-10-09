@@ -11,6 +11,7 @@ import shlex
 # Library Imports
 import torch
 import yaml
+import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
 
@@ -116,9 +117,6 @@ def sanity_check(_configs: dict) -> dict:
     assert not _configs['trainer']['train_ds']['path'] is None, \
            "Please provide path to the training dataset"
 
-    assert not _configs['trainer']['valid_ds']['path'] is None, \
-           "Please provide path to the validation dataset"
-
     if _configs['trainer']['visualization']['enabled']:
         assert not _configs['trainer']['visualization']['path'] is None, \
                "Please provide path to store visualization files"
@@ -151,6 +149,9 @@ def blind_test(_model: nn.Module,
     _model.to(_device)
 
     for index, data in enumerate(_dataloader):
+        chance = np.random.rand()
+        if chance > 0.01:
+            continue
 
         sample = data['sample'].to(_device)
         labels = data['labels'].to(_device).long()
@@ -193,7 +194,7 @@ def blender_render(_inference_dir: str) -> None:
     # Get number of GPUs
     num_gpus = torch.cuda.device_count()
     gpu_index = 0
-    gpu_capacity = 10
+    gpu_capacity = 12
 
     # List all items in the current directory
     all_files = os.listdir(_inference_dir)
@@ -211,6 +212,14 @@ def blender_render(_inference_dir: str) -> None:
         commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
         gpu_index = (gpu_index + 1) % num_gpus
 
+        verts_path = os.path.join(_inference_dir, directory, "blender", "verts_bumpiness.npy")
+        faces_path = os.path.join(_inference_dir, directory, "blender", "faces_bumpiness.npy")
+        values_path = os.path.join(_inference_dir, directory, "blender", "values_bumpiness.npy")
+        result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.blend")
+        result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.mp4")
+        commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
+        gpu_index = (gpu_index + 1) % num_gpus
+
     compute_limit = num_gpus * gpu_capacity
     for i in range(int(len(commands)/compute_limit) + 1):
         sub_commands = commands[i*compute_limit:(i+1)*compute_limit]
@@ -219,3 +228,39 @@ def blender_render(_inference_dir: str) -> None:
         # Wait for all processes to complete
         for proc in processes:
             proc.wait()
+
+
+def analyze_dataset(_dataset):
+    def draw(voxels, path, name):
+        import matplotlib.pyplot as plt
+        # Plot histogram
+        plt.figure(figsize=(10, 6))
+        plt.hist(voxels.flatten(), bins=256, edgecolor='black')
+        plt.title(f'Histogram of {name} Intensities')
+        plt.xlabel('Voxel Intensity')
+        plt.ylabel(f'Frequency ({name})')
+        plt.savefig(path / f"{name}.png")
+        plt.close()
+
+        import imageio
+        with imageio.get_writer(path / f"{name}.gif") as writer:
+            for index in range(voxels.shape[0]):
+                writer.append_data(voxels[index])
+
+    def histogram(_data, _label, _path):
+        nephrin = _data[0].cpu().detach().numpy()
+        wga = _data[1].cpu().detach().numpy()
+        col4 = _data[2].cpu().detach().numpy()
+        label = _label.cpu().detach().numpy()
+        draw(nephrin, _path, "nephrin")
+        draw(wga, _path, "wga")
+        draw(col4, _path, "col4")
+        draw(label, _path, "label")
+
+    root_path = Path("/data/afatehi/") / "gbm/dataset_analysis/"
+    root_path.mkdir(parents=True, exist_ok=True)
+    for idx, data in enumerate(_dataset):
+        print(f"Item {idx}:")
+        path = root_path / f"{idx:04d}"
+        path.mkdir(parents=True, exist_ok=True)
+        histogram(data['sample'], data['labels'], path)

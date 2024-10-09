@@ -162,11 +162,6 @@ def create_new_experiment(_name: str,
     copy_directory(os.path.join(_dataset_path, 'ds_train'),
                    new_ds_train_path, [])
 
-    new_ds_valid_path = os.path.join(new_dataset_path, 'ds_valid')
-    create_dirs_recursively(os.path.join(new_ds_valid_path, 'dummy'))
-    copy_directory(os.path.join(_dataset_path, 'ds_valid'),
-                   new_ds_valid_path, [])
-
     new_ds_test_path = os.path.join(new_dataset_path, 'ds_test')
     create_dirs_recursively(os.path.join(new_ds_test_path, 'dummy'))
     copy_directory(os.path.join(_dataset_path, 'ds_test'),

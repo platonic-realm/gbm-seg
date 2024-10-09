@@ -9,6 +9,7 @@ import torch.multiprocessing as mp
 import numpy as np
 import tifffile
 import cv2
+from scipy.ndimage import zoom, gaussian_filter, rotate
 
 # Local Imports
 from src.data.ds_base import DatasetType, BaseDataset
@@ -25,7 +26,8 @@ class GBMDataset(BaseDataset):
                  _dataset_type=DatasetType.Supervised,
                  _ignore_stride_mismatch=False,
                  _label_correction_function=None,
-                 _augmentation=None,
+                 _augmentation_offline=None,
+                 _augmentation_online=None,
                  _augmentation_workers=8):
 
         super().__init__(_sample_dimension,
@@ -41,6 +43,8 @@ class GBMDataset(BaseDataset):
         self.samples_per_image = []
         self.images = {}
         self.images_metadata = {}
+        self.augmentation_online = _augmentation_online
+        self.augmentation_offline = _augmentation_offline
 
         directory_content = os.listdir(self.source_directory)
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
@@ -56,8 +60,8 @@ class GBMDataset(BaseDataset):
         self.cache_content = os.listdir(self.cache_directory)
 
         self.aug_workers = _augmentation_workers
-        if _augmentation is not None:
-            for method in _augmentation:
+        if _augmentation_offline is not None:
+            for method in _augmentation_offline:
                 self._prepare_images(directory_content, method)
 
         # Cumulative sum of number of samples per image
@@ -67,6 +71,7 @@ class GBMDataset(BaseDataset):
         return abs(np.sum(self.samples_per_image))
 
     def __getitem__(self, index):
+
         # Index of the image in image_list
         image_id = np.min(np.where(self.cumulative_sum > index)[0])
 
@@ -138,6 +143,63 @@ class GBMDataset(BaseDataset):
 
         labels = torch.from_numpy(labels)
 
+        # Online Augmentations
+        if self.augmentation_online:
+            pass
+            # scale = self.augmentation_online['scale']
+            # zoom_factors = (scale, 1, 1)
+            # # 'order=1' for linear interpolation
+            # nephrin = zoom(nephrin, zoom_factors, order=1, prefilter=False)
+            # collagen4 = zoom(collagen4, zoom_factors, order=1, prefilter=False)
+            # wga = zoom(wga, zoom_factors, order=1, prefilter=False)
+
+            # sigma = 1.0
+            # labels = gaussian_filter(labels.type(torch.float), sigma=sigma)
+            # labels = zoom(labels, zoom_factors, order=2, prefilter=False)
+
+            # threshold = 0.5
+            # labels[labels >= threshold] = 1
+            # labels[labels < threshold] = 0
+
+            # Blurring
+            # sigma = 2
+            # blurring_chance = self.augmentation_online['blur']
+            # if np.random.rand() < blurring_chance:
+            #     nephrin = gaussian_filter(nephrin, sigma=sigma)
+
+            # if np.random.rand() < blurring_chance:
+            #     collagen4 = gaussian_filter(collagen4, sigma=sigma)
+
+            # if np.random.rand() < blurring_chance:
+            #     wga = gaussian_filter(wga, sigma=sigma)
+
+            # Rotation
+            # rotation_chance = self.augmentation_online['rotate']
+            # if np.random.rand() < rotation_chance:
+            #     nephrin, collagen4, wga, labels = \
+            #             self._rotate_channels(nephrin,
+            #                                   collagen4,
+            #                                   wga,
+            #                                   labels)
+
+            # Cropping
+            # crop_chance = self.augmentation_online['crop']
+            # if np.random.rand() < crop_chance:
+            #     nephrin = self._crop_channels(nephrin)
+            #     collagen4 = self._crop_channels(collagen4)
+            #     wga = self._crop_channels(wga)
+
+            # Channel drop
+            # drop_chance = self.augmentation_online['channel_drop']
+            # if np.random.rand() < drop_chance:
+            #     channel_id = random.randint(0, 2)
+            #     if channel_id == 0:
+            #         nephrin = np.zeros_like(nephrin)
+            #     if channel_id == 1:
+            #         collagen4 = np.zeros_like(collagen4)
+            #     if channel_id == 2:
+            #         wga = np.zeros_like(wga)
+
         nephrin = np.expand_dims(nephrin, axis=0)
         wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
@@ -185,7 +247,6 @@ class GBMDataset(BaseDataset):
                 self.images_metadata[file_name] = self.get_tiff_tags(tiff)
 
             image_shape = image.shape
-
             self.check_image_shape_compatibility(image_shape,
                                                  file_name)
 
@@ -374,3 +435,39 @@ class GBMDataset(BaseDataset):
                         _plane[final_coordinates[0]][final_coordinates[1]]
 
         return result_plane
+
+    @staticmethod
+    def _crop_channels(_channel):
+        z_patch_length = np.random.randint(2, 7)
+        x_patch_length = np.random.randint(30, 51)
+        y_patch_length = np.random.randint(30, 51)
+
+        z_patch_start = np.random.randint(0, _channel.shape[0] - 7)
+        x_patch_start = np.random.randint(0, _channel.shape[1] - 51)
+        y_patch_start = np.random.randint(0, _channel.shape[2] - 51)
+
+        _channel[z_patch_start:z_patch_length,
+                 x_patch_start:x_patch_length,
+                 y_patch_start:y_patch_length] = 0
+
+        return _channel
+
+    @staticmethod
+    def _rotate_channels(nephrin, collagen4, wga, label):
+        # Define the rotation angles
+        angle_x = np.random.randint(0, 20)  # rotation around the x-axis
+        angle_y = np.random.randint(0, 20)  # rotation around the y-axis
+        angle_z = np.random.randint(0, 20)  # rotation around the z-axis
+
+        def rotate_voxel_space(voxel_space):
+            # Rotate around each axis
+            rotated_voxel_space = rotate(voxel_space, angle=angle_x, axes=(1, 2), reshape=False, order=1)
+            rotated_voxel_space = rotate(rotated_voxel_space, angle=angle_y, axes=(0, 2), reshape=False, order=1)
+            rotated_voxel_space = rotate(rotated_voxel_space, angle=angle_z, axes=(0, 1), reshape=False, order=1)
+
+            return rotated_voxel_space
+
+        return (rotate_voxel_space(nephrin),
+                rotate_voxel_space(collagen4),
+                rotate_voxel_space(wga),
+                rotate_voxel_space(label))

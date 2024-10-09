@@ -48,13 +48,18 @@ class Factory:
 
         dp = self.configs['trainer']['dp']
 
+        sample_dimension = self.configs['trainer']['train_ds']['sample_dimension'].copy()
+        if self.configs['trainer']['train_ds']['augmentation']['enabled_online']:
+            scale = self.configs['trainer']['train_ds']['augmentation']['methods_online']['scale']
+            sample_dimension[0] = sample_dimension[0] * scale
+
         model = Unet3D(self.configs['trainer']['model']['name'],
                        _no_of_channles,
                        _no_of_classes,
                        _encoder_kernel_size=self.configs['trainer']['model']['encoder_kernel'],
                        _decoder_kernel_size=self.configs['trainer']['model']['decoder_kernel'],
                        _feature_maps=self.configs['trainer']['model']['feature_maps'],
-                       _sample_dimension=self.configs['trainer']['train_ds']['sample_dimension'],
+                       _sample_dimension=sample_dimension,
                        _inference=_inference,
                        _result_shape=_result_shape)
 
@@ -155,16 +160,21 @@ class Factory:
         training_sample_dimension: list = self.configs['trainer']['train_ds']['sample_dimension']
         training_pixel_stride: list = self.configs['trainer']['train_ds']['pixel_stride']
 
-        training_augmentation = None
-        if self.configs['trainer']['train_ds']['augmentation']['enabled']:
-            training_augmentation = self.configs['trainer']['train_ds']['augmentation']['methods']
+        training_augmentation_offline = None
+        if self.configs['trainer']['train_ds']['augmentation']['enabled_offline']:
+            training_augmentation_offline = self.configs['trainer']['train_ds']['augmentation']['methods_offline']
+
+        training_augmentation_online = None
+        if self.configs['trainer']['train_ds']['augmentation']['enabled_online']:
+            training_augmentation_online = self.configs['trainer']['train_ds']['augmentation']['methods_online']
 
         training_dataset = GBMDataset(
                 _source_directory=training_ds_dir,
                 _sample_dimension=training_sample_dimension,
                 _pixel_per_step=training_pixel_stride,
                 _ignore_stride_mismatch=self.configs['trainer']['train_ds']['ignore_stride_mismatch'],
-                _augmentation=training_augmentation,
+                _augmentation_offline=training_augmentation_offline,
+                _augmentation_online=training_augmentation_online,
                 _augmentation_workers=self.configs['trainer']['train_ds']['augmentation']['workers'])
 
         return training_dataset
@@ -183,34 +193,17 @@ class Factory:
 
         return training_loader
 
-    def createValidDataset(self) -> BaseDataset:
-
-        root_path = self.configs['root_path']
-
-        validation_ds_dir: str = os.path.join(root_path,
-                                              self.configs['trainer']['valid_ds']['path'])
-        validation_sample_dimension: list = self.configs['trainer']['valid_ds']['sample_dimension']
-        validation_pixel_stride: list = self.configs['trainer']['valid_ds']['pixel_stride']
-
-        validation_dataset = GBMDataset(
-                _source_directory=validation_ds_dir,
-                _sample_dimension=validation_sample_dimension,
-                _pixel_per_step=validation_pixel_stride,
-                _ignore_stride_mismatch=self.configs['trainer']['valid_ds']['ignore_stride_mismatch'])
-
-        return validation_dataset
-
     def createValidDataLoader(self, _validation_dataset) -> DataLoader:
 
-        validation_batch_size: int = self.configs['trainer']['valid_ds']['batch_size']
-        validation_shuffle: bool = self.configs['trainer']['valid_ds']['shuffle']
-        validation_pin_memory: bool = self.configs['trainer']['valid_ds']['pin_memory']
+        validation_batch_size: int = self.configs['trainer']['train_ds']['batch_size']
+        validation_shuffle: bool = self.configs['trainer']['train_ds']['shuffle']
+        validation_pin_memory: bool = self.configs['trainer']['train_ds']['pin_memory']
 
         validation_loader = DataLoader(_validation_dataset,
                                        batch_size=validation_batch_size,
                                        shuffle=validation_shuffle,
                                        pin_memory=validation_pin_memory,
-                                       num_workers=self.configs['trainer']['valid_ds']['workers'])
+                                       num_workers=self.configs['trainer']['train_ds']['workers'])
 
         return validation_loader
 
