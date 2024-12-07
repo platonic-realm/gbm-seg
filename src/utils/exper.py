@@ -9,7 +9,8 @@ import math
 # Library Imports
 
 # Local Imports
-from src.utils.misc import create_dirs_recursively, copy_directory, read_configs
+from src.utils.misc import create_dirs_recursively,\
+        copy_directory, read_configs, resize_and_copy
 from train import main_train
 from infer import main_infer
 
@@ -136,6 +137,7 @@ def create_new_experiment(_name: str,
                           _source_path: str,
                           _dataset_path: str,
                           _batch_size: int,
+                          _voxel_size: list,
                           _semi_supervised: bool = False):
 
     destination_path = os.path.join(_root_path, f'{_name}/')
@@ -159,13 +161,15 @@ def create_new_experiment(_name: str,
 
     new_ds_train_path = os.path.join(new_dataset_path, 'ds_train')
     create_dirs_recursively(os.path.join(new_ds_train_path, 'dummy'))
-    copy_directory(os.path.join(_dataset_path, 'ds_train'),
-                   new_ds_train_path, [])
+    resize_and_copy(os.path.join(_dataset_path, 'ds_train'),
+                    new_ds_train_path,
+                    _voxel_size)
 
     new_ds_test_path = os.path.join(new_dataset_path, 'ds_test')
     create_dirs_recursively(os.path.join(new_ds_test_path, 'dummy'))
-    copy_directory(os.path.join(_dataset_path, 'ds_test'),
-                   new_ds_test_path, [])
+    resize_and_copy(os.path.join(_dataset_path, 'ds_test'),
+                    new_ds_test_path,
+                    _voxel_size)
 
     logging.info("Saving the requirements file to '%s'",
                  destination_path)

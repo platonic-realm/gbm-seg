@@ -42,7 +42,7 @@ def main_train(_configs):
     model = factory.createModel(train_dataset.dataset.getNumberOfChannels(),
                                 train_dataset.dataset.getNumberOfClasses())
     loss_function = factory.createLoss()
-    optimizer = factory.createOptimizer(model)
+    optimizer = factory.createOptimizer(model, loss_function)
     lr_scheduler = factory.createScheduler(optimizer)
 
     stepper = factory.createStepper(model, optimizer, loss_function)

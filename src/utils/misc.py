@@ -11,9 +11,11 @@ import shlex
 # Library Imports
 import torch
 import yaml
+import tifffile
 import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
+from scipy.ndimage import zoom, gaussian_filter
 
 # Local Imports
 from src.utils.metrics.memory import GPURunningMetrics
@@ -55,6 +57,119 @@ def create_dirs_recursively(_path: str):
     dir_path = os.path.dirname(_path)
     path: Path = Path(dir_path)
     path.mkdir(parents=True, exist_ok=True)
+
+
+# https://forum.image.sc/t/reading-pixel-size-from-image-file-with-python/74798/2
+def get_voxel_size(_tiff):
+    """
+    Implemented based on information found in https://pypi.org/project/tifffile
+    """
+
+    def _xy_voxel_size(tags, key):
+        assert key in ['XResolution', 'YResolution']
+        if key in tags:
+            num_pixels, units = tags[key].value
+            return units / num_pixels
+        # return default
+        return 1.
+
+    image_metadata = _tiff.imagej_metadata
+    if image_metadata is not None:
+        z = image_metadata.get('spacing', 1.)
+    else:
+        # default voxel size
+        z = 1.
+
+    tags = _tiff.pages[0].tags
+    # parse X, Y resolution
+    y = _xy_voxel_size(tags, 'YResolution')
+    x = _xy_voxel_size(tags, 'XResolution')
+    # return voxel size
+    return [x, y, z]
+
+
+def resize_and_copy(_source_dir, _dest_dir, _target_size):
+    source_path = Path(_source_dir)
+    tiff_files = list(source_path.glob('*.tif')) + list(source_path.glob('*.tiff'))
+    for file in tiff_files:
+        file_name = file.stem
+        with tifffile.TiffFile(file) as tiff:
+            voxel_space = tiff.asarray()
+            voxel_size = get_voxel_size(tiff)
+            metadata = tiff.imagej_metadata or tiff.metadata
+
+            has_labels = voxel_space.shape[1] == 4
+
+            zoom_factors = (_target_size[0] / voxel_size[0],
+                            _target_size[1] / voxel_size[1])
+            nephrin_stack = voxel_space[:, 0, :, :]
+            collagen4_stack = voxel_space[:, 1, :, :]
+            wga_stack = voxel_space[:, 2, :, :]
+
+            if has_labels:
+                labels_stack = voxel_space[:, 3, :, :]
+
+            resized_nephrin_stack = None
+            resized_collagen4_stack = None
+            resized_wga_stack = None
+            resized_labels_stack = None
+
+            for i in range(voxel_space.shape[0]):
+                nephrin = nephrin_stack[i, :, :]
+                collagen4 = collagen4_stack[i, :, :]
+                wga = wga_stack[i, :, :]
+
+                if has_labels:
+                    labels = labels_stack[i, :, :]
+
+                nephrin = zoom(nephrin, zoom_factors, order=1, prefilter=False)
+                collagen4 = zoom(collagen4, zoom_factors, order=1, prefilter=False)
+                wga = zoom(wga, zoom_factors, order=1, prefilter=False)
+
+                if has_labels:
+                    labels = zoom(labels, zoom_factors, order=1, prefilter=False)
+
+                    threshold = 0.5
+                    labels[labels >= threshold] = 255
+                    labels[labels < threshold] = 0
+
+                if resized_nephrin_stack is None:
+                    resized_shape = (voxel_space.shape[0],
+                                     nephrin.shape[0],
+                                     nephrin.shape[1],)
+                    resized_nephrin_stack = np.zeros(resized_shape, dtype=np.float32)
+                    resized_collagen4_stack = np.zeros(resized_shape, dtype=np.float32)
+                    resized_wga_stack = np.zeros(resized_shape, dtype=np.float32)
+
+                    if has_labels:
+                        resized_labels_stack = np.zeros(resized_shape, dtype=np.float32)
+
+                resized_nephrin_stack[i, :, :] = nephrin
+                resized_collagen4_stack[i, :, :] = collagen4
+                resized_wga_stack[i, :, :] = wga
+
+                if has_labels:
+                    resized_labels_stack[i, :, :] = labels
+
+            if has_labels:
+                image_data = np.stack([resized_nephrin_stack,
+                                       resized_collagen4_stack,
+                                       resized_wga_stack,
+                                       resized_labels_stack],
+                                      axis=1)
+            else:
+                image_data = np.stack([resized_nephrin_stack,
+                                       resized_collagen4_stack,
+                                       resized_wga_stack],
+                                      axis=1)
+
+        file_path = Path(_dest_dir) / f"{file_name}.tiff"
+        tifffile.imwrite(file_path,
+                         image_data,
+                         shape=image_data.shape,
+                         imagej=True,
+                         metadata=metadata,
+                         compression='lzw')
 
 
 def copy_directory(_source_dir, _dest_dir, _exclude_list: list):

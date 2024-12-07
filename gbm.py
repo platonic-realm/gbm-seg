@@ -26,7 +26,8 @@ if __name__ == '__main__':
                 _root_path=configs['experiments']['root'],
                 _source_path=os.getcwd(),
                 _dataset_path=configs['experiments']['default_data_path'],
-                _batch_size=int(args.batch_size))
+                _batch_size=int(args.batch_size),
+                _voxel_size=configs['experiments']['default_voxel_size'])
 
     if args.action == 'list':
         root = args.root

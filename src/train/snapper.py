@@ -60,8 +60,9 @@ class Snapper():
             return
 
         if _path is None:
+            continue_path = os.path.join(self.snapshot_path, 'continue/')
             snapshot_list = sorted(filter(os.path.isfile,
-                                          glob.glob(self.snapshot_path + '*')),
+                                          glob.glob(continue_path + '*')),
                                    reverse=True)
 
             if len(snapshot_list) <= 0:
@@ -70,7 +71,7 @@ class Snapper():
             _path = snapshot_list[0]
 
         snapshot = torch.load(_path,
-                              map_location=torch.device(_device))
+                              map_location='cpu')
 
         # Check if the state dict was created with data parallelism
         state_dict = snapshot['MODEL_STATE']

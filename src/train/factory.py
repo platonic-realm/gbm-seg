@@ -17,6 +17,7 @@ from src.train.profiler import Profiler
 from src.train.trainer import Unet3DTrainer
 from src.train.losses.loss_dice import DiceLoss
 from src.train.losses.loss_iou import IoULoss
+from src.train.losses.loss_cont import ContLoss
 from src.models.unet3d.unet3d import Unet3D
 from src.data.ds_base import BaseDataset
 from src.data.ds_train import GBMDataset
@@ -43,10 +44,7 @@ class Factory:
                     _no_of_channles: int,
                     _no_of_classes: int,
                     _result_shape: list = None,
-                    _inference: bool = False,
-                    _dp: bool = True) -> nn.Module:
-
-        dp = self.configs['trainer']['dp']
+                    _inference: bool = False) -> nn.Module:
 
         sample_dimension = self.configs['trainer']['train_ds']['sample_dimension'].copy()
         if self.configs['trainer']['train_ds']['augmentation']['enabled_online']:
@@ -63,10 +61,6 @@ class Factory:
                        _inference=_inference,
                        _result_shape=_result_shape)
 
-        # This is used during the inference
-        if dp and _dp:
-            model = DP(model)
-
         return model
 
     def createLoss(self):
@@ -80,14 +74,21 @@ class Factory:
             loss = IoULoss(_weights=weights)
         if loss_name == 'CrossEntropy':
             loss = nn.CrossEntropyLoss(weight=weights)
+        if loss_name == 'Cont':
+            loss = ContLoss(nn.CrossEntropyLoss(weight=weights))
+            loss = loss.to(device)
 
         return loss
 
-    def createOptimizer(self, _model: nn.Module):
+    def createOptimizer(self, _model: nn.Module, _loss):
         optimizer_name: str = self.configs['trainer']['optim']['name']
         if optimizer_name == 'adam':
             lr: float = self.configs['trainer']['optim']['lr']
-            optimizer = torch.optim.Adam(_model.parameters(),
+            if isinstance(_loss, nn.Module):
+                parameters = list(_model.parameters()) + list(_loss.parameters())
+            else:
+                parameters = _model.parameters()
+            optimizer = torch.optim.Adam(parameters,
                                          lr=lr)
         return optimizer
 
@@ -123,12 +124,21 @@ class Factory:
                       _lr_scheduler: ReduceLROnPlateau,
                       _training_loader: DataLoader,
                       _validation_loader: DataLoader,
-                      _no_of_classes: int):
+                      _no_of_classes: int,
+                      _dp: bool = True):
 
         metrics_list = self.configs['trainer']['metrics']
         device = self.configs['trainer']['device']
         report_freq = self.configs['trainer']['report_freq']
         epochs = self.configs['trainer']['epochs']
+
+        _snapper.load(_model, device)
+        dp = self.configs['trainer']['dp']
+        # This is used during the inference
+        if dp and _dp:
+            _model = DP(_model)
+            _model = _model.to('cpu')
+            _model = _model.to(device)
 
         if self.configs['trainer']['model']['name'] == 'unet_3d':
             trainer = Unet3DTrainer(_model,

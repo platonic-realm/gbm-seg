@@ -23,7 +23,7 @@ class InferenceDataset(BaseDataset):
                          _pixel_per_step,
                          _scale_factor,
                          _dataset_type=DatasetType.Inference,
-                         _ignore_stride_mismatch=False,
+                         _ignore_stride_mismatch=True,
                          _label_correction_function=None)
 
         self.file_path = _file_path
@@ -45,8 +45,8 @@ class InferenceDataset(BaseDataset):
         self.no_of_classes = _no_of_classes
 
         self.nephrin = self.image[:, 0, :, :]
-        self.wga = self.image[:, 1, :, :]
-        self.collagen4 = self.image[:, 2, :, :]
+        self.collagen4 = self.image[:, 1, :, :]
+        self.wga = self.image[:, 2, :, :]
 
         sample_per_z = int((self.image_shape[0] - self.sample_dimension[0]) //
                            self.pixel_per_step_z) + 1
@@ -84,21 +84,21 @@ class InferenceDataset(BaseDataset):
                                x_start: x_start + self.sample_dimension[1],
                                y_start: y_start + self.sample_dimension[2]]
 
-        wga = self.wga[z_start: z_start + self.sample_dimension[0],
-                       x_start: x_start + self.sample_dimension[1],
-                       y_start: y_start + self.sample_dimension[2]]
-
         collagen4 = self.collagen4[z_start: z_start + self.sample_dimension[0],
                                    x_start: x_start + self.sample_dimension[1],
                                    y_start: y_start + self.sample_dimension[2]]
 
+        wga = self.wga[z_start: z_start + self.sample_dimension[0],
+                       x_start: x_start + self.sample_dimension[1],
+                       y_start: y_start + self.sample_dimension[2]]
+
         nephrin = np.expand_dims(nephrin, axis=0)
-        wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
+        wga = np.expand_dims(wga, axis=0)
 
         nephrin = torch.from_numpy(nephrin/255)
-        wga = torch.from_numpy(wga/255)
         collagen4 = torch.from_numpy(collagen4/255)
+        wga = torch.from_numpy(wga/255)
 
         sample = torch.cat((nephrin, collagen4, wga), dim=0)
 

@@ -78,8 +78,8 @@ class GBMDataset(BaseDataset):
         file_name = self.image_list[image_id]
 
         nephrin = self.images[file_name][:, 0, :, :]
-        wga = self.images[file_name][:, 1, :, :]
-        collagen4 = self.images[file_name][:, 2, :, :]
+        collagen4 = self.images[file_name][:, 1, :, :]
+        wga = self.images[file_name][:, 2, :, :]
 
         if self.dataset_type == DatasetType.Supervised:
             labels = self.images[file_name][:, 3, :, :]
@@ -121,25 +121,27 @@ class GBMDataset(BaseDataset):
         x_start = xy_id % steps_per_x
         x_start = x_start * self.pixel_per_step_x
 
-        nephrin = nephrin[z_start: z_start + self.sample_dimension[0],
-                          x_start: x_start + self.sample_dimension[1],
-                          y_start: y_start + self.sample_dimension[2]
-                          ]
+        z_end = z_start + self.sample_dimension[0]
+        x_end = x_start + self.sample_dimension[1]
+        y_end = y_start + self.sample_dimension[2]
 
-        wga = wga[z_start: z_start + self.sample_dimension[0],
-                  x_start: x_start + self.sample_dimension[1],
-                  y_start: y_start + self.sample_dimension[2]
-                  ]
+        # print(f"filename = {file_name}\nz_s:{z_start}, z_e:{z_end}\nx_s:{x_start}, x_e:{x_end}\ny_s:{y_start}, y_e:{y_end}")
 
-        collagen4 = collagen4[z_start: z_start + self.sample_dimension[0],
-                              x_start: x_start + self.sample_dimension[1],
-                              y_start: y_start + self.sample_dimension[2]
-                              ]
+        nephrin = nephrin[z_start: z_end,
+                          x_start: x_end,
+                          y_start: y_end]
 
-        labels = labels[z_start: z_start + self.sample_dimension[0],
-                        x_start: x_start + self.sample_dimension[1],
-                        y_start: y_start + self.sample_dimension[2]
-                        ]
+        wga = wga[z_start: z_end,
+                  x_start: x_end,
+                  y_start: y_end]
+
+        collagen4 = collagen4[z_start: z_end,
+                              x_start: x_end,
+                              y_start: y_end]
+
+        labels = labels[z_start: z_end,
+                        x_start: x_end,
+                        y_start: y_end]
 
         labels = torch.from_numpy(labels)
 

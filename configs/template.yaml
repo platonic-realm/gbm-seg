@@ -13,7 +13,7 @@ experiments:
                  [huge, 128, 256, 512, 1024],
                ]
   optimizers: [[adam, lr, 0.0001]]
-  losses: [CrossEntropy, Dice, IoU]
+  losses: [CrossEntropy, Dice, IoU, Uncert]
   metrics: [
             ['Loss', True],
             ['Accuracy', False],
@@ -44,6 +44,9 @@ experiments:
   default_data_path: '/data/afatehi/gbm/data/ds_mouse/'
   default_batch_size: 8
 
+  # The files will resize to match this size
+  default_voxel_size: [0.050, 0.050, 0.300]
+
 trainer:
   model:
     name: unet_3d
@@ -59,7 +62,7 @@ trainer:
     name: adam
     lr : 0.0001
 
-  loss: CrossEntropy
+  loss: Cont
   loss_weights: [3.0, 7.0]
   report_freq: 100
 

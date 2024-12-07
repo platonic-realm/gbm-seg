@@ -23,8 +23,7 @@ def main_infer(_configs):
         model = factory.createModel(data_loader.dataset.getNumberOfChannels(),
                                     data_loader.dataset.getNumberOfClasses(),
                                     _inference=True,
-                                    _result_shape=data_loader.dataset.getResultShape(),
-                                    _dp=False)
+                                    _result_shape=data_loader.dataset.getResultShape())
 
         inferer = factory.createInferer(model,
                                         data_loader,

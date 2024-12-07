@@ -82,8 +82,8 @@ class Inference():
         fd_result = fd_result.detach().cpu().numpy()
 
         self.save_result(self.data_loader.dataset.nephrin,
-                         self.data_loader.dataset.wga,
                          self.data_loader.dataset.collagen4,
+                         self.data_loader.dataset.wga,
                          result,
                          distance_result,
                          fd_result,
