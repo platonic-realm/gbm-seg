@@ -75,14 +75,16 @@ class Snapper():
 
         # Check if the state dict was created with data parallelism
         state_dict = snapshot['MODEL_STATE']
-        if 'module' in list(state_dict.keys())[0]:
-            corrected_state_dict = {}
-            for k, v in state_dict.items():
-                name = k[7:]  # remove `module.`
-                corrected_state_dict[name] = v
-            _model.load_state_dict(corrected_state_dict)
-        else:
-            _model.load_state_dict(state_dict)
+        # if 'module' in list(state_dict.keys())[0]:
+        #     corrected_state_dict = {}
+        #     for k, v in state_dict.items():
+        #         name = k[7:]  # remove `module.`
+        #         corrected_state_dict[name] = v
+        #     _model.load_state_dict(corrected_state_dict)
+        # else:
+        #     _model.load_state_dict(state_dict)
+
+        _model.module.load_state_dict(state_dict)
 
         epoch = snapshot['EPOCHS']
         seen_labels = snapshot['SEEN_LABELS']

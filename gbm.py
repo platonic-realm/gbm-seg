@@ -59,6 +59,7 @@ if __name__ == '__main__':
         root = configs['experiments']['root']
         snapshot = args.snapshot
         batch_size = args.batch_size
+        interpolate = args.interpolation
         sample_dimension = [item.strip() for
                             item in args.sample_dimension.split(",")]
         stride = [item.strip() for
@@ -71,4 +72,5 @@ if __name__ == '__main__':
                                _batch_size=batch_size,
                                _sample_dimension=sample_dimension,
                                _stride=stride,
-                               _scale=scale)
+                               _scale=scale,
+                               _interpolate=interpolate)

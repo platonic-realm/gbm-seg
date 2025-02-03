@@ -17,7 +17,6 @@ from scipy import ndimage
 # Local Imports
 from src.train.snapper import Snapper
 from src.infer.morph import Morph
-from torch.nn.parallel import DataParallel as DP
 
 from src.utils.misc import create_dirs_recursively
 
@@ -34,7 +33,9 @@ class Inference():
                  _dp: bool,
                  _post_processing: bool,
                  _psp_obj_min_size: int,
-                 _psp_kernel_size: int):
+                 _psp_kernel_size: int,
+                 _interpolate: bool,
+                 _scale_factor: int):
 
         self.data_loader = _data_loader
         self.morph = _morph_module
@@ -44,14 +45,13 @@ class Inference():
         self.psp_obj_min_size = _psp_obj_min_size
         self.psp_kernel_size = _psp_kernel_size
 
+        self.interpolate = _interpolate
+        self.scale_factor = _scale_factor
+
         _model.to(self.device)
         _snapper.load(_model, self.device, _snapshot_path)
 
-        if _dp:
-            self.model = DP(_model)
-        else:
-            self.model = _model
-
+        self.model = _model
         self.model.eval()
 
     def infer(self):
@@ -77,7 +77,12 @@ class Inference():
         del offsets
         del sample
 
-        distance_result, fd_result = self.morph(torch.from_numpy(result).float())
+        if not self.interpolate:
+            repeated_results = np.repeat(result,
+                                         self.scale_factor,
+                                         axis=0)
+
+        distance_result, fd_result = self.morph(torch.from_numpy(repeated_results).float())
         distance_result = distance_result.detach().cpu().numpy()
         fd_result = fd_result.detach().cpu().numpy()
 

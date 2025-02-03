@@ -1,6 +1,6 @@
 experiments:
   # root: '/projects/ag-bozek/arash/gbm/experiments/'
-  root: '/data/afatehi/gbm/experiments/'
+  root: '/home/afatehi/gbm/experiments/'
   models: ['unet_3d',
            'unet_3d_me',
            'unet_3d_ss',
@@ -41,7 +41,7 @@ experiments:
   scale_lerning_rate_for_batch_size: True
 
   # default_data_path: '/projects/ag-bozek/arash/gbm/data/ds_human/'
-  default_data_path: '/data/afatehi/gbm/data/ds_mouse/'
+  default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
   default_batch_size: 8
 
   # The files will resize to match this size

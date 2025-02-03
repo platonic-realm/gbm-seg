@@ -102,6 +102,12 @@ def parse_exper() -> None:
                               default=1,
                               help='set the scale for interpolation')
 
+    infer_parser.add_argument('-in',
+                              '--interpolation',
+                              action='store',
+                              default=False,
+                              help='Determines to interpolate or stack Z planes')
+
     # Parse the arguments
     args = parser.parse_args()
 

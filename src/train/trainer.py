@@ -34,7 +34,6 @@ class Unet3DTrainer():
                  _freq: int,
                  _epochs: int):
 
-        self.model = _model
         self.loss_function = _loss_funtion
         self.stepper = _stepper
         self.snapper = _snapper
@@ -53,8 +52,10 @@ class Unet3DTrainer():
         self.freq = _freq
         self.epochs = _epochs
 
+        _model.to(self.device)
+        self.model = _model
+
     def train(self):
-        self.model.to(self.device)
         for epoch in range(0, self.epochs + 1):
             self.trainEpoch(epoch)
 

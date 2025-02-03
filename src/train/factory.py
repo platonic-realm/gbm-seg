@@ -61,6 +61,9 @@ class Factory:
                        _inference=_inference,
                        _result_shape=_result_shape)
 
+        if self.configs['trainer']['dp']:
+            model = DP(model)
+
         return model
 
     def createLoss(self):
@@ -124,8 +127,7 @@ class Factory:
                       _lr_scheduler: ReduceLROnPlateau,
                       _training_loader: DataLoader,
                       _validation_loader: DataLoader,
-                      _no_of_classes: int,
-                      _dp: bool = True):
+                      _no_of_classes: int):
 
         metrics_list = self.configs['trainer']['metrics']
         device = self.configs['trainer']['device']
@@ -133,12 +135,6 @@ class Factory:
         epochs = self.configs['trainer']['epochs']
 
         _snapper.load(_model, device)
-        dp = self.configs['trainer']['dp']
-        # This is used during the inference
-        if dp and _dp:
-            _model = DP(_model)
-            _model = _model.to('cpu')
-            _model = _model.to(device)
 
         if self.configs['trainer']['model']['name'] == 'unet_3d':
             trainer = Unet3DTrainer(_model,
@@ -332,6 +328,7 @@ class Factory:
         pixel_stride = self.configs['inference']['inference_ds']['pixel_stride']
         pin_memory = self.configs['inference']['inference_ds']['pin_memory']
         scale_factor = self.configs['inference']['inference_ds']['scale_factor']
+        interpolate = self.configs['inference']['inference_ds']['interpolate']
 
         for file_name in directory_content:
             file_path = os.path.join(source_directory, file_name)
@@ -340,6 +337,7 @@ class Factory:
                     _sample_dimension=sample_dimension,
                     _pixel_per_step=pixel_stride,
                     _scale_factor=scale_factor,
+                    _interpolate=interpolate,
                     _no_of_classes=no_of_classes)
 
             data_loader = DataLoader(dataset,
@@ -371,6 +369,9 @@ class Factory:
         psp_obj_min_size = self.configs['inference']['post_processing']['min_size']
         psp_kernel_size = self.configs['inference']['post_processing']['kernel_size']
 
+        interpolate = False
+        scale_factor = 6
+
         inferer = Inference(_model,
                             _data_loaders,
                             _morph,
@@ -381,6 +382,8 @@ class Factory:
                             dp,
                             post_processing,
                             psp_obj_min_size,
-                            psp_kernel_size)
+                            psp_kernel_size,
+                            interpolate,
+                            scale_factor)
 
         return inferer

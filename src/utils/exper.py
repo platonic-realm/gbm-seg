@@ -42,7 +42,8 @@ def infer_experiment(_name: str,
                      _batch_size: int,
                      _sample_dimension: list,
                      _stride: list,
-                     _scale: int):
+                     _scale: int,
+                     _interpolate: bool):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
@@ -94,6 +95,8 @@ def infer_experiment(_name: str,
     configs['inference']['inference_ds']['pixel_stride'] = _stride
 
     configs['inference']['inference_ds']['scale_factor'] = _scale
+
+    configs['inference']['inference_ds']['interpolate'] = _interpolate
 
     configs['inference']['inference_ds']['workers'] =\
         configs['trainer']['train_ds']['workers']

@@ -17,6 +17,7 @@ class InferenceDataset(BaseDataset):
                  _sample_dimension,
                  _pixel_per_step,
                  _scale_factor,
+                 _interpolate,
                  _no_of_classes):
 
         super().__init__(_sample_dimension,
@@ -35,7 +36,7 @@ class InferenceDataset(BaseDataset):
         self.image = np.array(self.image)
         self.image = self.image.astype(np.float32)
 
-        if self.scale_factor > 1:
+        if self.scale_factor > 1 and _interpolate:
             self.image = self.scale(self.image)
 
         self.image_shape = self.image.shape
