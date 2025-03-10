@@ -3,7 +3,10 @@ from enum import Enum
 from abc import ABC, abstractmethod
 
 # Library Imports
+import torch
 from torch.utils.data import Dataset
+# from scipy.ndimage import zoom
+import torch.nn.functional as Fn
 import numpy as np
 
 # Local Imports
@@ -48,7 +51,37 @@ class BaseDataset(Dataset, ABC):
     def getNumberOfChannels(self):
         pass
 
+    @staticmethod
+    def interpolate_channel(_channel: np.ndarray,
+                            _scale_facor) -> np.ndarray:
+        channel = torch.unsqueeze(torch.from_numpy(_channel), dim=0)
+        channel = torch.unsqueeze(channel, dim=0)
+        zoomed = Fn.interpolate(channel,
+                                scale_factor=(_scale_facor, 1, 1),
+                                mode='trilinear')
+
+        return zoomed
+
     def scale(self, image):
+        # The shape is Depth, Channel, Height, Width
+        image = np.array(image)
+        image = image.astype(np.float32)
+
+        scaled_image = np.empty(((image.shape[0])*self.scale_factor,
+                                 image.shape[1],
+                                 image.shape[2],
+                                 image.shape[3]),
+                                dtype=np.float32)
+
+        scaled_image[:, 0, :, :] = self.interpolate_channel(image[:, 0, :, :],
+                                                            self.scale_factor)
+        scaled_image[:, 1, :, :] = self.interpolate_channel(image[:, 1, :, :],
+                                                            self.scale_factor)
+        scaled_image[:, 2, :, :] = self.interpolate_channel(image[:, 2, :, :],
+                                                            self.scale_factor)
+        return scaled_image
+
+    def scale_2(self, image):
         # The shape is Depth, Channel, Height, Width
         scaled_image = np.empty(((image.shape[0]-1)*self.scale_factor,
                                  image.shape[1],

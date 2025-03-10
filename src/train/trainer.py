@@ -68,6 +68,7 @@ class Unet3DTrainer():
 
         for index, data in enumerate(self.training_loader):
 
+            self.training_loader.dataset.dataset.setIsValid(False)
             results = self.trainStep(_epoch, index, data)
             train_running_metrics.add(results)
 
@@ -88,6 +89,8 @@ class Unet3DTrainer():
 
                 valid_running_metrics = GPURunningMetrics(self.device,
                                                           self.metric_list)
+
+                self.validation_loader.dataset.dataset.setIsValid(True)
                 for index, data in enumerate(self.validation_loader):
 
                     results = self.validStep(_epoch_id=_epoch,

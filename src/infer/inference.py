@@ -25,7 +25,6 @@ class Inference():
     def __init__(self,
                  _model: nn.Module,
                  _data_loader: DataLoader,
-                 _morph_module: Morph,
                  _snapper: Snapper,
                  _device: str,
                  _results_path: str,
@@ -38,7 +37,6 @@ class Inference():
                  _scale_factor: int):
 
         self.data_loader = _data_loader
-        self.morph = _morph_module
         self.device = _device
         self.results_path = _results_path
         self.psp_enabled = _post_processing
@@ -77,28 +75,12 @@ class Inference():
         del offsets
         del sample
 
-        if not self.interpolate:
-            repeated_results = np.repeat(result,
-                                         self.scale_factor,
-                                         axis=0)
-
-        distance_result, fd_result = self.morph(torch.from_numpy(repeated_results).float())
-        distance_result = distance_result.detach().cpu().numpy()
-        fd_result = fd_result.detach().cpu().numpy()
-
         self.save_result(self.data_loader.dataset.nephrin,
                          self.data_loader.dataset.collagen4,
                          self.data_loader.dataset.wga,
                          result,
-                         distance_result,
-                         fd_result,
                          output_dir,
                          self.data_loader.dataset.tiff_tags)
-
-        self.blender_visualization(_distance_results=distance_result,
-                                   _fd_results=fd_result,
-                                   _output_path=os.path.join(output_dir,
-                                                             "blender"))
 
     def blender_visualization(self,
                               _distance_results: array,
@@ -152,16 +134,12 @@ class Inference():
                     _wga: array,
                     _collagen4: array,
                     _prediction: array,
-                    _distance_results: array,
-                    _fd_results: array,
                     _output_path: str,
                     _tiff_tags: dict,
                     _multiplier: int = 120):
 
         prediction_tif_path = os.path.join(_output_path, "prediction.tif")
         prediction_gif_path = os.path.join(_output_path, "prediction.gif")
-        distance_npy_path = os.path.join(_output_path, "distance_result.npy")
-        fd_npy_path = os.path.join(_output_path, "fd_result.npy")
 
         _prediction = _prediction * _multiplier
         _prediction = _prediction.astype(np.uint8)
@@ -169,12 +147,6 @@ class Inference():
         np.save(os.path.join(_output_path,
                              "prediction.npy"),
                 _prediction)
-
-        with open(distance_npy_path, 'wb') as distance_npy_file:
-            np.save(distance_npy_file, _distance_results)
-
-        with open(fd_npy_path, 'wb') as fd_npy_file:
-            np.save(fd_npy_file, _fd_results)
 
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):

@@ -10,6 +10,7 @@ import numpy as np
 import tifffile
 import cv2
 from scipy.ndimage import zoom, gaussian_filter, rotate
+import torchvision.transforms.functional as TF
 
 # Local Imports
 from src.data.ds_base import DatasetType, BaseDataset
@@ -28,7 +29,8 @@ class GBMDataset(BaseDataset):
                  _label_correction_function=None,
                  _augmentation_offline=None,
                  _augmentation_online=None,
-                 _augmentation_workers=8):
+                 _augmentation_workers=8,
+                 _is_valid=False):
 
         super().__init__(_sample_dimension,
                          _pixel_per_step,
@@ -45,6 +47,7 @@ class GBMDataset(BaseDataset):
         self.images_metadata = {}
         self.augmentation_online = _augmentation_online
         self.augmentation_offline = _augmentation_offline
+        self.is_valid = _is_valid
 
         directory_content = os.listdir(self.source_directory)
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
@@ -143,72 +146,56 @@ class GBMDataset(BaseDataset):
                         x_start: x_end,
                         y_start: y_end]
 
-        labels = torch.from_numpy(labels)
-
         # Online Augmentations
-        if self.augmentation_online:
-            pass
-            # scale = self.augmentation_online['scale']
-            # zoom_factors = (scale, 1, 1)
-            # # 'order=1' for linear interpolation
-            # nephrin = zoom(nephrin, zoom_factors, order=1, prefilter=False)
-            # collagen4 = zoom(collagen4, zoom_factors, order=1, prefilter=False)
-            # wga = zoom(wga, zoom_factors, order=1, prefilter=False)
-
-            # sigma = 1.0
-            # labels = gaussian_filter(labels.type(torch.float), sigma=sigma)
-            # labels = zoom(labels, zoom_factors, order=2, prefilter=False)
-
-            # threshold = 0.5
-            # labels[labels >= threshold] = 1
-            # labels[labels < threshold] = 0
+        if self.augmentation_online and not self.is_valid:
 
             # Blurring
-            # sigma = 2
-            # blurring_chance = self.augmentation_online['blur']
-            # if np.random.rand() < blurring_chance:
-            #     nephrin = gaussian_filter(nephrin, sigma=sigma)
+            sigma = 2
+            blurring_chance = self.augmentation_online['blur']
+            if np.random.rand() < blurring_chance:
+                nephrin = gaussian_filter(nephrin, sigma=sigma)
 
-            # if np.random.rand() < blurring_chance:
-            #     collagen4 = gaussian_filter(collagen4, sigma=sigma)
+            if np.random.rand() < blurring_chance:
+                collagen4 = gaussian_filter(collagen4, sigma=sigma)
 
-            # if np.random.rand() < blurring_chance:
-            #     wga = gaussian_filter(wga, sigma=sigma)
+            if np.random.rand() < blurring_chance:
+                wga = gaussian_filter(wga, sigma=sigma)
 
             # Rotation
-            # rotation_chance = self.augmentation_online['rotate']
-            # if np.random.rand() < rotation_chance:
-            #     nephrin, collagen4, wga, labels = \
-            #             self._rotate_channels(nephrin,
-            #                                   collagen4,
-            #                                   wga,
-            #                                   labels)
+            rotation_chance = self.augmentation_online['rotate']
+            if np.random.rand() < rotation_chance:
+                nephrin, collagen4, wga, labels = \
+                        self._rotate_channels(nephrin,
+                                              collagen4,
+                                              wga,
+                                              labels)
 
             # Cropping
-            # crop_chance = self.augmentation_online['crop']
-            # if np.random.rand() < crop_chance:
-            #     nephrin = self._crop_channels(nephrin)
-            #     collagen4 = self._crop_channels(collagen4)
-            #     wga = self._crop_channels(wga)
+            crop_chance = self.augmentation_online['crop']
+            if np.random.rand() < crop_chance:
+                nephrin = self._crop_channels(nephrin)
+                collagen4 = self._crop_channels(collagen4)
+                wga = self._crop_channels(wga)
 
             # Channel drop
-            # drop_chance = self.augmentation_online['channel_drop']
-            # if np.random.rand() < drop_chance:
-            #     channel_id = random.randint(0, 2)
-            #     if channel_id == 0:
-            #         nephrin = np.zeros_like(nephrin)
-            #     if channel_id == 1:
-            #         collagen4 = np.zeros_like(collagen4)
-            #     if channel_id == 2:
-            #         wga = np.zeros_like(wga)
+            drop_chance = self.augmentation_online['channel_drop']
+            if np.random.rand() < drop_chance:
+                channel_id = random.randint(0, 2)
+                if channel_id == 0:
+                    nephrin = np.zeros_like(nephrin)
+                if channel_id == 1:
+                    collagen4 = np.zeros_like(collagen4)
+                if channel_id == 2:
+                    wga = np.zeros_like(wga)
 
         nephrin = np.expand_dims(nephrin, axis=0)
         wga = np.expand_dims(wga, axis=0)
         collagen4 = np.expand_dims(collagen4, axis=0)
 
-        nephrin = self._intensity_shift(nephrin/255)
-        wga = self._intensity_shift(wga/255)
-        collagen4 = self._intensity_shift(collagen4/255)
+        nephrin = torch.from_numpy(nephrin/255)
+        wga = torch.from_numpy(wga/255)
+        collagen4 = torch.from_numpy(collagen4/255)
+        labels = torch.from_numpy(labels)
 
         sample = torch.cat((nephrin, collagen4, wga), dim=0)
 
@@ -231,6 +218,9 @@ class GBMDataset(BaseDataset):
     def getNumberOfChannels(self):
         # Channels are the second axis, -1 is for the labels
         return self.images[self.image_list[0]].shape[1] - 1
+
+    def setIsValid(self, _is_valid: bool):
+        self.is_valid = _is_valid
 
     def _prepare_images(self,
                         _directory,
@@ -299,10 +289,9 @@ class GBMDataset(BaseDataset):
                                           steps_per_y)
 
     def _intensity_shift(self, _sample):
-        return torch.from_numpy(_sample)
-        # random_shift = (torch.rand(1) * 0.1)
-        # random_scale = (torch.rand(1) * 0.1) + 0.95
-        # return random_scale * _sample + random_shift
+        random_shift = (torch.rand(1) * 0.1)
+        random_scale = (torch.rand(1) * 0.1) + 0.95
+        return random_scale * _sample + random_shift
 
     def _zoom(self, _image, _factor, _workers):
         image_shape = _image.shape
@@ -378,33 +367,31 @@ class GBMDataset(BaseDataset):
 
     def _twister(self, _image, _z_angles, _workers):
         result_image = np.copy(_image)
-        with mp.Pool(_workers) as pool:
-            processes = [
-                [None for _ in range(
-                    _image.shape[1])] for _ in range(_image.shape[0])]
-            results = [
-                [None for _ in range(
-                    _image.shape[1])] for _ in range(_image.shape[0])]
-
-            for z in range(_image.shape[0]):
-                for c in range(_image.shape[1]):
-                    processes[z][c] = \
-                        pool.apply_async(self._rotate_plane,
-                                         args=(_image[z, c, :, :],
-                                               _z_angles[z]))
-
-            for z in range(_image.shape[0]):
-                for c in range(_image.shape[1]):
-                    results[z][c] = processes[z][c].get()
-
-            for z in range(_image.shape[0]):
-                for c in range(_image.shape[1]):
-                    result_image[z, c, :, :] = results[z][c]
+        for z in range(_image.shape[0]):
+            for c in range(_image.shape[1]):
+                result_image[z, c, :, :] = self._rotate_plane(_image[z, c, :, :],
+                                                              _z_angles[z])
 
         return result_image
 
+    def _rotate_plane(self, img, angle):
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        img = torch.from_numpy(img).to(device)
+
+        # Add a batch dimension: [C, H, W] -> [1, C, H, W]
+        img_batch = img.unsqueeze(0)
+
+        # Rotate the image; the underlying transform expects a 4D tensor.
+        rotated_batch = TF.rotate(img_batch, angle=angle, expand=False, fill=0)
+
+        # Remove the batch dimension: [1, C, H, W] -> [C, H, W]
+        rotated_img = rotated_batch.squeeze(0).detach().cpu().numpy()
+
+        return rotated_img
+
     @staticmethod
-    def _rotate_plane(_plane, _angle):
+    def _rotate_plane_(_plane, _angle):
         shape = _plane.shape
         center = np.array([shape[0] / 2, shape[1] / 2])
         result_plane = np.zeros(shape)

@@ -17,21 +17,38 @@ def continuity_loss_diff(logits):
     # Ensure logits has the expected shape
     assert logits.dim() == 5, "Logits should be a 5D tensor (batch_size, depth, height, width, logits)"
 
+    logits = torch.softmax(logits, dim=-1)
+
     # Compute the difference between adjacent depth slices
     logits_current = logits[:, :-1, :, :, :]  # All slices except the last one
     logits_next = logits[:, 1:, :, :, :]      # All slices except the first one
 
     # Compute the absolute differences
-    differences = torch.abs(logits_current - logits_next)  # Shape: (batch_size, depth-1, height, width, logits)
+    differences = torch.abs(logits_current - logits_next)
+
+    # logits_current = logits[:, :, :-1, :, :]  # All slices except the last one
+    # logits_next = logits[:, :, 1:, :, :]      # All slices except the first one
+
+    # differences_y = torch.abs(logits_current - logits_next)
+
+    # logits_current = logits[:, :, :, :-1, :]  # All slices except the last one
+    # logits_next = logits[:, :, :, 1:, :]      # All slices except the first one
+
+    # differences_z = torch.abs(logits_current - logits_next)  # Shape: (batch_size, depth-1, height, width, logits)
 
     # Aggregate the differences
-    cont_loss = differences.mean()
+    cont_loss = differences.mean() # + differences_z.mean() + differences_y.mean()
 
     return cont_loss
 
 
 class ContLoss(nn.Module):
-    def __init__(self, cross_entropy_loss, min_alpha=0.8, min_beta=0.05, reg_lambda=0.01):
+    def __init__(self,
+                 cross_entropy_loss,
+                 min_alpha=0.6,
+                 min_beta=0.3,
+                 reg_lambda=0.01):
+
         super().__init__()
         self.w_alpha = nn.Parameter(torch.tensor(0.0))
         self.w_beta = nn.Parameter(torch.tensor(0.0))

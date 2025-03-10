@@ -25,11 +25,9 @@ def main_train(_configs):
     factory = Factory(_configs)
 
     train_dataset = factory.createTrainDataset()
-    train_dataloader = factory.createTrainDataLoader(train_dataset)
-
     # analyze_dataset(train_dataset)
     # Define the split ratio
-    train_ratio = 0.8
+    train_ratio = 0.95
     # Calculate the lengths of train and validation sets
     train_size = int(train_ratio * len(train_dataset))
     val_size = len(train_dataset) - train_size
@@ -38,6 +36,7 @@ def main_train(_configs):
                                                 [train_size, val_size])
 
     valid_dataloader = factory.createValidDataLoader(valid_dataset)
+    train_dataloader = factory.createTrainDataLoader(train_dataset)
 
     model = factory.createModel(train_dataset.dataset.getNumberOfChannels(),
                                 train_dataset.dataset.getNumberOfClasses())

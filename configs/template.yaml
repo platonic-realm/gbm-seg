@@ -162,6 +162,7 @@ inference:
   number_class: 2
   snapshot_path: ''
   device: cuda
+  interpolate: True
 
   post_processing:
     enabled: True

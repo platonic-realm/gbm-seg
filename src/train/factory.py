@@ -47,9 +47,6 @@ class Factory:
                     _inference: bool = False) -> nn.Module:
 
         sample_dimension = self.configs['trainer']['train_ds']['sample_dimension'].copy()
-        if self.configs['trainer']['train_ds']['augmentation']['enabled_online']:
-            scale = self.configs['trainer']['train_ds']['augmentation']['methods_online']['scale']
-            sample_dimension[0] = sample_dimension[0] * scale
 
         model = Unet3D(self.configs['trainer']['model']['name'],
                        _no_of_channles,
@@ -328,7 +325,7 @@ class Factory:
         pixel_stride = self.configs['inference']['inference_ds']['pixel_stride']
         pin_memory = self.configs['inference']['inference_ds']['pin_memory']
         scale_factor = self.configs['inference']['inference_ds']['scale_factor']
-        interpolate = self.configs['inference']['inference_ds']['interpolate']
+        interpolate = self.configs['inference']['interpolate']
 
         for file_name in directory_content:
             file_path = os.path.join(source_directory, file_name)
@@ -369,12 +366,11 @@ class Factory:
         psp_obj_min_size = self.configs['inference']['post_processing']['min_size']
         psp_kernel_size = self.configs['inference']['post_processing']['kernel_size']
 
-        interpolate = False
+        interpolate = self.configs['inference']['interpolate']
         scale_factor = 6
 
         inferer = Inference(_model,
                             _data_loaders,
-                            _morph,
                             _snapper,
                             device,
                             result_path,

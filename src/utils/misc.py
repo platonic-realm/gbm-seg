@@ -263,10 +263,11 @@ def blind_test(_model: nn.Module,
 
     _model.to(_device)
 
+    counter = 0
     for index, data in enumerate(_dataloader):
-        chance = np.random.rand()
-        if chance > 0.01:
-            continue
+        counter += 1
+        if counter > 20:
+            break
 
         sample = data['sample'].to(_device)
         labels = data['labels'].to(_device).long()
@@ -301,6 +302,37 @@ def summerize_configs(_configs: dict) -> None:
         logging.info("Configurations\n%s******************",
                      configs_dump.getvalue())
 
+
+# def morph_analysis(_inference_dir: str) -> None:
+#
+#         if not self.interpolate:
+#             repeated_results = np.repeat(result,
+#                                          self.scale_factor,
+#                                          axis=0)
+#
+#             distance_result, fd_result = self.morph(torch.from_numpy(repeated_results).float())
+#         else:
+#             distance_result, fd_result = self.morph(torch.from_numpy(result).float())
+#
+#         distance_result = distance_result.detach().cpu().numpy()
+#         fd_result = fd_result.detach().cpu().numpy()
+#
+#     distance_npy_path = os.path.join(_output_path, "distance_result.npy")
+#     fd_npy_path = os.path.join(_output_path, "fd_result.npy")
+#
+#     with open(distance_npy_path, 'wb') as distance_npy_file:
+#         np.save(distance_npy_file, _distance_results)
+#
+#     with open(fd_npy_path, 'wb') as fd_npy_file:
+#         np.save(fd_npy_file, _fd_results)
+#
+#
+# def blender_prepare(_inference_dir: str) -> None:
+#         self.blender_visualization(_distance_results=distance_result,
+#                                    _fd_results=fd_result,
+#                                    _output_path=os.path.join(output_dir,
+#                                                              "blender"))
+#
 
 def blender_render(_inference_dir: str) -> None:
 
