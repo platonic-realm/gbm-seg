@@ -9,8 +9,10 @@ import math
 # Library Imports
 
 # Local Imports
-from src.utils.misc import create_dirs_recursively,\
-        copy_directory, read_configs, resize_and_copy
+from src.train.factory import Factory
+from src.utils.misc import create_dirs_recursively, \
+        copy_directory, read_configs, resize_and_copy, \
+        morph_analysis, blender_render, blender_prepare
 from train import main_train
 from infer import main_infer
 
@@ -34,6 +36,90 @@ def list_experiments(_root_path):
             if os.path.isdir(os.path.join(_root_path,
                                           item)):
                 print(f"* {item}")
+
+
+def visualize_results(_name: str,
+                      _root_path: str,
+                      _inference_tag: str,
+                      _sample_name: str):
+    if not experiment_exists(_root_path, _name):
+        message = f"Experiment '{_name}' doesn't exist"
+        raise FileNotFoundError(message)
+
+    # configs_path = os.path.join(_root_path, _name, 'configs.yaml')
+    # configs = read_configs(configs_path)
+
+    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+
+    sample_path = os.path.join(inference_root_path, _inference_tag, _sample_name)
+    if not os.path.exists(sample_path):
+        raise FileNotFoundError("Incorrect path: {inference_result_path}")
+
+    blender_prepare(sample_path)
+
+
+def post_processing(_name: str,
+                    _root_path: str,
+                    _inference_tag: str,
+                    _max_concurrent: int):
+
+    if not experiment_exists(_root_path, _name):
+        message = f"Experiment '{_name}' doesn't exist"
+        raise FileNotFoundError(message)
+
+    configs_path = os.path.join(_root_path, _name, 'configs.yaml')
+    configs = read_configs(configs_path)
+
+    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+
+    inference_result_path = os.path.join(inference_root_path, _inference_tag)
+    if not os.path.exists(inference_result_path):
+        raise FileNotFoundError("Incorrect path: {inference_result_path}")
+
+    factory = Factory(configs)
+    psp = factory.createPSPer()
+    psp.parallel_post_processing(inference_result_path,
+                                 _max_concurrent)
+
+
+def render_results(_name: str,
+                   _root_path: str,
+                   _inference_tag: str):
+
+    if not experiment_exists(_root_path, _name):
+        message = f"Experiment '{_name}' doesn't exist"
+        raise FileNotFoundError(message)
+
+    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+
+    inference_result_path = os.path.join(inference_root_path, _inference_tag)
+    if not os.path.exists(inference_result_path):
+        raise FileNotFoundError("Incorrect path: {inference_result_path}")
+
+    blender_render(inference_result_path)
+
+
+def analyze_morphometrics(_name: str,
+                          _root_path: str,
+                          _inference_tag: str,
+                          _sample_name: str):
+    if not experiment_exists(_root_path, _name):
+        message = f"Experiment '{_name}' doesn't exist"
+        raise FileNotFoundError(message)
+
+    configs_path = os.path.join(_root_path, _name, 'configs.yaml')
+    configs = read_configs(configs_path)
+
+    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+
+    sample_path = os.path.join(inference_root_path, _inference_tag, _sample_name)
+    if not os.path.exists(sample_path):
+        raise FileNotFoundError("Incorrect path: {sample_path}")
+
+    factory = Factory(configs)
+    morph = factory.createMorphModule()
+
+    morph_analysis(sample_path, morph)
 
 
 def infer_experiment(_name: str,

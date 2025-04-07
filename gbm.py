@@ -74,3 +74,45 @@ if __name__ == '__main__':
                                _stride=stride,
                                _scale=scale,
                                _interpolate=interpolate)
+
+    if args.action == 'psp':
+        configure_logger(configs, _log_to_file=False)
+        name = args.name
+        inference_tag = args.inference_tag
+        max_concurrent = int(args.max_concurrent)
+        root = configs['experiments']['root']
+        exper.post_processing(name,
+                              root,
+                              inference_tag,
+                              max_concurrent)
+
+    if args.action == 'morph':
+        configure_logger(configs, _log_to_file=False)
+        name = args.name
+        inference_tag = args.inference_tag
+        sample_name = args.sample_name
+        root = configs['experiments']['root']
+        exper.analyze_morphometrics(name,
+                                    root,
+                                    inference_tag,
+                                    sample_name)
+
+    if args.action == 'blender':
+        configure_logger(configs, _log_to_file=False)
+        name = args.name
+        inference_tag = args.inference_tag
+        sample_name = args.sample_name
+        root = configs['experiments']['root']
+        exper.visualize_results(name,
+                                root,
+                                inference_tag,
+                                sample_name)
+
+    if args.action == 'render':
+        configure_logger(configs, _log_to_file=False)
+        name = args.name
+        inference_tag = args.inference_tag
+        root = configs['experiments']['root']
+        exper.render_results(name,
+                             root,
+                             inference_tag)

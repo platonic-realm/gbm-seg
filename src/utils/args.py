@@ -106,7 +106,81 @@ def parse_exper() -> None:
                               '--interpolation',
                               action='store',
                               default=False,
-                              help='Determines to interpolate or stack Z planes')
+                              help='determines to interpolate or stack Z planes')
+
+    # Define a subparser for the 'post processsing' action
+    infer_parser = \
+        subparsers.add_parser('psp',
+                              help='post processsing to remove noises and artifacts')
+
+    infer_parser.add_argument('name',
+                              help='name of the experiment.')
+
+    infer_parser.add_argument('-it',
+                              '--inference-tag',
+                              action='store',
+                              required=True,
+                              help='select the snapshot for visualizations')
+
+    infer_parser.add_argument('-mc',
+                              '--max-concurrent',
+                              action='store',
+                              required=True,
+                              help='number of worker processes for post processing')
+
+    # Define a subparser for the 'morph' action
+    infer_parser = \
+        subparsers.add_parser('morph',
+                              help='do the morphometric analysis for a sample')
+
+    infer_parser.add_argument('name',
+                              help='name of the experiment.')
+
+    infer_parser.add_argument('-it',
+                              '--inference-tag',
+                              action='store',
+                              required=True,
+                              help='select the snapshot used for inference')
+
+    infer_parser.add_argument('-sn',
+                              '--sample-name',
+                              action='store',
+                              required=True,
+                              help='the relative path to the sample')
+
+    # Define a subparser for the 'blender' action
+    infer_parser = \
+        subparsers.add_parser('blender',
+                              help='prepares for blender visualizations')
+
+    infer_parser.add_argument('name',
+                              help='name of the experiment.')
+
+    infer_parser.add_argument('-it',
+                              '--inference-tag',
+                              action='store',
+                              required=True,
+                              help='select the snapshot used for inference')
+
+    infer_parser.add_argument('-sn',
+                              '--sample-name',
+                              action='store',
+                              required=True,
+                              help='the relative path to the sample')
+
+    # Define a subparser for the 'render' action
+    infer_parser = \
+        subparsers.add_parser('render',
+                              help='create blender visualizations')
+
+    infer_parser.add_argument('name',
+                              help='name of the experiment.')
+
+    infer_parser.add_argument('-it',
+                              '--inference-tag',
+                              action='store',
+                              required=True,
+                              help='select the snapshot used for inference')
 
     # Parse the arguments
     args = parser.parse_args()

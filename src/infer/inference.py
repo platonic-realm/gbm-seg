@@ -16,7 +16,6 @@ from scipy import ndimage
 
 # Local Imports
 from src.train.snapper import Snapper
-from src.infer.morph import Morph
 
 from src.utils.misc import create_dirs_recursively
 
@@ -30,18 +29,12 @@ class Inference():
                  _results_path: str,
                  _snapshot_path: str,
                  _dp: bool,
-                 _post_processing: bool,
-                 _psp_obj_min_size: int,
-                 _psp_kernel_size: int,
                  _interpolate: bool,
                  _scale_factor: int):
 
         self.data_loader = _data_loader
         self.device = _device
         self.results_path = _results_path
-        self.psp_enabled = _post_processing
-        self.psp_obj_min_size = _psp_obj_min_size
-        self.psp_kernel_size = _psp_kernel_size
 
         self.interpolate = _interpolate
         self.scale_factor = _scale_factor
@@ -70,7 +63,6 @@ class Inference():
 
         result = self.model.module.get_result()
         result = torch.argmax(result, dim=0)
-        result = self.post_processing(result)
 
         del offsets
         del sample
@@ -138,15 +130,14 @@ class Inference():
                     _tiff_tags: dict,
                     _multiplier: int = 120):
 
+        np.save(os.path.join(_output_path, "prediction.npy"),
+                _prediction)
+
         prediction_tif_path = os.path.join(_output_path, "prediction.tif")
         prediction_gif_path = os.path.join(_output_path, "prediction.gif")
 
         _prediction = _prediction * _multiplier
-        _prediction = _prediction.astype(np.uint8)
-
-        np.save(os.path.join(_output_path,
-                             "prediction.npy"),
-                _prediction)
+        _prediction = _prediction.numpy().astype(np.uint8)
 
         with imageio.get_writer(prediction_gif_path, mode='I') as writer:
             for index in range(_prediction.shape[0]):

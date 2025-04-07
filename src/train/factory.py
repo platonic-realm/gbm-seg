@@ -30,6 +30,7 @@ from src.utils.misc import blind_test
 from src.data.ds_infer import InferenceDataset
 from src.infer.morph import Morph
 from src.infer.inference import Inference
+from src.infer.psp import PSP
 
 
 class Factory:
@@ -351,6 +352,18 @@ class Factory:
                       _ave_kernel_size=5)
         return morph
 
+    def createPSPer(self):
+
+        kernel_size = self.configs['inference']['post_processing']['kernel_size']
+        min_2d_size = self.configs['inference']['post_processing']['min_2d_size']
+        min_3d_size = self.configs['inference']['post_processing']['min_3d_size']
+
+        psp = PSP(kernel_size,
+                  min_2d_size,
+                  min_3d_size)
+
+        return psp
+
     def createInferer(self,
                       _model: nn.Module,
                       _data_loaders: list,
@@ -362,10 +375,6 @@ class Factory:
         snapshot_path = self.configs['inference']['snapshot_path']
         dp = self.configs['trainer']['dp']
 
-        post_processing = self.configs['inference']['post_processing']['enabled']
-        psp_obj_min_size = self.configs['inference']['post_processing']['min_size']
-        psp_kernel_size = self.configs['inference']['post_processing']['kernel_size']
-
         interpolate = self.configs['inference']['interpolate']
         scale_factor = 6
 
@@ -376,9 +385,6 @@ class Factory:
                             result_path,
                             snapshot_path,
                             dp,
-                            post_processing,
-                            psp_obj_min_size,
-                            psp_kernel_size,
                             interpolate,
                             scale_factor)
 

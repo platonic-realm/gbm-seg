@@ -13,9 +13,11 @@ import torch
 import yaml
 import tifffile
 import numpy as np
-from torch import nn
 from torch.utils.data import DataLoader
-from scipy.ndimage import zoom, gaussian_filter
+from torch import nn
+from scipy.ndimage import zoom
+from skimage import measure
+from numpy import array
 
 # Local Imports
 from src.utils.metrics.memory import GPURunningMetrics
@@ -303,36 +305,87 @@ def summerize_configs(_configs: dict) -> None:
                      configs_dump.getvalue())
 
 
-# def morph_analysis(_inference_dir: str) -> None:
-#
-#         if not self.interpolate:
-#             repeated_results = np.repeat(result,
-#                                          self.scale_factor,
-#                                          axis=0)
-#
-#             distance_result, fd_result = self.morph(torch.from_numpy(repeated_results).float())
-#         else:
-#             distance_result, fd_result = self.morph(torch.from_numpy(result).float())
-#
-#         distance_result = distance_result.detach().cpu().numpy()
-#         fd_result = fd_result.detach().cpu().numpy()
-#
-#     distance_npy_path = os.path.join(_output_path, "distance_result.npy")
-#     fd_npy_path = os.path.join(_output_path, "fd_result.npy")
-#
-#     with open(distance_npy_path, 'wb') as distance_npy_file:
-#         np.save(distance_npy_file, _distance_results)
-#
-#     with open(fd_npy_path, 'wb') as fd_npy_file:
-#         np.save(fd_npy_file, _fd_results)
-#
-#
-# def blender_prepare(_inference_dir: str) -> None:
-#         self.blender_visualization(_distance_results=distance_result,
-#                                    _fd_results=fd_result,
-#                                    _output_path=os.path.join(output_dir,
-#                                                              "blender"))
-#
+def morph_analysis(_sample_path: str,
+                   _morph) -> None:
+
+    sample = Path(_sample_path)
+
+    logging.info("Executing morphometric analysis for %s",
+                 str(sample))
+    input_path = sample / "prediction_psp.npy"
+    distance_path = sample / "distance_result.npy"
+    fd_path = sample / "fd_result.npy"
+
+    result = np.load(input_path)
+
+    distance_result, fd_result = _morph(torch.from_numpy(result).float())
+
+    distance_result = distance_result.detach().cpu().numpy()
+    fd_result = fd_result.detach().cpu().numpy()
+
+    with open(distance_path, 'wb') as distance_file:
+        np.save(distance_file, distance_result)
+
+    with open(fd_path, 'wb') as fd_file:
+        np.save(fd_file, fd_result)
+
+
+def blender_visualization(_distance_results: array,
+                          _fd_results: array,
+                          _output_path: str):
+
+    create_dirs_recursively(os.path.join(_output_path, "dummy"))
+
+    mean = np.mean(_distance_results[_distance_results != 0])
+    first_layer = _distance_results[0]
+    first_layer[first_layer != 0] = mean/2
+    _distance_results[0] = first_layer
+
+    last_layer = _distance_results[_distance_results.shape[0]-1]
+    last_layer[last_layer != 0] = mean/2
+    _distance_results[_distance_results.shape[0]-1] = last_layer
+
+    pad_width = ((1, 1), (1, 1), (1, 1))
+
+    _distance_results = np.pad(_distance_results, pad_width, mode="constant", constant_values=0)
+    verts, faces, normals, values = measure.marching_cubes(volume=_distance_results,
+                                                           level=0.1,
+                                                           step_size=1.1,
+                                                           allow_degenerate=False)
+
+    np.save(os.path.join(_output_path, "verts_distance.npy"), verts)
+    np.save(os.path.join(_output_path, "faces_distance.npy"), faces)
+    np.save(os.path.join(_output_path, "values_distance.npy"), values)
+
+    mean = np.mean(_fd_results[_fd_results != 0])
+    first_layer = _fd_results[0]
+    first_layer[first_layer != 0] = mean/2
+    _fd_results[0] = first_layer
+
+    last_layer = _fd_results[_fd_results.shape[0]-1]
+    last_layer[last_layer != 0] = mean/2
+    _fd_results[_fd_results.shape[0]-1] = last_layer
+
+    _fd_results = np.pad(_fd_results, pad_width, mode="constant", constant_values=0)
+    verts, faces, normals, values = measure.marching_cubes(volume=_fd_results,
+                                                           level=0.1,
+                                                           step_size=1.1,
+                                                           allow_degenerate=False)
+
+    np.save(os.path.join(_output_path, "verts_bumpiness.npy"), verts)
+    np.save(os.path.join(_output_path, "faces_bumpiness.npy"), faces)
+    np.save(os.path.join(_output_path, "values_bumpiness.npy"), values)
+
+
+def blender_prepare(_sample_dir: str) -> None:
+    sample = Path(_sample_dir)
+
+    distance_result = np.load(sample / "distance_result.npy")
+    fd_result = np.load(sample / "fd_result.npy")
+    blender_visualization(_distance_results=distance_result,
+                          _fd_results=fd_result,
+                          _output_path=sample / "blender/")
+
 
 def blender_render(_inference_dir: str) -> None:
 
@@ -341,7 +394,7 @@ def blender_render(_inference_dir: str) -> None:
     # Get number of GPUs
     num_gpus = torch.cuda.device_count()
     gpu_index = 0
-    gpu_capacity = 12
+    gpu_capacity = 5
 
     # List all items in the current directory
     all_files = os.listdir(_inference_dir)

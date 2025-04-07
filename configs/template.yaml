@@ -166,7 +166,8 @@ inference:
 
   post_processing:
     enabled: True
-    min_size: 200
+    min_2d_size: 500
+    min_3d_size: 5000
     kernel_size: 3
 
   morph:
