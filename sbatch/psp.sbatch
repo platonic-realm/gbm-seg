@@ -8,4 +8,4 @@
 #SBATCH --cpus-per-task=64  # Adjust CPU cores as needed
 
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
-./gbm.py psp interpolated_final -it $1 -mc 64
+./gbm.py psp $1 -it $2 -mc 64

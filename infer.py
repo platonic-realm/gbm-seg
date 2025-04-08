@@ -32,12 +32,6 @@ def main_infer(_configs):
 
         inferer.infer()
 
-    morph_analysis(_configs['inference']['result_dir'])
-
-    blender_prepare(_configs['inference']['result_dir'])
-
-    blender_render(_configs['inference']['result_dir'])
-
 
 if __name__ == '__main__':
     _, configs = args.parse_indep("Inferance -> GBM segmentation")
