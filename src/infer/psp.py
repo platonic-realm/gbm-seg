@@ -45,6 +45,8 @@ class PSP():
         logging.info("Creating a mulitprocessing pool with %d processes", _max_concurrent)
         with multiprocessing.Pool(_max_concurrent) as pool:
             pool.starmap(self.post_processing, tasks)
+        # for task in tasks:
+        #     self.post_processing(task[0], task[1])
 
     def post_processing(self,
                         _input_path: Path,
@@ -57,6 +59,19 @@ class PSP():
         prediction = np.load(_input_path)
         logging.info("Process %d: prediction numpy array loaded", PID)
 
+        labels, labels_num = ndimage.label(prediction)
+        # count pixels in each connected component
+        logging.info("Process %d: removing 3D objects smaller than %d", PID, self.min_3d_size)
+        for label_index in range(labels_num):
+            voxel_count = np.sum(labels == label_index)
+            logging.debug("Processing label no: %d with %d voxels",
+                          label_index, voxel_count)
+            if voxel_count < self.min_3d_size:
+                prediction[labels == label_index] = 0
+
+        logging.info("Process %d: 3D post processing finished", PID)
+
+        logging.info("Process %d: removing 2D objects smaller than %d", PID, self.min_2d_size)
         for i in range(prediction.shape[0]):
 
             kernel = morphology.rectangle(self.kernel_size, self.kernel_size)
@@ -69,7 +84,6 @@ class PSP():
             unique_labels, label_counts = np.unique(labels, return_counts=True)
             # remove small connected components
             # print(f"mean: {int(np.mean(label_counts))}, std: {int(np.std(label_counts))}, max: {int(np.max(label_counts))}, min: {int(np.min(label_counts))}")
-            logging.info("Process %d: removing 2D objects smaller than %d", PID, self.min_2d_size)
             for label, count in zip(unique_labels, label_counts):
                 if count < self.min_2d_size and label != 0:
                     prediction[i, :, :][labels == label] = 0
@@ -79,16 +93,6 @@ class PSP():
             prediction[i, :, :] = dilated_image
 
         logging.info("Process %d: 2D post processing finished", PID)
-
-        labels, labels_num = ndimage.label(prediction)
-        # count pixels in each connected component
-        logging.info("Process %d: removing 3D objects smaller than %d", PID, self.min_3d_size)
-        for label_index in range(labels_num):
-            voxel_count = np.sum(labels == label_index)
-            if voxel_count < self.min_3d_size:
-                prediction[labels == label] = 0
-
-        logging.info("Process %d: 3D post processing finished", PID)
 
         np.save(_output_path, prediction)
         logging.info("Process %d: processed prediction numpy array saved", PID)
