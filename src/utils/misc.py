@@ -3,21 +3,24 @@ import logging
 import sys
 import os
 import shutil
-from pathlib import Path
-from io import StringIO
 import subprocess
 import shlex
+import re
+from pathlib import Path
+from io import StringIO
 
 # Library Imports
 import torch
 import yaml
 import tifffile
 import numpy as np
+import plotly.graph_objects as go
 from torch.utils.data import DataLoader
 from torch import nn
 from scipy.ndimage import zoom
 from skimage import measure
 from numpy import array
+from skimage.transform import resize
 
 # Local Imports
 from src.utils.metrics.memory import GPURunningMetrics
@@ -387,6 +390,179 @@ def blender_prepare(_sample_dir: str) -> None:
                           _output_path=sample / "blender/")
 
 
+def remove_outliers_iqr(arr, k=1.5):
+    q1 = np.percentile(arr, 25)
+    q3 = np.percentile(arr, 75)
+    iqr = q3 - q1
+    lower_bound = q1 - k * iqr
+    upper_bound = q3 + k * iqr
+    return arr[(arr >= lower_bound) & (arr <= upper_bound)]
+
+
+def save_histogram(_array,
+                   _title,
+                   _path):
+    # Create histogram
+    fig = go.Figure(data=[go.Histogram(
+        x=_array,
+        nbinsx=100,
+        marker=dict(
+            line=dict(color='black', width=1)
+        )
+    )])
+
+    # Update layout
+    fig.update_layout(
+        title=_title,
+        xaxis_title='Value',
+        yaxis_title='Frequency'
+    )
+
+    # Save the plot
+    fig.write_image(_path)  # requires kaleido package
+
+
+def calculate_stats(_inference_result_path: Path,
+                    _inference_export_path: Path):
+
+    stats_path = _inference_export_path / "stats"
+    hists_path = stats_path / "histograms"
+    value_path = stats_path / "values"
+    create_dirs_recursively(hists_path / "dummy")
+
+    # Specific patterns for each category based on your list
+    patterns = {
+        'Control': r'CKM103|AUY381|AUY380|CKM110',
+        'Col Mutation': r'CKM105|CKM104',
+        'Pod Mutation': r'BDP675|BDP672|BDP669',
+    }
+
+    control_thickness = np.empty(0, dtype=np.float32)
+    control_bumpiness = np.empty(0, dtype=np.float32)
+
+    colmut_thickness = np.empty(0, dtype=np.float32)
+    colmut_bumpiness = np.empty(0, dtype=np.float32)
+
+    podmut_thickness = np.empty(0, dtype=np.float32)
+    podmut_bumpiness = np.empty(0, dtype=np.float32)
+
+    for dir in _inference_result_path.iterdir():
+        if not dir.is_dir():
+            continue
+
+        for category, pattern in patterns.items():
+            if re.search(pattern, dir.name):
+                group_name = category
+
+        if not group_name:
+            raise RuntimeError("Unkown mice category!")
+
+        sample_hists_path = hists_path / group_name
+        sample_value_path = value_path / group_name
+        create_dirs_recursively(sample_hists_path / "dummy")
+        create_dirs_recursively(sample_value_path / "dummy")
+
+        thickness = np.load(dir / "distance_result.npy")
+        bumpiness = np.load(dir / "fd_result.npy")
+
+        # Setting the first 5 (averaging kernel size) layers to zero because of sudden gradient shift in the last layers
+        bumpiness[:5, :, :] = 0
+        bumpiness[-5:, :, :] = 0
+
+        # Remove zeros
+        thickness = thickness[thickness != 0]
+        bumpiness = bumpiness[bumpiness != 0]
+
+        thickness = remove_outliers_iqr(thickness)
+        bumpiness = remove_outliers_iqr(bumpiness)
+
+        if group_name == 'Control':
+            control_thickness = np.concatenate((control_thickness, thickness))
+            control_bumpiness = np.concatenate((control_bumpiness, bumpiness))
+        elif group_name == 'Col Mutation':
+            colmut_thickness = np.concatenate((colmut_thickness, thickness))
+            colmut_bumpiness = np.concatenate((colmut_bumpiness, bumpiness))
+        elif group_name == 'Pod Mutation':
+            podmut_thickness = np.concatenate((podmut_thickness, thickness))
+            podmut_bumpiness = np.concatenate((podmut_bumpiness, bumpiness))
+
+        save_histogram(thickness,
+                       'Histogram of thickness',
+                       sample_hists_path / f"thickness_{dir.name}.png")
+
+        save_histogram(bumpiness,
+                       'Histogram of bumpiness',
+                       sample_hists_path / f"bumpiness_{dir.name}.png")
+
+        np.save(sample_value_path / f"thickness_{dir.name}.npy", thickness)
+        np.save(sample_value_path / f"bumpiness_{dir.name}.npy", bumpiness)
+
+        np.savetxt(sample_value_path / f"thickness_{dir.name}.csv",
+                   thickness,
+                   delimiter=',',
+                   fmt='%.4f')
+        np.savetxt(sample_value_path / f"bumpiness_{dir.name}.csv",
+                   bumpiness,
+                   delimiter=',',
+                   fmt='%.4f')
+
+    remove_outliers_iqr(control_thickness)
+    remove_outliers_iqr(control_bumpiness)
+    remove_outliers_iqr(podmut_thickness)
+    remove_outliers_iqr(podmut_bumpiness)
+    remove_outliers_iqr(colmut_thickness)
+    remove_outliers_iqr(colmut_bumpiness)
+
+    save_histogram(control_thickness,
+                   'Histogram of thickness',
+                   hists_path / "thickness_control.png")
+
+    save_histogram(control_bumpiness,
+                   'Histogram of bumpiness',
+                   hists_path / "bumpiness_control.png")
+
+    save_histogram(podmut_thickness,
+                   'Histogram of thickness',
+                   hists_path / "thickness_podmut.png")
+
+    save_histogram(podmut_bumpiness,
+                   'Histogram of bumpiness',
+                   hists_path / "bumpiness_podmut.png")
+
+    save_histogram(colmut_thickness,
+                   'Histogram of thickness',
+                   hists_path / "thickness_colmut.png")
+
+    save_histogram(colmut_bumpiness,
+                   'Histogram of bumpiness',
+                   hists_path / "bumpiness_colmut.png")
+
+    np.save(value_path / "thickness_control.npy", control_thickness)
+    np.save(value_path / "bumpiness_control.npy", control_bumpiness)
+    np.save(value_path / "thickness_podmut.npy", podmut_thickness)
+    np.save(value_path / "bumpiness_podmut.npy", podmut_bumpiness)
+    np.save(value_path / "thickness_colmut.npy", colmut_thickness)
+    np.save(value_path / "bumpiness_colmut.npy", colmut_bumpiness)
+
+    np.savetxt(value_path / "thickness_control.csv",
+               control_thickness, delimiter=',', fmt='%.4f')
+
+    np.savetxt(sample_value_path / "bumpiness_control.csv",
+               control_bumpiness, delimiter=',', fmt='%.4f')
+
+    np.savetxt(value_path / "thickness_podmut.csv",
+               podmut_thickness, delimiter=',', fmt='%.4f')
+
+    np.savetxt(value_path / "bumpiness_podmut.csv",
+               podmut_bumpiness, delimiter=',', fmt='%.4f')
+
+    np.savetxt(value_path / "thickness_colmut.csv",
+               colmut_thickness, delimiter=',', fmt='%.4f')
+
+    np.savetxt(value_path / "bumpiness_colmut.csv",
+               colmut_bumpiness, delimiter=',', fmt='%.4f')
+
+
 def blender_render(_inference_dir: str) -> None:
 
     # Generating Blender commands
@@ -428,6 +604,65 @@ def blender_render(_inference_dir: str) -> None:
         # Wait for all processes to complete
         for proc in processes:
             proc.wait()
+
+
+def export_results(_inference_result_path: Path,
+                   _inference_export_path: Path):
+
+    scale_factor = 1/3
+
+    for dir in _inference_result_path.iterdir():
+        if not dir.is_dir():
+            continue
+
+        name = dir.name
+
+        tiff_file = _inference_export_path / "tiff" / name
+        thickness_blend = _inference_export_path / "blend" / f"{name} _thickness.blend"
+        thickness_mp4 = _inference_export_path / "mp4" / f"{name}_thickness.mp4"
+        bumpiness_blend = _inference_export_path / "blend" / f"{name}_bumpiness.blend"
+        bumpiness_mp4 = _inference_export_path / "mp4" / f"{name}_bumpiness.mp4"
+
+        create_dirs_recursively(tiff_file)
+        create_dirs_recursively(thickness_mp4)
+        create_dirs_recursively(thickness_blend)
+
+        shutil.copy(dir / "blender/result_distance.blend", thickness_blend)
+        shutil.copy(dir / "blender/result_distance.mp4", thickness_mp4)
+
+        shutil.copy(dir / "blender/result_bumpiness.blend", bumpiness_blend)
+        shutil.copy(dir / "blender/result_bumpiness.mp4", bumpiness_mp4)
+
+        labels = np.load(dir / "prediction_psp.npy")
+        labels[labels != 0] = 128
+
+        with tifffile.TiffFile(dir / "prediction.tif") as tif:
+            data = tif.asarray()
+
+        data[:, 3, :, :] = labels
+
+        # Assuming data shape is (z, channels, y, x)
+        if data.ndim != 4:
+            raise ValueError("Expected a 4D TIFF file with shape (channels, z, y, x)")
+
+        z, channels, y, x = data.shape
+        new_y, new_x = int(y * scale_factor), int(x * scale_factor)
+
+        # Downsample each image
+        downsampled = np.empty((z, channels, new_y, new_x), dtype=data.dtype)
+        for i in range(z):
+            for c in range(channels):
+                downsampled[i, c] = resize(data[i, c],
+                                           (new_y, new_x),
+                                           preserve_range=True,
+                                           anti_aliasing=True).astype(data.dtype)
+
+        tifffile.imwrite(tiff_file,
+                         downsampled,
+                         shape=downsampled.shape,
+                         imagej=True,
+                         metadata={'axes': 'ZCYX', 'fps': 10.0},
+                         compression='lzw')
 
 
 def analyze_dataset(_dataset):

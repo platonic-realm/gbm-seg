@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=gbm_psp
+#SBATCH --job-name=gbm_render
 #SBATCH --output=/home/afatehi/gbm_render.log
 #SBATCH --error=/home/afatehi/gbm_render.err
 #SBATCH --time=7-00:00:00   # Adjust time as needed

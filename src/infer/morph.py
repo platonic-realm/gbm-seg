@@ -20,6 +20,10 @@ norm1 = 1
 norm2 = 0.7071
 norm3 = 0.5773
 
+# PSF values
+PSFLateral = 149  # 149nm
+PSFAxial = 434  # 434nm
+# Thickness = ( Measured^2 - ((PSFLateral * cos(a))^2 + (PSFAxial * sin(a))^2) ) ^ 0.5
 
 def draw(_file_path, _input):
     _input = torch.squeeze(_input)
@@ -93,7 +97,8 @@ class Morph(nn.Module):
                  _device: str,
                  _calc_displayments: bool = True,
                  _calc_displayments_on_cpu: bool = True,
-                 _ave_kernel_size: int = 5):
+                 _ave_kernel_size: int = 5,
+                 _voxel_size: float = 50):
 
         global direction_vectors
         global displacement_vectors
@@ -104,6 +109,7 @@ class Morph(nn.Module):
         self.calc_displacements = _calc_displayments
         self.ave_kernel_size = _ave_kernel_size
         self.calc_displacements_on_cpu = _calc_displayments_on_cpu
+        self.voxel_size = _voxel_size  # in nano meter
 
         # Taking care of tensor's location
         if self.calc_displacements and not _calc_displayments_on_cpu:
@@ -111,8 +117,8 @@ class Morph(nn.Module):
             direction_vectors = direction_vectors.to(self.device)
 
         # Using this kernel we count and sum the number of voxels in the neighbourhood
-        # of the center voxel, the value the background would be zero, and the forground
-        # would be one, therefore any voxel with less than 26 neighbours will be considered
+        # of the center voxel, the value of background is zero, and forground is one
+        # therefore any voxel with less than 26 neighbours will be considered
         # a surface voxel
         self.surface_kernel = torch.tensor([
                           [[1., 1., 1.],
@@ -124,7 +130,7 @@ class Morph(nn.Module):
                           [[1., 1., 1.],
                            [1., 1., 1.],
                            [1., 1., 1.]],
-                          ], device=self.device)
+                                            ], device=self.device)
         # Reshaping the kernel to be compatible with conv3d operation
         self.surface_kernel = self.surface_kernel.view(1, 1, 3, 3, 3)
 
@@ -170,7 +176,7 @@ class Morph(nn.Module):
                 voxel_space = _voxel_space.to(self.device)
             else:
                 voxel_space = _voxel_space.clone()
-            # Addint two dimenstions to the voxel_space, so it would be compatiple
+            # Adding two dimenstions to the voxel_space, so it would be compatiple
             # with conv3d operation
             voxel_space = voxel_space.view(tuple(itertools.chain((1, 1),
                                                  voxel_space.shape)))
@@ -182,7 +188,7 @@ class Morph(nn.Module):
                                       padding='same')
 
             # The conv3d operation calcualte all the forground voxels in the neighbourhood,
-            # it does this for all voxels, even for the background voxels, threfore therefore
+            # it does this for all voxels, even for the background voxels, therefore
             # the next step is to filter out background voxels by performing an element-wise
             # multiplication between surface_voxels and voxel_space
             surface_voxels = surface_voxels * voxel_space
@@ -197,7 +203,7 @@ class Morph(nn.Module):
             # We dont want background voxels to be included while checking surface_voxels < 26
             surface_voxels[surface_voxels == 0] = 128.0
 
-            # All the surface voxels would be 1.0 from now on
+            # All the surface voxels will be 1.0 from now on
             surface_voxels[surface_voxels < 26] = 1.0
 
             # Set the background back to 0.0
@@ -345,7 +351,7 @@ class Morph(nn.Module):
 
                     condition = column == 1
                     if condition.int().sum() == 0:
-                        logging.debug("Not surface voxel on this cloumn, skipping...")
+                        logging.debug("No surface voxel on this cloumn, skipping...")
                         continue
 
                     points = points_tensor[0][0][z][x].to(self.device)
@@ -367,6 +373,12 @@ class Morph(nn.Module):
             distance_tesnor[distance_tesnor.isinf()] = 0
             distance_tesnor[surface_mask <= 0] = 0
             distance_tesnor = distance_tesnor[0][0]
+            distance_tesnor = torch.sqrt(distance_tesnor) * self.voxel_size
+
+            # Calculate angles for PSF correction
+            corrected_thickness = self.calculate_thickness_correction(slope_tensor=slope_tensor.squeeze(0).squeeze(0),
+                                                                      surface_mask=surface_mask.squeeze(0).squeeze(0),
+                                                                      distance_tensor=distance_tesnor)
 
             x_slope_std = self.calculate_patched_std(x_slope, surface_mask)
             self.empty_cache()
@@ -384,7 +396,7 @@ class Morph(nn.Module):
             bumpiness_tensor[surface_mask == 0] = 0
             bumpiness_tensor = bumpiness_tensor.squeeze()
 
-            return distance_tesnor, bumpiness_tensor
+            return corrected_thickness, bumpiness_tensor
 
     def calculate_patched_std(self,
                               _slope: Tensor,
@@ -433,7 +445,7 @@ class Morph(nn.Module):
         # z = Mz*t + z0
         # x = Mx*t + x0
         # y = My*t + y0
-        # Here we are calculating the t valus in case that the chosen axis = 0 ... range_size
+        # Here we are calculating t values in case that the chosen axis = 0 ... range_size
         t = (range[:] - _points[:, _axis]) / _slopes[:, _axis]
         # Then we calculate the values for the other two dimensions, lets say we are
         # doing this for the Z axis, after knowing the value of t for Z = 0 ... size_z
@@ -502,6 +514,76 @@ class Morph(nn.Module):
                                              other=_shortest_distance)
 
         return _shortest_distance
+
+    def calculate_thickness_correction(self,
+                                       slope_tensor,
+                                       surface_mask,
+                                       distance_tensor):
+        """
+        Calculate the true thickness using PSF correction based on slope angles.
+
+        Args:
+            slope_tensor: Tensor containing slope vectors for each voxel
+            surface_mask: Mask indicating surface voxels
+            distance_tensor: Tensor containing distances before correction
+
+        Returns:
+            corrected_tensor: Distance tensor with PSF corrections
+        """
+
+        # Put all tensors to the same device
+        slope_tensor = slope_tensor.to(self.device)
+        surface_mask = surface_mask.to(self.device)
+        distance_tensor = distance_tensor.to(self.device)
+
+        # Extract slope vectors for surface voxels only
+        surface_slopes = slope_tensor * surface_mask.unsqueeze(-1)
+
+        # Calculate magnitude of slope vectors
+        slope_magnitude = torch.norm(surface_slopes, dim=-1, keepdim=True)
+
+        # Avoid division by zero
+        slope_magnitude = torch.where(slope_magnitude == 0,
+                                      torch.ones_like(slope_magnitude),
+                                      slope_magnitude)
+
+        # Normalize slope vectors to unit vectors
+        unit_slopes = surface_slopes / slope_magnitude
+
+        # Z-axis unit vector [0, 0, 1] - note: adjusted order to match your coordinate system
+        z_unit = torch.tensor([0, 0, 1], device=slope_tensor.device, dtype=slope_tensor.dtype)
+
+        # Calculate cos(beta) = dot product of unit slope vector with Z-axis unit vector
+        # This gives us the cosine of the angle between the slope and Z-axis
+        cos_beta = torch.sum(unit_slopes * z_unit, dim=-1, keepdim=True)
+
+        # Clamp to avoid numerical issues
+        cos_beta = torch.clamp(cos_beta, -1.0, 1.0)
+
+        # Calculate sin(beta) from cos(beta)
+        sin_beta = torch.sqrt(1 - cos_beta**2)
+
+        # Since alpha = π/2 - beta, we have:
+        # cos(alpha) = cos(π/2 - beta) = sin(beta)
+        # sin(alpha) = sin(π/2 - beta) = cos(beta)
+        cos_alpha = sin_beta
+        sin_alpha = cos_beta
+
+        # Remove the extra dimension
+        cos_alpha = cos_alpha.squeeze(-1)
+        sin_alpha = sin_alpha.squeeze(-1)
+
+        # Calculate PSF term: PSF_Lateral^2 * cos^2(alpha) + PSF_Axial^2 * sin^2(alpha)
+        psf_term = (PSFLateral**2 * cos_alpha**2 + PSFAxial**2 * sin_alpha**2)
+
+        # Calculate corrected thickness: sqrt(measured^2 - PSF_term)
+        measured_squared = distance_tensor**2
+
+        # Ensure we don't take square root of negative values
+        corrected_squared = torch.clamp(measured_squared - psf_term, min=0)
+        corrected_tensor = torch.sqrt(corrected_squared)
+
+        return corrected_tensor
 
     def empty_cache(self):
         if "cuda" in self.device:

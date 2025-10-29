@@ -182,6 +182,34 @@ def parse_exper() -> None:
                               required=True,
                               help='select the snapshot used for inference')
 
+    # Define a subparser for the 'export' action
+    infer_parser = \
+        subparsers.add_parser('export',
+                              help='export the results and analysis')
+
+    infer_parser.add_argument('name',
+                              help='name of the experiment.')
+
+    infer_parser.add_argument('-it',
+                              '--inference-tag',
+                              action='store',
+                              required=True,
+                              help='select the snapshot used for inference')
+
+    # Define a subparser for the 'stats' action
+    infer_parser = \
+        subparsers.add_parser('stats',
+                              help='generate statistics')
+
+    infer_parser.add_argument('name',
+                              help='name of the experiment.')
+
+    infer_parser.add_argument('-it',
+                              '--inference-tag',
+                              action='store',
+                              required=True,
+                              help='select the snapshot used for inference')
+
     # Parse the arguments
     args = parser.parse_args()
 

@@ -2,6 +2,7 @@
 import os
 import logging
 import multiprocessing
+import math
 from pathlib import Path
 
 # Library Imports
@@ -93,6 +94,13 @@ class PSP():
             prediction[i, :, :] = dilated_image
 
         logging.info("Process %d: 2D post processing finished", PID)
+
+        logging.info("Process %d: Cylinderical removal", PID)
+
+        space_width = prediction.shape[1]
+        space_height = prediction.shape[2]
+        max_raduis = math.sqrt((space_width/2)**2 + (space_height/2)**2)
+        max_raduis = int(max_raduis)
 
         np.save(_output_path, prediction)
         logging.info("Process %d: processed prediction numpy array saved", PID)

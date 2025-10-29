@@ -5,6 +5,7 @@ import subprocess
 import shutil
 import yaml
 import math
+from pathlib import Path
 
 # Library Imports
 
@@ -12,7 +13,8 @@ import math
 from src.train.factory import Factory
 from src.utils.misc import create_dirs_recursively, \
         copy_directory, read_configs, resize_and_copy, \
-        morph_analysis, blender_render, blender_prepare
+        morph_analysis, blender_render, blender_prepare, \
+        export_results, calculate_stats
 from train import main_train
 from infer import main_infer
 
@@ -97,6 +99,60 @@ def render_results(_name: str,
         raise FileNotFoundError("Incorrect path: {inference_result_path}")
 
     blender_render(inference_result_path)
+
+
+def stats(_name: str,
+          _root_path: str,
+          _inference_tag: str):
+
+    if not experiment_exists(_root_path, _name):
+        message = f"Experiment '{_name}' doesn't exist"
+        raise FileNotFoundError(message)
+
+    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+    inference_result_path = os.path.join(inference_root_path, _inference_tag)
+    if not os.path.exists(inference_result_path):
+        raise FileNotFoundError("Incorrect path: {inference_result_path}")
+
+    inference_root_path = Path(inference_root_path)
+    inference_result_path = Path(inference_result_path)
+    inference_export_path = inference_root_path / f"{inference_result_path.name}_export"
+
+    calculate_stats(inference_result_path,
+                    inference_export_path)
+
+
+def export(_name: str,
+           _root_path: str,
+           _inference_tag: str):
+
+    if not experiment_exists(_root_path, _name):
+        message = f"Experiment '{_name}' doesn't exist"
+        raise FileNotFoundError(message)
+
+    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+
+    inference_result_path = os.path.join(inference_root_path, _inference_tag)
+    if not os.path.exists(inference_result_path):
+        raise FileNotFoundError("Incorrect path: {inference_result_path}")
+
+    inference_root_path = Path(inference_root_path)
+    inference_result_path = Path(inference_result_path)
+    inference_export_path = inference_root_path / f"{inference_result_path.name}_export"
+
+    if os.path.exists(inference_export_path):
+        raise FileExistsError(f"The path already exists: {inference_export_path}")
+        # answer = input("Export directory for this inference already exists,"
+        #                " overwrite? (y/n) [default=n]: ")
+        # if answer.lower() == "y":
+        #     shutil.rmtree(inference_export_path)
+        # else:
+        #     return
+
+    create_dirs_recursively(inference_export_path / "dummy")
+
+    export_results(inference_result_path,
+                   inference_export_path)
 
 
 def analyze_morphometrics(_name: str,

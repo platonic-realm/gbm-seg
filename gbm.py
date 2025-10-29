@@ -125,3 +125,12 @@ if __name__ == '__main__':
         exper.export(name,
                      root,
                      inference_tag)
+
+    if args.action == 'stats':
+        configure_logger(configs, _log_to_file=False)
+        name = args.name
+        inference_tag = args.inference_tag
+        root = configs['experiments']['root']
+        exper.stats(name,
+                    root,
+                    inference_tag)
