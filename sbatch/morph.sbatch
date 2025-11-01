@@ -40,16 +40,21 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
     DIR_NAMES_STR=$(printf "%s|" "${DIR_NAMES[@]}")
     DIR_NAMES_STR=${DIR_NAMES_STR%|}  # Remove trailing separator
 
-    # Submit a job array with DIR_NAMES properly passed
-    sbatch -p train -c 8 --mem=32G --gres=gpu:1 --time=7-00:00:00 \
-        --array=1-${N} --export=ALL,DIR_NAMES="$DIR_NAMES_STR" "$0" "$@"
+    # Create output directory for child job logs if it doesn't exist
+    mkdir -p /home/afatehi/gbm_morph
+
+    # Submit a job array with DIR_NAMES properly passed and individual log files
+    sbatch -p train -c 8 --mem=64G --gres=gpu:1 --time=7-00:00:00 \
+        --array=1-${N} \
+        --output=/home/afatehi/gbm_morph/job_%A_%a.log \
+        --error=/home/afatehi/gbm_morph/job_%A_%a.log \
+        --export=ALL,DIR_NAMES="$DIR_NAMES_STR" "$0" "$@"
 
     exit
 fi
 
 # --- Child Array Job Phase ---
-# Redirect output to /dev/null for child jobs.
-# exec > /dev/null 2>&1
+# Do NOT redirect output - let SLURM handle it with the specified output/error files
 
 # Convert the exported DIR_NAMES string back into an array (split by `|`)
 IFS='|' read -r -a DIR_NAMES <<< "$DIR_NAMES"
