@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=gbm_blender
-#SBATCH --output=/home/afatehi/gbm_blender.log
-#SBATCH --error=/home/afatehi/gbm_blender.err
+#SBATCH --output=/home/afatehi/gbm_log/blender.log
+#SBATCH --error=/home/afatehi/gbm_log/blender.log
 # (No GPU request here so the parent job does not get a GPU)
 
 # Check if this is the parent job (no SLURM_ARRAY_TASK_ID defined)
@@ -40,14 +40,14 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
     DIR_NAMES_STR=$(printf "%s|" "${DIR_NAMES[@]}")
     DIR_NAMES_STR=${DIR_NAMES_STR%|}  # Remove trailing separator
 
-    # Create output directory for child job logs if it doesn't exist
-    mkdir -p /home/afatehi/gbm_blender
+    # Create log directory and subdirectory for child job logs if they don't exist
+    mkdir -p /home/afatehi/gbm_log/blender
 
     # Submit a job array with DIR_NAMES properly passed and individual log files
     sbatch -p cpu -c 2 --mem=16G --time=1-00:00:00 \
         --array=1-${N} \
-        --output=/home/afatehi/gbm_blender/job_%A_%a.log \
-        --error=/home/afatehi/gbm_blender/job_%A_%a.log \
+        --output=/home/afatehi/gbm_log/blender/job_%A_%a.log \
+        --error=/home/afatehi/gbm_log/blender/job_%A_%a.log \
         --export=ALL,DIR_NAMES="$DIR_NAMES_STR" "$0" "$@"
 
     exit
