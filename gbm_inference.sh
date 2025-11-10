@@ -107,8 +107,13 @@ echo "Running: sbatch --dependency=afterok:$JOB5 ./sbatch/export.sbatch \"$NAME\
 JOB6=$(sbatch --dependency=afterok:$JOB5 ./sbatch/export.sbatch "$NAME" "$TAG" | awk '{print $4}')
 echo "Submitted job 6 (Export): $JOB6 (depends on $JOB5)"
 
+# Job 7: Stats
+echo "Running: sbatch --dependency=afterok:$JOB6 ./sbatch/stats.sbatch \"$NAME\" \"$TAG\""
+JOB7=$(sbatch --dependency=afterok:$JOB6 ./sbatch/stats.sbatch "$NAME" "$TAG" | awk '{print $4}')
+echo "Submitted job 7 (Stats): $JOB7 (depends on $JOB6)"
+
 echo ""
 echo "All jobs submitted in sequence."
-echo "Dependency chain: $JOB1 → $JOB2 → $JOB3 → $JOB4 → $JOB5 → $JOB6"
+echo "Dependency chain: $JOB1 → $JOB2 → $JOB3 → $JOB4 → $JOB5 → $JOB6 → $JOB7"
 echo "Check status with: squeue -u \$USER"
 echo "Check dependencies with: squeue -u \$USER -o \"%.18i %.9P %.30j %.8u %.2t %.10M %.6D %R %E\""

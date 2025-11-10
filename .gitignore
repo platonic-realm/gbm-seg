@@ -3,6 +3,7 @@ tensorboard/
 gbm-vv/
 snapshots/
 tags
+GEMINI.md
 *.swo
 *.swp
 *.log

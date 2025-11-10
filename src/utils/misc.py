@@ -10,6 +10,7 @@ from pathlib import Path
 from io import StringIO
 
 # Library Imports
+
 import torch
 import yaml
 import tifffile
@@ -21,6 +22,7 @@ from scipy.ndimage import zoom
 from skimage import measure
 from numpy import array
 from skimage.transform import resize
+
 
 # Local Imports
 from src.utils.metrics.memory import GPURunningMetrics
@@ -194,7 +196,6 @@ def to_numpy(_gpu_tensor):
 
     return _gpu_tensor
 
-
 def expand_as_one_hot(_input, _c, _ignore_index=None):
     """
     Converts NxSPATIAL label image to NxCxSPATIAL,
@@ -297,7 +298,6 @@ def read_configs(_config_path: str):
 
     return sanity_check(configs)
 
-
 def summerize_configs(_configs: dict) -> None:
     with StringIO() as configs_dump:
         yaml.dump(_configs,
@@ -306,7 +306,6 @@ def summerize_configs(_configs: dict) -> None:
                   sort_keys=False)
         logging.info("Configurations\n%s******************",
                      configs_dump.getvalue())
-
 
 def morph_analysis(_sample_path: str,
                    _morph) -> None:
@@ -331,7 +330,6 @@ def morph_analysis(_sample_path: str,
 
     with open(fd_path, 'wb') as fd_file:
         np.save(fd_file, fd_result)
-
 
 def blender_visualization(_distance_results: array,
                           _fd_results: array,
@@ -379,6 +377,38 @@ def blender_visualization(_distance_results: array,
     np.save(os.path.join(_output_path, "faces_bumpiness.npy"), faces)
     np.save(os.path.join(_output_path, "values_bumpiness.npy"), values)
 
+def replace_outliers_iqr(arr, k=1.5):
+    original_size = arr.size
+    q1 = np.percentile(arr, 5)
+    q3 = np.percentile(arr, 95)
+    iqr = q3 - q1
+    if iqr == 0:
+        logging.info("IQR is 0, using percentiles for outlier detection.")
+        lower_bound = np.percentile(arr, 2)
+        upper_bound = np.percentile(arr, 98)
+    else:
+        lower_bound = q1 - k * iqr
+        upper_bound = q3 + k * iqr
+    logging.info(f"Outlier replacement: q1={q1}, q3={q3}, iqr={iqr}, lower_bound={lower_bound}, upper_bound={upper_bound}")
+    arr_copy = arr.copy()
+    outliers_upper = arr_copy > upper_bound
+    replaced_count = np.sum(outliers_upper)
+    arr_copy[outliers_upper] = upper_bound
+    logging.info(f"Replaced {replaced_count} outliers out of {original_size} values.")
+    return arr_copy
+
+def remove_outliers_iqr(arr, k=1.5):
+    original_size = len(arr)
+    q1 = np.percentile(arr, 25)
+    q3 = np.percentile(arr, 75)
+    iqr = q3 - q1
+    lower_bound = q1 - k * iqr
+    upper_bound = q3 + k * iqr
+    logging.info(f"Outlier removal: q1={q1}, q3={q3}, iqr={iqr}, lower_bound={lower_bound}, upper_bound={upper_bound}")
+    clean_arr = arr[(arr <= upper_bound)]
+    removed_count = original_size - len(clean_arr)
+    logging.info(f"Removed {removed_count} outliers out of {original_size} values.")
+    return clean_arr
 
 def blender_prepare(_sample_dir: str) -> None:
     sample = Path(_sample_dir)
@@ -390,22 +420,14 @@ def blender_prepare(_sample_dir: str) -> None:
                           _output_path=sample / "blender/")
 
 
-def remove_outliers_iqr(arr, k=1.5):
-    q1 = np.percentile(arr, 25)
-    q3 = np.percentile(arr, 75)
-    iqr = q3 - q1
-    lower_bound = q1 - k * iqr
-    upper_bound = q3 + k * iqr
-    return arr[(arr >= lower_bound) & (arr <= upper_bound)]
-
-
 def save_histogram(_array,
                    _title,
-                   _path):
+                   _path,
+                   _bins):
     # Create histogram
     fig = go.Figure(data=[go.Histogram(
         x=_array,
-        nbinsx=100,
+        nbinsx=_bins,
         marker=dict(
             line=dict(color='black', width=1)
         )
@@ -419,149 +441,329 @@ def save_histogram(_array,
     )
 
     # Save the plot
-    fig.write_image(_path)  # requires kaleido package
+    logging.info(f"Saving histogram: {_path}")
+    fig.write_image(_path, width=1400, height=1000)  # requires kaleido package
 
+
+def save_polar_plot(_angles, _thickness_values, _title, _path):
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatterpolar(
+        r=_thickness_values,
+        theta=_angles,
+        mode='lines',
+        line_color='blue',
+        line_width=2,
+        fill='toself',
+        fillcolor='rgba(0, 0, 255, 0.1)'
+    ))
+
+    fig.update_layout(
+        title=_title,
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                title="Average Thickness (nm)",
+                tickangle=0,
+                dtick=400
+            ),
+            angularaxis=dict(
+                visible=True,
+                direction="clockwise",
+                period=360,
+                dtick=45  # Show ticks every 45 degrees
+            )
+        )
+    )
+    logging.info(f"Saving polar plot: {_path}")
+    fig.write_image(_path, width=1400, height=1000)
+
+def calculate_cylindrical_analysis(_data, _alpha_step, _radius):
+    z_dim, y_dim, x_dim = _data.shape
+    center_y, center_x = y_dim // 2, x_dim // 2
+
+    angles = np.arange(0, 360, _alpha_step)
+    avg_thickness_per_angle = []
+
+    for angle in angles:
+        thickness_values = []
+        for r in range(1, int(_radius) + 1):
+            for z in range(z_dim):
+                y = int(center_y + r * np.sin(np.deg2rad(angle)))
+                x = int(center_x + r * np.cos(np.deg2rad(angle)))
+
+                if 0 <= y < y_dim and 0 <= x < x_dim:
+                    thickness = _data[z, y, x]
+                    if thickness > 0:
+                        thickness_values.append(thickness)
+
+        if thickness_values:
+            avg_thickness_per_angle.append(np.mean(thickness_values))
+        else:
+            avg_thickness_per_angle.append(0)
+
+    # Close the loop by appending the first value to the end
+    if avg_thickness_per_angle:
+        angles = np.append(angles, angles[0])
+        avg_thickness_per_angle.append(avg_thickness_per_angle[0])
+
+    return angles, avg_thickness_per_angle
+
+def save_top_down_view_aspect_ratio(_data, _title, _path):
+    # Project the 3D data onto a 2D plane by taking the max along the Z-axis
+    top_down_data = np.max(_data, axis=0)
+    top_down_data = replace_outliers_iqr(top_down_data)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=top_down_data,
+        colorscale='Viridis'
+    ))
+
+    fig.update_layout(
+        title=_title,
+        xaxis_title='X-axis',
+        yaxis_title='Y-axis',
+        yaxis_scaleanchor="x",
+        yaxis_scaleratio=1
+    )
+
+    logging.info(f"Saving top-down view plot with aspect ratio: {_path}")
+    fig.write_image(_path, width=1400, height=1000)
+
+def save_top_down_view(_data, _title, _path):
+    # Project the 3D data onto a 2D plane by taking the max along the Z-axis
+    top_down_data = np.max(_data, axis=0)
+    top_down_data = replace_outliers_iqr(top_down_data)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=top_down_data,
+        colorscale='Viridis'
+    ))
+
+    fig.update_layout(
+        title=_title,
+        xaxis_title='X-axis',
+        yaxis_title='Y-axis'
+    )
+
+    logging.info(f"Saving top-down view plot: {_path}")
+    fig.write_image(_path, width=1400, height=1000)
+
+
+def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_per_angle):
+    # Project the 3D data onto a 2D plane by taking the max along the Z-axis
+    top_down_data = np.max(_data, axis=0)
+    top_down_data = replace_outliers_iqr(top_down_data)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=top_down_data,
+        colorscale='Viridis'
+    ))
+
+    # Add cylindrical analysis overlay
+    center_y, center_x = top_down_data.shape[0] // 2, top_down_data.shape[1] // 2
+
+    # Add circle for the radius
+    fig.add_shape(
+        type="circle",
+        xref="x", yref="y",
+        x0=center_x - _radius, y0=center_y - _radius,
+        x1=center_x + _radius, y1=center_y + _radius,
+        line_color="rgba(255,0,0,0.5)",
+        line_width=2
+    )
+
+    # Add lines for the angles (single color, transparent)
+    for i, angle in enumerate(_angles):
+        fig.add_shape(
+            type="line",
+            xref="x", yref="y",
+            x0=center_x, y0=center_y,
+            x1=center_x + _radius * np.cos(np.deg2rad(-angle + 90)),
+            y1=center_y + _radius * np.sin(np.deg2rad(-angle + 90)),
+            line_color="rgba(128,128,128,0.3)",  # Light gray with transparency
+            line_width=1
+        )
+
+    # Add the thickness data as a line
+    # Normalize the thickness values to fit within the radius
+    max_thickness = np.max(_avg_thickness_per_angle)
+    normalized_thickness = (_avg_thickness_per_angle / max_thickness) * _radius
+
+    # Convert polar to cartesian coordinates
+    x_coords = center_x + normalized_thickness * np.cos(np.deg2rad(-_angles + 90))
+    y_coords = center_y + normalized_thickness * np.sin(np.deg2rad(-_angles + 90))
+
+    # Add the line trace
+    fig.add_trace(go.Scatter(x=x_coords, y=y_coords, mode='lines', line=dict(color='white', width=2)))
+
+    fig.update_layout(
+        title=_title,
+        xaxis_title='X-axis',
+        yaxis_title='Y-axis',
+        yaxis_scaleanchor="x",
+        yaxis_scaleratio=1,
+        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False)
+    )
+
+    logging.info(f"Saving combined view plot: {_path}")
+    fig.write_image(_path, width=1000, height=1000)
+
+
+def save_comparative_box_plot(_all_thickness_data, _sample_names, _title, _path):
+    fig = go.Figure()
+
+    for i, data in enumerate(_all_thickness_data):
+        # Remove outliers for this plot only
+        data_clean = remove_outliers_iqr(data)
+        fig.add_trace(go.Box(y=data_clean, name=_sample_names[i]))
+
+    fig.update_layout(title_text=_title,
+                      yaxis_title="Thickness (nm)")
+    logging.info(f"Saving comparative box plot: {_path}")
+    fig.write_image(_path, width=1400, height=1000)
 
 def calculate_stats(_inference_result_path: Path,
-                    _inference_export_path: Path):
+                    _stats_dir: Path):
+    _alpha_step = 10
+    _radius = 1000
 
-    stats_path = _inference_export_path / "stats"
-    hists_path = stats_path / "histograms"
-    value_path = stats_path / "values"
-    create_dirs_recursively(hists_path / "dummy")
+    logging.info("Starting statistical analysis for inference results")
+    logging.info("Input path: %s", _inference_result_path)
+    logging.info("Output path: %s", _stats_dir)
 
-    # Specific patterns for each category based on your list
-    patterns = {
-        'Control': r'CKM103|AUY381|AUY380|CKM110',
-        'Col Mutation': r'CKM105|CKM104',
-        'Pod Mutation': r'BDP675|BDP672|BDP669',
-    }
+    # Create stats directory if it doesn't exist
+    _stats_dir.mkdir(parents=True, exist_ok=True)
+    logging.info("Created stats directory: %s", _stats_dir)
 
-    control_thickness = np.empty(0, dtype=np.float32)
-    control_bumpiness = np.empty(0, dtype=np.float32)
+    # Define bin sizes for multi-bin histograms
+    bin_sizes = [10, 20, 50, 100]
+    logging.info("Using bin sizes: %s", bin_sizes)
 
-    colmut_thickness = np.empty(0, dtype=np.float32)
-    colmut_bumpiness = np.empty(0, dtype=np.float32)
+    # Count total samples for progress tracking
+    sample_dirs = [d for d in _inference_result_path.iterdir() if d.is_dir()]
+    total_samples = len(sample_dirs)
+    logging.info("Found %d samples to process", total_samples)
 
-    podmut_thickness = np.empty(0, dtype=np.float32)
-    podmut_bumpiness = np.empty(0, dtype=np.float32)
+    # Initialize arrays to store aggregated data
+    all_thickness_data = []
+    sample_names = []
 
-    for dir in _inference_result_path.iterdir():
-        if not dir.is_dir():
-            continue
+    processed_samples = 0
 
-        for category, pattern in patterns.items():
-            if re.search(pattern, dir.name):
-                group_name = category
+    # Process each directory (sample) in the inference results
+    for sample_dir in sample_dirs:
+        logging.info("Processing sample: %s", sample_dir.name)
 
-        if not group_name:
-            raise RuntimeError("Unkown mice category!")
+        # Create a directory for this sample's histograms
+        sample_hist_dir = _stats_dir / sample_dir.name
+        sample_hist_dir.mkdir(exist_ok=True)
+        logging.debug("Created sample histogram directory: %s", sample_hist_dir)
 
-        sample_hists_path = hists_path / group_name
-        sample_value_path = value_path / group_name
-        create_dirs_recursively(sample_hists_path / "dummy")
-        create_dirs_recursively(sample_value_path / "dummy")
+        # Process distance_result.npy (thickness)
+        distance_file = sample_dir / "distance_result.npy"
+        if distance_file.exists():
+            logging.debug("Processing thickness file: %s", distance_file)
+            try:
+                data = np.load(distance_file)
+                original_size = len(data)
+                logging.debug("Loaded thickness data with %d values", original_size)
 
-        thickness = np.load(dir / "distance_result.npy")
-        bumpiness = np.load(dir / "fd_result.npy")
+                # Remove zero values
+                data_no_zeros = data[data != 0]
+                after_zero_removal = len(data_no_zeros)
+                logging.debug("Removed %d zero values, %d values remaining",
+                              original_size - after_zero_removal, after_zero_removal)
 
-        # Setting the first 5 (averaging kernel size) layers to zero because of sudden gradient shift in the last layers
-        bumpiness[:5, :, :] = 0
-        bumpiness[-5:, :, :] = 0
+                # Remove outliers using IQR method
+                data_clean = remove_outliers_iqr(data_no_zeros)
+                after_outlier_removal = len(data_clean)
+                logging.debug("Removed %d outliers, %d values remaining for histogram",
+                              after_zero_removal - after_outlier_removal, after_outlier_removal)
 
-        # Remove zeros
-        thickness = thickness[thickness != 0]
-        bumpiness = bumpiness[bumpiness != 0]
+                # Store data for aggregation
+                if len(data_clean) > 0:
+                    all_thickness_data.append(data_clean)
+                    sample_names.append(sample_dir.name)
 
-        thickness = remove_outliers_iqr(thickness)
-        bumpiness = remove_outliers_iqr(bumpiness)
+                # Create multi-bin histograms for thickness
+                for bins in bin_sizes:
+                    save_histogram(data_clean,
+                                   f'Thickness Histogram with {bins} Bins - {sample_dir.name}',
+                                   sample_hist_dir / f'thickness_{sample_dir.name}_{bins}_bins.png',
+                                   bins)
+                    logging.debug("Created thickness histogram with %d bins", bins)
+                # Cylindrical analysis
+                angles, avg_thickness = calculate_cylindrical_analysis(data, _alpha_step, _radius)
+                save_polar_plot(angles, avg_thickness, f'Cylindrical Analysis - {sample_dir.name}', sample_hist_dir / f'cylindrical_analysis_{sample_dir.name}.png')
+                logging.debug("Created cylindrical analysis plot")
 
-        if group_name == 'Control':
-            control_thickness = np.concatenate((control_thickness, thickness))
-            control_bumpiness = np.concatenate((control_bumpiness, bumpiness))
-        elif group_name == 'Col Mutation':
-            colmut_thickness = np.concatenate((colmut_thickness, thickness))
-            colmut_bumpiness = np.concatenate((colmut_bumpiness, bumpiness))
-        elif group_name == 'Pod Mutation':
-            podmut_thickness = np.concatenate((podmut_thickness, thickness))
-            podmut_bumpiness = np.concatenate((podmut_bumpiness, bumpiness))
+                # Top-down view
+                save_top_down_view(data, f'Top-Down View - {sample_dir.name}', sample_hist_dir / f'top_down_view_{sample_dir.name}.png')
+                logging.debug("Created top-down view plot")
 
-        save_histogram(thickness,
-                       'Histogram of thickness',
-                       sample_hists_path / f"thickness_{dir.name}.png")
+                # Top-down view with aspect ratio
+                save_top_down_view_aspect_ratio(data, f'Top-Down View (Aspect Ratio) - {sample_dir.name}', sample_hist_dir / f'top_down_view_aspect_ratio_{sample_dir.name}.png')
+                logging.info("Created top-down view plot with aspect ratio")
 
-        save_histogram(bumpiness,
-                       'Histogram of bumpiness',
-                       sample_hists_path / f"bumpiness_{dir.name}.png")
+                # Combined view
+                save_combined_view(data, f'Combined View - {sample_dir.name}', sample_hist_dir / f'combined_view_{sample_dir.name}.png', angles, _radius, avg_thickness)
+                logging.debug("Created combined view plot")
 
-        np.save(sample_value_path / f"thickness_{dir.name}.npy", thickness)
-        np.save(sample_value_path / f"bumpiness_{dir.name}.npy", bumpiness)
+            except Exception as e:
+                logging.error("Error processing thickness file %s: %s", distance_file, e)
+        else:
+            logging.warning("Thickness file not found: %s", distance_file)
 
-        np.savetxt(sample_value_path / f"thickness_{dir.name}.csv",
-                   thickness,
-                   delimiter=',',
-                   fmt='%.4f')
-        np.savetxt(sample_value_path / f"bumpiness_{dir.name}.csv",
-                   bumpiness,
-                   delimiter=',',
-                   fmt='%.4f')
+        processed_samples += 1
+        logging.info("Completed processing sample %s (%d/%d)",
+                     sample_dir.name, processed_samples, total_samples)
 
-    remove_outliers_iqr(control_thickness)
-    remove_outliers_iqr(control_bumpiness)
-    remove_outliers_iqr(podmut_thickness)
-    remove_outliers_iqr(podmut_bumpiness)
-    remove_outliers_iqr(colmut_thickness)
-    remove_outliers_iqr(colmut_bumpiness)
+    # Aggregate and save data for box plots
+    logging.info("Aggregating thickness data for analysis")
 
-    save_histogram(control_thickness,
-                   'Histogram of thickness',
-                   hists_path / "thickness_control.png")
+    # Save aggregated thickness data
+    if all_thickness_data:
+        # Concatenate all thickness data into single array of datapoints
+        aggregated_thickness = np.concatenate(all_thickness_data)
+        logging.info("Aggregated %d thickness values from %d samples",
+                     len(aggregated_thickness), len(all_thickness_data))
 
-    save_histogram(control_bumpiness,
-                   'Histogram of bumpiness',
-                   hists_path / "bumpiness_control.png")
+        # Save as numpy array only - just the aggregated datapoints
+        thickness_np_file = _stats_dir / "aggregated_thickness_data.npy"
+        np.save(thickness_np_file, aggregated_thickness)
+        logging.info("Saved aggregated thickness data to %s", thickness_np_file)
 
-    save_histogram(podmut_thickness,
-                   'Histogram of thickness',
-                   hists_path / "thickness_podmut.png")
+        # Create and save comparative box plot for all samples
+        save_comparative_box_plot(all_thickness_data,
+                                  sample_names,
+                                  "Comparative Box Plot of Thickness Across Samples",
+                                  _stats_dir / "comparative_box_plot.png")
+        logging.info("Saved comparative box plot of all samples to %s", _stats_dir / "comparative_box_plot.png")
 
-    save_histogram(podmut_bumpiness,
-                   'Histogram of bumpiness',
-                   hists_path / "bumpiness_podmut.png")
+    # Save metadata file with sample information
+    metadata_file = _stats_dir / "metadata.txt"
+    with open(metadata_file, 'w') as f:
+        f.write("Statistical Analysis Metadata\n")
+        f.write("============================\n")
+        f.write(f"Input directory: {_inference_result_path}\n")
+        f.write(f"Output directory: {_stats_dir}\n")
+        f.write(f"Total samples processed: {total_samples}\n")
+        f.write(f"Samples with valid data: {len(sample_names)}\n")
+        f.write(f"Bin sizes used: {bin_sizes}\n")
+        f.write(f"Alpha step for cylindrical analysis: {_alpha_step}\n")
+        f.write(f"Radius for cylindrical analysis: {_radius}\n")
+        f.write("\nSample names:\n")
+        for name in sample_names:
+            f.write(f"  - {name}\n")
+        f.write("\nGenerated files:\n")
+        if all_thickness_data:
+            f.write("  - aggregated_thickness_data.npy (all thickness values)\n")
 
-    save_histogram(colmut_thickness,
-                   'Histogram of thickness',
-                   hists_path / "thickness_colmut.png")
-
-    save_histogram(colmut_bumpiness,
-                   'Histogram of bumpiness',
-                   hists_path / "bumpiness_colmut.png")
-
-    np.save(value_path / "thickness_control.npy", control_thickness)
-    np.save(value_path / "bumpiness_control.npy", control_bumpiness)
-    np.save(value_path / "thickness_podmut.npy", podmut_thickness)
-    np.save(value_path / "bumpiness_podmut.npy", podmut_bumpiness)
-    np.save(value_path / "thickness_colmut.npy", colmut_thickness)
-    np.save(value_path / "bumpiness_colmut.npy", colmut_bumpiness)
-
-    np.savetxt(value_path / "thickness_control.csv",
-               control_thickness, delimiter=',', fmt='%.4f')
-
-    np.savetxt(sample_value_path / "bumpiness_control.csv",
-               control_bumpiness, delimiter=',', fmt='%.4f')
-
-    np.savetxt(value_path / "thickness_podmut.csv",
-               podmut_thickness, delimiter=',', fmt='%.4f')
-
-    np.savetxt(value_path / "bumpiness_podmut.csv",
-               podmut_bumpiness, delimiter=',', fmt='%.4f')
-
-    np.savetxt(value_path / "thickness_colmut.csv",
-               colmut_thickness, delimiter=',', fmt='%.4f')
-
-    np.savetxt(value_path / "bumpiness_colmut.csv",
-               colmut_bumpiness, delimiter=',', fmt='%.4f')
-
+    logging.info("Saved metadata to %s", metadata_file)
+    logging.info("Statistical analysis completed successfully")
+    logging.info("Multi-bin histograms and aggregated thickness data saved in '%s' directory", _stats_dir)
 
 def blender_render(_inference_dir: str) -> None:
 
@@ -604,7 +806,6 @@ def blender_render(_inference_dir: str) -> None:
         # Wait for all processes to complete
         for proc in processes:
             proc.wait()
-
 
 def export_results(_inference_result_path: Path,
                    _inference_export_path: Path):
@@ -664,11 +865,10 @@ def export_results(_inference_result_path: Path,
                          metadata={'axes': 'ZCYX', 'fps': 10.0},
                          compression='lzw')
 
-
 def analyze_dataset(_dataset):
     def draw(voxels, path, name):
-        import matplotlib.pyplot as plt
         # Plot histogram
+        import matplotlib.pyplot as plt
         plt.figure(figsize=(10, 6))
         plt.hist(voxels.flatten(), bins=256, edgecolor='black')
         plt.title(f'Histogram of {name} Intensities')

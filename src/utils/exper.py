@@ -116,10 +116,12 @@ def stats(_name: str,
 
     inference_root_path = Path(inference_root_path)
     inference_result_path = Path(inference_result_path)
-    inference_export_path = inference_root_path / f"{inference_result_path.name}_export"
+
+    # Create stats directory based on inference tag
+    stats_dir = inference_root_path / f"{_inference_tag}_stats"
 
     calculate_stats(inference_result_path,
-                    inference_export_path)
+                    stats_dir)
 
 
 def export(_name: str,
