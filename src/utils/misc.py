@@ -471,7 +471,8 @@ def save_polar_plot(_angles, _thickness_values, _title, _path):
                 visible=True,
                 direction="clockwise",
                 period=360,
-                dtick=45  # Show ticks every 45 degrees
+                dtick=45,  # Show ticks every 45 degrees
+                rotation=0 # Set 0 degrees to the right
             )
         )
     )
@@ -521,33 +522,17 @@ def save_top_down_view_aspect_ratio(_data, _title, _path):
 
     fig.update_layout(
         title=_title,
-        xaxis_title='X-axis',
-        yaxis_title='Y-axis',
+        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
         yaxis_scaleanchor="x",
-        yaxis_scaleratio=1
+        yaxis_scaleratio=1,
+        margin=dict(l=0, r=0, t=40, b=0) # Adjust margins to remove empty space
     )
 
     logging.info(f"Saving top-down view plot with aspect ratio: {_path}")
     fig.write_image(_path, width=1400, height=1000)
 
-def save_top_down_view(_data, _title, _path):
-    # Project the 3D data onto a 2D plane by taking the max along the Z-axis
-    top_down_data = np.max(_data, axis=0)
-    top_down_data = replace_outliers_iqr(top_down_data)
 
-    fig = go.Figure(data=go.Heatmap(
-        z=top_down_data,
-        colorscale='Viridis'
-    ))
-
-    fig.update_layout(
-        title=_title,
-        xaxis_title='X-axis',
-        yaxis_title='Y-axis'
-    )
-
-    logging.info(f"Saving top-down view plot: {_path}")
-    fig.write_image(_path, width=1400, height=1000)
 
 
 def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_per_angle):
@@ -579,8 +564,8 @@ def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_pe
             type="line",
             xref="x", yref="y",
             x0=center_x, y0=center_y,
-            x1=center_x + _radius * np.cos(np.deg2rad(-angle + 90)),
-            y1=center_y + _radius * np.sin(np.deg2rad(-angle + 90)),
+            x1=center_x + _radius * np.cos(np.deg2rad(-angle)),
+            y1=center_y + _radius * np.sin(np.deg2rad(-angle)),
             line_color="rgba(128,128,128,0.3)",  # Light gray with transparency
             line_width=1
         )
@@ -591,8 +576,8 @@ def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_pe
     normalized_thickness = (_avg_thickness_per_angle / max_thickness) * _radius
 
     # Convert polar to cartesian coordinates
-    x_coords = center_x + normalized_thickness * np.cos(np.deg2rad(-_angles + 90))
-    y_coords = center_y + normalized_thickness * np.sin(np.deg2rad(-_angles + 90))
+    x_coords = center_x + normalized_thickness * np.cos(np.deg2rad(-_angles))
+    y_coords = center_y + normalized_thickness * np.sin(np.deg2rad(-_angles))
 
     # Add the line trace
     fig.add_trace(go.Scatter(x=x_coords, y=y_coords, mode='lines', line=dict(color='white', width=2)))
@@ -699,9 +684,7 @@ def calculate_stats(_inference_result_path: Path,
                 save_polar_plot(angles, avg_thickness, f'Cylindrical Analysis - {sample_dir.name}', sample_hist_dir / f'cylindrical_analysis_{sample_dir.name}.png')
                 logging.debug("Created cylindrical analysis plot")
 
-                # Top-down view
-                save_top_down_view(data, f'Top-Down View - {sample_dir.name}', sample_hist_dir / f'top_down_view_{sample_dir.name}.png')
-                logging.debug("Created top-down view plot")
+
 
                 # Top-down view with aspect ratio
                 save_top_down_view_aspect_ratio(data, f'Top-Down View (Aspect Ratio) - {sample_dir.name}', sample_hist_dir / f'top_down_view_aspect_ratio_{sample_dir.name}.png')
