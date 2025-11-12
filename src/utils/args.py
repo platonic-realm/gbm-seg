@@ -210,6 +210,26 @@ def parse_exper() -> None:
                               required=True,
                               help='select the snapshot used for inference')
 
+    # Define a subparser for the 'roi' action
+    infer_parser = \
+        subparsers.add_parser('roi',
+                              help='generate region of interest')
+
+    infer_parser.add_argument('name',
+                              help='name of the experiment.')
+
+    infer_parser.add_argument('-it',
+                              '--inference-tag',
+                              action='store',
+                              required=True,
+                              help='select the snapshot used for inference')
+
+    infer_parser.add_argument('-sn',
+                              '--sample-name',
+                              action='store',
+                              required=False,
+                              help='the relative path to the sample')
+
     # Parse the arguments
     args = parser.parse_args()
 

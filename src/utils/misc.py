@@ -392,12 +392,15 @@ def replace_outliers_iqr(arr, k=1.5, lower_p=5, upper_p=95, lower_p_zero_iqr=2, 
     arr_copy = arr.copy()
     outliers_upper = arr_copy > upper_bound
     replaced_count = np.sum(outliers_upper)
+    percentage_replaced = (replaced_count / original_size) * 100 if original_size > 0 else 0
     arr_copy[outliers_upper] = upper_bound
-    logging.info(f"Replaced {replaced_count} outliers out of {original_size} values.")
+    logging.info(f"Replaced {replaced_count} outliers out of {original_size} values ({percentage_replaced:.2f}%).")
     return arr_copy
 
 def remove_outliers_iqr(arr, k=1.5):
     original_size = len(arr)
+    if original_size == 0:
+        return arr
     q1 = np.percentile(arr, 5)
     q3 = np.percentile(arr, 95)
     iqr = q3 - q1
@@ -406,7 +409,8 @@ def remove_outliers_iqr(arr, k=1.5):
     logging.info(f"Outlier removal: q1={q1}, q3={q3}, iqr={iqr}, lower_bound={lower_bound}, upper_bound={upper_bound}")
     clean_arr = arr[(arr <= upper_bound)]
     removed_count = original_size - len(clean_arr)
-    logging.info(f"Removed {removed_count} outliers out of {original_size} values.")
+    percentage_removed = (removed_count / original_size) * 100
+    logging.info(f"Removed {removed_count} outliers out of {original_size} values ({percentage_removed:.2f}%).")
     return clean_arr
 
 def blender_prepare(_sample_dir: str) -> None:
@@ -510,9 +514,9 @@ def calculate_cylindrical_analysis(_data, _alpha_step, _radius):
     dx = x_coords - center_x
     dy = y_coords - center_y
     radius_map = np.sqrt(dx**2 + dy**2)
-    angle_map_rad = np.arctan2(dy, dx) # Range is -pi to pi
+    angle_map_rad = np.arctan2(dy, dx)  # Range is -pi to pi
     angle_map_deg = np.rad2deg(angle_map_rad)
-    angle_map_deg[angle_map_deg < 0] += 360 # Convert to 0-360 range
+    angle_map_deg[angle_map_deg < 0] += 360  # Convert to 0-360 range
 
     # 5. Create a mask for pixels within the specified radius
     radius_mask = radius_map <= _radius
@@ -596,7 +600,7 @@ def save_top_down_view_aspect_ratio(_data, _title, _path, _lower_percentile_iqr,
     # Project the 3D data onto a 2D plane by taking the max along the Z-axis
     top_down_data = np.max(_data, axis=0)
     top_down_data = replace_outliers_iqr(top_down_data, lower_p=_lower_percentile_iqr, upper_p=_upper_percentile_iqr, lower_p_zero_iqr=_lower_percentile_iqr_zero, upper_p_zero_iqr=_upper_percentile_iqr_zero)
-    top_down_data = np.flipud(top_down_data) # Vertical flip (up-down)
+    top_down_data = np.flipud(top_down_data)  # Vertical flip (up-down)
 
     fig = go.Figure(data=go.Heatmap(
         z=top_down_data,
@@ -616,11 +620,14 @@ def save_top_down_view_aspect_ratio(_data, _title, _path, _lower_percentile_iqr,
 
     logging.info(f"Saving top-down view plot with aspect ratio: {_path}")
     fig.write_image(_path, width=1000, height=1000)
-
 
     top_down_data = np.max(_data, axis=0)
-    top_down_data = replace_outliers_iqr(top_down_data, lower_p=_lower_percentile_iqr, upper_p=_upper_percentile_iqr, lower_p_zero_iqr=_lower_percentile_iqr_zero, upper_p_zero_iqr=_upper_percentile_iqr_zero)
-    top_down_data = np.flipud(top_down_data) # Vertical flip (up-down)
+    top_down_data = replace_outliers_iqr(top_down_data,
+                                         lower_p=_lower_percentile_iqr,
+                                         upper_p=_upper_percentile_iqr,
+                                         lower_p_zero_iqr=_lower_percentile_iqr_zero,
+                                         upper_p_zero_iqr=_upper_percentile_iqr_zero)
+    top_down_data = np.flipud(top_down_data)  # Vertical flip (up-down)
 
     fig = go.Figure(data=go.Heatmap(
         z=top_down_data,
@@ -651,11 +658,20 @@ def save_top_down_view_aspect_ratio(_data, _title, _path, _lower_percentile_iqr,
     fig.write_image(_path, width=1000, height=1000)
 
 
-def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_per_angle, _lower_percentile_iqr, _upper_percentile_iqr, _lower_percentile_iqr_zero, _upper_percentile_iqr_zero):
+def save_combined_view(_data,
+                       _title,
+                       _path,
+                       _angles,
+                       _radius,
+                       _avg_thickness_per_angle,
+                       _lower_percentile_iqr,
+                       _upper_percentile_iqr,
+                       _lower_percentile_iqr_zero,
+                       _upper_percentile_iqr_zero):
     # Project the 3D data onto a 2D plane by taking the max along the Z-axis
     top_down_data = np.max(_data, axis=0)
     top_down_data = replace_outliers_iqr(top_down_data, lower_p=_lower_percentile_iqr, upper_p=_upper_percentile_iqr, lower_p_zero_iqr=_lower_percentile_iqr_zero, upper_p_zero_iqr=_upper_percentile_iqr_zero)
-    top_down_data = np.flipud(top_down_data) # Vertical flip (up-down)
+    top_down_data = np.flipud(top_down_data)  # Vertical flip (up-down)
 
     fig = go.Figure(data=go.Heatmap(
         z=top_down_data,
@@ -752,7 +768,7 @@ def generate_comparative_box_plot(_stats_dir: Path):
 
     for sample_stats in summary_data:
         fig.add_trace(go.Box(
-            x=[sample_stats['sample_name']], # Assign x-axis category
+            x=[sample_stats['sample_name']],  # Assign x-axis category
             name=sample_stats['sample_name'],
             q1=[sample_stats['q1']],
             median=[sample_stats['median']],
@@ -801,6 +817,7 @@ def calculate_stats(_inference_result_path: Path,
     summary_data_list = []
     sample_names_for_violin = []
     all_thickness_data_for_violin = []
+    all_thickness_data_before_outliers = []
 
     processed_samples = 0
 
@@ -814,7 +831,11 @@ def calculate_stats(_inference_result_path: Path,
         logging.debug("Created sample histogram directory: %s", sample_hist_dir)
 
         # Process distance_result.npy (thickness)
-        distance_file = sample_dir / "distance_result.npy"
+        distance_file = sample_dir / "distance_artifact_removed.npy"
+        if not distance_file.exists():
+            logging.warning("Artifact removed file not found, falling back to distance_result.npy")
+            distance_file = sample_dir / "distance_result.npy"
+
         if distance_file.exists():
             logging.debug("Processing thickness file: %s", distance_file)
             try:
@@ -827,6 +848,10 @@ def calculate_stats(_inference_result_path: Path,
                 after_zero_removal = len(data_no_zeros)
                 logging.debug("Removed %d zero values, %d values remaining",
                               original_size - after_zero_removal, after_zero_removal)
+
+                # Append data before outlier removal for aggregation
+                if len(data_no_zeros) > 0:
+                    all_thickness_data_before_outliers.append(data_no_zeros)
 
                 # Remove outliers using IQR method
                 data_clean = remove_outliers_iqr(data_no_zeros)
@@ -841,9 +866,9 @@ def calculate_stats(_inference_result_path: Path,
                     sample_names_for_violin.append(sample_dir.name)
 
                     # Calculate summary statistics for the box plot
-                    q1 = np.percentile(data_clean, 5)
+                    q1 = np.percentile(data_clean, _lower_percentile_iqr)
                     median = np.median(data_clean)
-                    q3 = np.percentile(data_clean, 95)
+                    q3 = np.percentile(data_clean, _upper_percentile_iqr)
                     iqr = q3 - q1
                     lowerfence = max(np.min(data_clean), q1 - 1.5 * iqr)
                     upperfence = min(np.max(data_clean), q3 + 1.5 * iqr)
@@ -901,6 +926,17 @@ def calculate_stats(_inference_result_path: Path,
         np.save(summary_file, summary_array)
         logging.info("Saved summary statistics to %s", summary_file)
 
+    # Save aggregated raw data points (before outlier removal)
+    if all_thickness_data_before_outliers:
+        aggregated_thickness_raw = np.concatenate(all_thickness_data_before_outliers)
+        logging.info(
+            "Aggregated %d raw thickness values from %d samples (before outlier removal)",
+            len(aggregated_thickness_raw), len(all_thickness_data_before_outliers)
+        )
+        raw_thickness_file = _stats_dir / "aggregated_thickness_data.npy"
+        np.save(raw_thickness_file, aggregated_thickness_raw)
+        logging.info("Saved aggregated raw thickness data to %s", raw_thickness_file)
+
     # Generate the fast comparative box plot from the summary file
     generate_comparative_box_plot(_stats_dir)
 
@@ -923,12 +959,79 @@ def calculate_stats(_inference_result_path: Path,
         if summary_data_list:
             f.write("  - summary_statistics.npy (quartiles, fences, mean, std for each sample)\n")
             f.write("  - comparative_box_plot.png (box plot generated from summary)\n")
+        if all_thickness_data_before_outliers:
+            f.write("  - aggregated_thickness_data.npy (all thickness values before outlier removal)\n")
         if all_thickness_data_for_violin:
             f.write("  - thickness_violin_plot.png (violin plot of all samples)\n")
 
     logging.info("Saved metadata to %s", metadata_file)
     logging.info("Statistical analysis completed successfully")
     logging.info("Multi-bin histograms and aggregated thickness data saved in '%s' directory", _stats_dir)
+
+def _recursive_roi_analysis(data,
+                            divisions,
+                            min_region_size,
+                            anomaly_threshold,
+                            depth,
+                            origin=(0, 0, 0)):
+    logging.debug(f"Depth {depth}: Analyzing region at {origin} of size {data.shape}")
+
+    if np.isclose(np.mean(data), 0.00):
+        logging.debug(f"Depth {depth}: Mean of region at {origin} is approximately 0.00. Ignoring this region.")
+        return []
+
+    # Divide the region into sub-regions
+    sub_regions = []
+    shape = data.shape
+    z_div, y_div, x_div = divisions
+    for i in range(z_div):
+        for j in range(y_div):
+            for k in range(x_div):
+                z_start, z_end = shape[0] * i // z_div, shape[0] * (i + 1) // z_div
+                y_start, y_end = shape[1] * j // y_div, shape[1] * (j + 1) // y_div
+                x_start, x_end = shape[2] * k // x_div, shape[2] * (k + 1) // x_div
+                sub_regions.append(data[z_start:z_end, y_start:y_end, x_start:x_end])
+
+    # Calculate stats for the sub-regions
+    sub_region_means = [np.mean(sub_region) for sub_region in sub_regions]
+    median_of_means = np.median(sub_region_means)
+    std_of_means = np.std(sub_region_means)
+    logging.debug(f"Depth {depth}: Sub-region stats at {origin}: median_of_means={median_of_means:.4f}, std_of_means={std_of_means:.4f}")
+
+    anomalous_regions_to_remove = []
+    # Analyze sub-regions
+    for i, sub_region in enumerate(sub_regions):
+        sub_mean = sub_region_means[i]
+        logging.debug(f"Depth {depth}: Sub-region {i} at {origin}: mean={sub_mean:.4f}")
+
+        if abs(sub_mean - median_of_means) > anomaly_threshold * std_of_means:
+            logging.warning(f"Depth {depth}: Anomaly detected in sub-region {i} at {origin} (mean={sub_mean:.4f}).")
+
+            if sub_region.size < min_region_size:
+                logging.warning(f"Depth {depth}: Region at {origin} is smaller than {min_region_size} and will be removed.")
+                # This is a leaf node anomaly, return its coordinates for removal
+                z_start, z_end = shape[0] * (i // (y_div * x_div)) // z_div, shape[0] * ((i // (y_div * x_div)) + 1) // z_div
+                y_start, y_end = shape[1] * ((i % (y_div * x_div)) // x_div) // y_div, shape[1] * (((i % (y_div * x_div)) // x_div) + 1) // y_div
+                x_start, x_end = shape[2] * (i % x_div) // x_div, shape[2] * ((i % x_div) + 1) // x_div
+                anomalous_regions_to_remove.append((slice(origin[0] + z_start, origin[0] + z_end),
+                                                    slice(origin[1] + y_start, origin[1] + y_end),
+                                                    slice(origin[2] + x_start, origin[2] + x_end)))
+            else:
+                # This is a branch node anomaly, recurse
+                z_start, z_end = shape[0] * (i // (y_div * x_div)) // z_div, shape[0] * ((i // (y_div * x_div)) + 1) // z_div
+                y_start, y_end = shape[1] * ((i % (y_div * x_div)) // x_div) // y_div, shape[1] * (((i % (y_div * x_div)) // x_div) + 1) // y_div
+                x_start, x_end = shape[2] * (i % x_div) // x_div, shape[2] * ((i % x_div) + 1) // x_div
+                new_origin = (origin[0] + z_start, origin[1] + y_start, origin[2] + x_start)
+                anomalous_regions_to_remove.extend(_recursive_roi_analysis(sub_region,
+                                                                           divisions,
+                                                                           min_region_size,
+                                                                           anomaly_threshold + 0.1,
+                                                                           depth + 1,
+                                                                           new_origin))
+        else:
+            logging.debug(f"Depth {depth}: Sub-region {i} at {origin} is normal.")
+
+    return anomalous_regions_to_remove
 
 def blender_render(_inference_dir: str) -> None:
 

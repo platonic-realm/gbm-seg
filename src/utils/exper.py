@@ -8,16 +8,17 @@ import math
 from pathlib import Path
 
 # Library Imports
+import numpy as np
 
 # Local Imports
 from src.train.factory import Factory
 from src.utils.misc import create_dirs_recursively, \
         copy_directory, read_configs, resize_and_copy, \
         morph_analysis, blender_render, blender_prepare, \
-        export_results, calculate_stats
+        export_results, calculate_stats, _recursive_roi_analysis
+
 from train import main_train
 from infer import main_infer
-
 
 def experiment_exists(_root_path, _name) -> bool:
     result = False
@@ -28,8 +29,8 @@ def experiment_exists(_root_path, _name) -> bool:
                                  item)) and item == _name:
                 result = True
                 break
-    return result
 
+    return result
 
 def list_experiments(_root_path):
     print("Experiments:")
@@ -39,11 +40,11 @@ def list_experiments(_root_path):
                                           item)):
                 print(f"* {item}")
 
-
 def visualize_results(_name: str,
                       _root_path: str,
                       _inference_tag: str,
                       _sample_name: str):
+
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
         raise FileNotFoundError(message)
@@ -52,7 +53,6 @@ def visualize_results(_name: str,
     # configs = read_configs(configs_path)
 
     inference_root_path = os.path.join(_root_path, _name, 'results-infer')
-
     sample_path = os.path.join(inference_root_path, _inference_tag, _sample_name)
     if not os.path.exists(sample_path):
         raise FileNotFoundError("Incorrect path: {inference_result_path}")
@@ -73,8 +73,8 @@ def post_processing(_name: str,
     configs = read_configs(configs_path)
 
     inference_root_path = os.path.join(_root_path, _name, 'results-infer')
-
     inference_result_path = os.path.join(inference_root_path, _inference_tag)
+
     if not os.path.exists(inference_result_path):
         raise FileNotFoundError("Incorrect path: {inference_result_path}")
 
@@ -93,13 +93,76 @@ def render_results(_name: str,
         raise FileNotFoundError(message)
 
     inference_root_path = os.path.join(_root_path, _name, 'results-infer')
-
     inference_result_path = os.path.join(inference_root_path, _inference_tag)
+
     if not os.path.exists(inference_result_path):
         raise FileNotFoundError("Incorrect path: {inference_result_path}")
 
     blender_render(inference_result_path)
 
+def roi_analysis(sample_path):
+    # ROI configuration
+    divisions = (2, 4, 4)  # (z, y, x)
+    min_region_size = 1000
+    anomaly_threshold = 1  # In standard deviations
+
+    logging.info(f"Starting ROI analysis for sample: {sample_path}")
+    thickness_map_path = os.path.join(sample_path, 'distance_result.npy')
+
+    if not os.path.exists(thickness_map_path):
+        raise FileNotFoundError(f"Thickness map not found: {thickness_map_path}")
+
+    logging.info(f"Loading thickness map from: {thickness_map_path}")
+    thickness_map = np.load(thickness_map_path)
+    original_non_zero_voxels = np.count_nonzero(thickness_map)
+
+    logging.info("Starting recursive ROI analysis to find artifacts.")
+    anomalous_regions = _recursive_roi_analysis(thickness_map.copy(),
+                                                divisions=divisions,
+                                                min_region_size=min_region_size,
+                                                anomaly_threshold=anomaly_threshold,
+                                                depth=1)
+
+    logging.info(f"Found {len(anomalous_regions)} anomalous regions to remove.")
+    for region in anomalous_regions:
+        thickness_map[region] = 0
+
+    final_non_zero_voxels = np.count_nonzero(thickness_map)
+    altered_voxels = original_non_zero_voxels - final_non_zero_voxels
+    if original_non_zero_voxels > 0:
+        percentage_altered = (altered_voxels / original_non_zero_voxels) * 100
+        logging.info(f"Altered {altered_voxels} voxels, which is {percentage_altered:.2f}% of the original non-zero data.")
+    else:
+        logging.info("No non-zero voxels to alter.")
+
+    save_path = os.path.join(sample_path, 'distance_artifact_removed.npy')
+    logging.info(f"Saving artifact-removed thickness map to: {save_path}")
+
+    np.save(save_path, thickness_map)
+
+    logging.info("ROI analysis completed.")
+
+
+def roi(_name: str,
+        _root_path: str,
+        _inference_tag: str,
+        _sample_name: str = None):
+
+    if not experiment_exists(_root_path, _name):
+        message = f"Experiment '{_name}' doesn't exist"
+        raise FileNotFoundError(message)
+
+    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+    inference_result_path = os.path.join(inference_root_path, _inference_tag)
+
+    if not os.path.exists(inference_result_path):
+        raise FileNotFoundError("Incorrect path: {inference_result_path}")
+
+    if _sample_name:
+        sample_path = os.path.join(inference_result_path, _sample_name)
+        if not os.path.exists(sample_path):
+            raise FileNotFoundError("Incorrect path: {sample_path}")
+        roi_analysis(sample_path)
 
 def stats(_name: str,
           _root_path: str,
