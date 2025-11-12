@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import shlex
-import re
 from pathlib import Path
 from io import StringIO
 
@@ -377,15 +376,15 @@ def blender_visualization(_distance_results: array,
     np.save(os.path.join(_output_path, "faces_bumpiness.npy"), faces)
     np.save(os.path.join(_output_path, "values_bumpiness.npy"), values)
 
-def replace_outliers_iqr(arr, k=1.5):
+def replace_outliers_iqr(arr, k=1.5, lower_p=5, upper_p=95, lower_p_zero_iqr=2, upper_p_zero_iqr=98):
     original_size = arr.size
-    q1 = np.percentile(arr, 5)
-    q3 = np.percentile(arr, 95)
+    q1 = np.percentile(arr, lower_p)
+    q3 = np.percentile(arr, upper_p)
     iqr = q3 - q1
     if iqr == 0:
         logging.info("IQR is 0, using percentiles for outlier detection.")
-        lower_bound = np.percentile(arr, 2)
-        upper_bound = np.percentile(arr, 98)
+        lower_bound = np.percentile(arr, lower_p_zero_iqr)
+        upper_bound = np.percentile(arr, upper_p_zero_iqr)
     else:
         lower_bound = q1 - k * iqr
         upper_bound = q3 + k * iqr
@@ -399,8 +398,8 @@ def replace_outliers_iqr(arr, k=1.5):
 
 def remove_outliers_iqr(arr, k=1.5):
     original_size = len(arr)
-    q1 = np.percentile(arr, 25)
-    q3 = np.percentile(arr, 75)
+    q1 = np.percentile(arr, 5)
+    q3 = np.percentile(arr, 95)
     iqr = q3 - q1
     lower_bound = q1 - k * iqr
     upper_bound = q3 + k * iqr
@@ -424,10 +423,23 @@ def save_histogram(_array,
                    _title,
                    _path,
                    _bins):
+
+    if _array.size < 2 or np.max(_array) == np.min(_array):
+        # Not enough data or range to create bins, use nbinsx as a fallback
+        bin_config = dict(nbinsx=_bins)
+    else:
+        # To force the number of bins, we calculate the bin size
+        bin_size = (np.max(_array) - np.min(_array)) / _bins
+        bin_config = dict(xbins=dict(
+            start=np.min(_array),
+            end=np.max(_array),
+            size=bin_size
+        ))
+
     # Create histogram
     fig = go.Figure(data=[go.Histogram(
         x=_array,
-        nbinsx=_bins,
+        **bin_config,
         marker=dict(
             line=dict(color='black', width=1)
         )
@@ -472,7 +484,7 @@ def save_polar_plot(_angles, _thickness_values, _title, _path):
                 direction="clockwise",
                 period=360,
                 dtick=45,  # Show ticks every 45 degrees
-                rotation=0 # Set 0 degrees to the right
+                rotation=0  # Set 0 degrees to the right
             )
         )
     )
@@ -483,37 +495,108 @@ def calculate_cylindrical_analysis(_data, _alpha_step, _radius):
     z_dim, y_dim, x_dim = _data.shape
     center_y, center_x = y_dim // 2, x_dim // 2
 
-    angles = np.arange(0, 360, _alpha_step)
+    # 1. Create angle bins
+    angle_bins = np.arange(0, 360 + _alpha_step, _alpha_step)
+    # The actual angles for plotting will be the midpoint of each bin
+    angles_for_plot = (angle_bins[:-1] + angle_bins[1:]) / 2
+
+    # 2. Create a list to hold thickness values for each bin
+    binned_thickness_values = [[] for _ in range(len(angle_bins) - 1)]
+
+    # 3. Create coordinate grid
+    x_coords, y_coords = np.meshgrid(np.arange(x_dim), np.arange(y_dim))
+
+    # 4. Vectorized calculation of radius and angle
+    dx = x_coords - center_x
+    dy = y_coords - center_y
+    radius_map = np.sqrt(dx**2 + dy**2)
+    angle_map_rad = np.arctan2(dy, dx) # Range is -pi to pi
+    angle_map_deg = np.rad2deg(angle_map_rad)
+    angle_map_deg[angle_map_deg < 0] += 360 # Convert to 0-360 range
+
+    # 5. Create a mask for pixels within the specified radius
+    radius_mask = radius_map <= _radius
+
+    # 6. Digitize angles into bins
+    angle_bin_indices = np.digitize(angle_map_deg, bins=angle_bins) - 1
+    # Handle the edge case for 360 degrees, which should be in the last bin
+    angle_bin_indices[angle_bin_indices == len(angle_bins) - 1] = len(angle_bins) - 2
+
+    # 7. Collect all valid points across all Z-slices
+    all_valid_thicknesses = []
+    all_valid_angle_bins = []
+    for z in range(z_dim):
+        z_slice = _data[z, :, :]
+        valid_mask = (z_slice > 0) & radius_mask
+
+        if np.any(valid_mask):
+            all_valid_thicknesses.append(z_slice[valid_mask])
+            all_valid_angle_bins.append(angle_bin_indices[valid_mask])
+
+    total_points_found = 0
+    if all_valid_thicknesses:
+        all_valid_thicknesses = np.concatenate(all_valid_thicknesses)
+        all_valid_angle_bins = np.concatenate(all_valid_angle_bins)
+        total_points_found = len(all_valid_thicknesses)
+
+        total_points_binned_incremental = 0
+        # Group all collected points into their respective bins
+        for i in range(len(binned_thickness_values)):
+            bin_mask = all_valid_angle_bins == i
+            if np.any(bin_mask):
+                points_to_add = all_valid_thicknesses[bin_mask]
+                binned_thickness_values[i].extend(points_to_add)
+                total_points_binned_incremental += len(points_to_add)  # Increment counter
+
+    # Use the incremental count for validation
+    if total_points_found == total_points_binned_incremental:
+        logging.debug(
+            f"Point count validation successful: "
+            f"Total points found ({total_points_found}) = Total points incrementally binned ({total_points_binned_incremental})."
+        )
+    else:
+        logging.warning(
+            f"Point count mismatch: "
+            f"Total points found ({total_points_found}) != Total points incrementally binned ({total_points_binned_incremental}). "
+            f"Some points were lost during binning."
+        )
+
+    # 8. Calculate average for each bin
     avg_thickness_per_angle = []
+    for i, values in enumerate(binned_thickness_values):
+        if values:
+            num_points = len(values)
+            avg_thickness = np.mean(values)
+            std_thickness = np.std(values)
 
-    for angle in angles:
-        thickness_values = []
-        for r in range(1, int(_radius) + 1):
-            for z in range(z_dim):
-                y = int(center_y + r * np.sin(np.deg2rad(angle)))
-                x = int(center_x + r * np.cos(np.deg2rad(angle)))
+            log_angle_start = angle_bins[i]
+            log_angle_end = angle_bins[i+1]
 
-                if 0 <= y < y_dim and 0 <= x < x_dim:
-                    thickness = _data[z, y, x]
-                    if thickness > 0:
-                        thickness_values.append(thickness)
-
-        if thickness_values:
-            avg_thickness_per_angle.append(np.mean(thickness_values))
+            logging.debug(
+                f"Cylindrical slice @ {log_angle_start}-{log_angle_end} deg: "
+                f"Points={num_points}, "
+                f"Avg={avg_thickness:.2f}, "
+                f"Std={std_thickness:.2f}"
+            )
+            avg_thickness_per_angle.append(avg_thickness)
         else:
+            log_angle_start = angle_bins[i]
+            log_angle_end = angle_bins[i+1]
+            logging.debug(f"Cylindrical slice @ {log_angle_start}-{log_angle_end} deg: Points=0")
             avg_thickness_per_angle.append(0)
 
-    # Close the loop by appending the first value to the end
+    # Close the loop for plotting
     if avg_thickness_per_angle:
-        angles = np.append(angles, angles[0])
+        angles_for_plot = np.append(angles_for_plot, angles_for_plot[0])
         avg_thickness_per_angle.append(avg_thickness_per_angle[0])
 
-    return angles, avg_thickness_per_angle
+    return angles_for_plot, avg_thickness_per_angle
 
-def save_top_down_view_aspect_ratio(_data, _title, _path):
+def save_top_down_view_aspect_ratio(_data, _title, _path, _lower_percentile_iqr, _upper_percentile_iqr, _lower_percentile_iqr_zero, _upper_percentile_iqr_zero):
     # Project the 3D data onto a 2D plane by taking the max along the Z-axis
     top_down_data = np.max(_data, axis=0)
-    top_down_data = replace_outliers_iqr(top_down_data)
+    top_down_data = replace_outliers_iqr(top_down_data, lower_p=_lower_percentile_iqr, upper_p=_upper_percentile_iqr, lower_p_zero_iqr=_lower_percentile_iqr_zero, upper_p_zero_iqr=_upper_percentile_iqr_zero)
+    top_down_data = np.flipud(top_down_data) # Vertical flip (up-down)
 
     fig = go.Figure(data=go.Heatmap(
         z=top_down_data,
@@ -522,23 +605,57 @@ def save_top_down_view_aspect_ratio(_data, _title, _path):
 
     fig.update_layout(
         title=_title,
-        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        xaxis_title='X-axis',
+        yaxis_title='Y-axis',
         yaxis_scaleanchor="x",
         yaxis_scaleratio=1,
-        margin=dict(l=0, r=0, t=40, b=0) # Adjust margins to remove empty space
+        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        margin=dict(l=0, r=0, t=40, b=0)
     )
 
     logging.info(f"Saving top-down view plot with aspect ratio: {_path}")
-    fig.write_image(_path, width=1400, height=1000)
+    fig.write_image(_path, width=1000, height=1000)
 
 
+    top_down_data = np.max(_data, axis=0)
+    top_down_data = replace_outliers_iqr(top_down_data, lower_p=_lower_percentile_iqr, upper_p=_upper_percentile_iqr, lower_p_zero_iqr=_lower_percentile_iqr_zero, upper_p_zero_iqr=_upper_percentile_iqr_zero)
+    top_down_data = np.flipud(top_down_data) # Vertical flip (up-down)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=top_down_data,
+        colorscale='Viridis'
+    ))
+
+    fig.update_layout(
+
+        title=_title,
+
+        xaxis_title='X-axis',
+
+        yaxis_title='Y-axis',
+
+        yaxis_scaleanchor="x",
+
+        yaxis_scaleratio=1,
+
+        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+
+        margin=dict(l=0, r=0, t=40, b=0)
+
+    )
+
+    logging.info(f"Saving top-down view plot with aspect ratio: {_path}")
+    fig.write_image(_path, width=1000, height=1000)
 
 
-def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_per_angle):
+def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_per_angle, _lower_percentile_iqr, _upper_percentile_iqr, _lower_percentile_iqr_zero, _upper_percentile_iqr_zero):
     # Project the 3D data onto a 2D plane by taking the max along the Z-axis
     top_down_data = np.max(_data, axis=0)
-    top_down_data = replace_outliers_iqr(top_down_data)
+    top_down_data = replace_outliers_iqr(top_down_data, lower_p=_lower_percentile_iqr, upper_p=_upper_percentile_iqr, lower_p_zero_iqr=_lower_percentile_iqr_zero, upper_p_zero_iqr=_upper_percentile_iqr_zero)
+    top_down_data = np.flipud(top_down_data) # Vertical flip (up-down)
 
     fig = go.Figure(data=go.Heatmap(
         z=top_down_data,
@@ -582,6 +699,30 @@ def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_pe
     # Add the line trace
     fig.add_trace(go.Scatter(x=x_coords, y=y_coords, mode='lines', line=dict(color='white', width=2)))
 
+    # Add annotations for average thickness
+    # We iterate over `_angles[:-1]` to avoid duplicating the label for the 0/360 degree angle
+    for i, angle in enumerate(_angles[:-1]):
+        avg_thickness = _avg_thickness_per_angle[i]
+
+        # Position the text slightly inside the main radius
+        text_radius = _radius * 0.9
+        text_x = center_x + text_radius * np.cos(np.deg2rad(-angle))
+        text_y = center_y + text_radius * np.sin(np.deg2rad(-angle))
+
+        fig.add_annotation(
+            x=text_x,
+            y=text_y,
+            text=f"<b>{avg_thickness:.0f} nm</b>",
+            showarrow=False,
+            font=dict(
+                size=12,
+                color="white"
+            ),
+            textangle=angle,  # Set text angle to match the line angle exactly
+            xanchor="center",
+            yanchor="middle"
+        )
+
     fig.update_layout(
         title=_title,
         xaxis_title='X-axis',
@@ -596,23 +737,48 @@ def save_combined_view(_data, _title, _path, _angles, _radius, _avg_thickness_pe
     fig.write_image(_path, width=1000, height=1000)
 
 
-def save_comparative_box_plot(_all_thickness_data, _sample_names, _title, _path):
+def generate_comparative_box_plot(_stats_dir: Path):
+    """
+    Generates a comparative box plot from pre-calculated summary statistics.
+    """
+    summary_file = _stats_dir / "summary_statistics.npy"
+    if not summary_file.exists():
+        logging.error("Summary statistics file not found: %s", summary_file)
+        return
+
+    summary_data = np.load(summary_file, allow_pickle=True)
+
     fig = go.Figure()
 
-    for i, data in enumerate(_all_thickness_data):
-        # Remove outliers for this plot only
-        data_clean = remove_outliers_iqr(data)
-        fig.add_trace(go.Box(y=data_clean, name=_sample_names[i]))
+    for sample_stats in summary_data:
+        fig.add_trace(go.Box(
+            x=[sample_stats['sample_name']], # Assign x-axis category
+            name=sample_stats['sample_name'],
+            q1=[sample_stats['q1']],
+            median=[sample_stats['median']],
+            q3=[sample_stats['q3']],
+            lowerfence=[sample_stats['lowerfence']],
+            upperfence=[sample_stats['upperfence']],
+            mean=[sample_stats['mean']],
+            sd=[sample_stats['std']]
+        ))
 
-    fig.update_layout(title_text=_title,
-                      yaxis_title="Thickness (nm)")
-    logging.info(f"Saving comparative box plot: {_path}")
-    fig.write_image(_path, width=1400, height=1000)
+    fig.update_layout(title_text="Comparative Box Plot of Thickness Across Samples",
+                      yaxis_title="Thickness (nm)",
+                      showlegend=False)
+
+    plot_path = _stats_dir / "comparative_box_plot.png"
+    logging.info(f"Saving comparative box plot from summary: {plot_path}")
+    fig.write_image(plot_path, width=1400, height=1000)
 
 def calculate_stats(_inference_result_path: Path,
                     _stats_dir: Path):
     _alpha_step = 10
     _radius = 1000
+    _lower_percentile_iqr = 5
+    _upper_percentile_iqr = 95
+    _lower_percentile_iqr_zero = 2
+    _upper_percentile_iqr_zero = 98
 
     logging.info("Starting statistical analysis for inference results")
     logging.info("Input path: %s", _inference_result_path)
@@ -631,9 +797,10 @@ def calculate_stats(_inference_result_path: Path,
     total_samples = len(sample_dirs)
     logging.info("Found %d samples to process", total_samples)
 
-    # Initialize arrays to store aggregated data
-    all_thickness_data = []
-    sample_names = []
+    # Initialize lists to store aggregated data and summary stats
+    summary_data_list = []
+    sample_names_for_violin = []
+    all_thickness_data_for_violin = []
 
     processed_samples = 0
 
@@ -667,10 +834,28 @@ def calculate_stats(_inference_result_path: Path,
                 logging.debug("Removed %d outliers, %d values remaining for histogram",
                               after_zero_removal - after_outlier_removal, after_outlier_removal)
 
-                # Store data for aggregation
+                # Store data for aggregation and summary calculation
                 if len(data_clean) > 0:
-                    all_thickness_data.append(data_clean)
-                    sample_names.append(sample_dir.name)
+                    # For violin plot (still needs raw data, but we can decide to remove it later)
+                    all_thickness_data_for_violin.append(data_clean)
+                    sample_names_for_violin.append(sample_dir.name)
+
+                    # Calculate summary statistics for the box plot
+                    q1 = np.percentile(data_clean, 5)
+                    median = np.median(data_clean)
+                    q3 = np.percentile(data_clean, 95)
+                    iqr = q3 - q1
+                    lowerfence = max(np.min(data_clean), q1 - 1.5 * iqr)
+                    upperfence = min(np.max(data_clean), q3 + 1.5 * iqr)
+                    mean = np.mean(data_clean)
+                    std = np.std(data_clean)
+
+                    summary_data_list.append({
+                        'sample_name': sample_dir.name,
+                        'q1': q1, 'median': median, 'q3': q3,
+                        'lowerfence': lowerfence, 'upperfence': upperfence,
+                        'mean': mean, 'std': std
+                    })
 
                 # Create multi-bin histograms for thickness
                 for bins in bin_sizes:
@@ -684,14 +869,12 @@ def calculate_stats(_inference_result_path: Path,
                 save_polar_plot(angles, avg_thickness, f'Cylindrical Analysis - {sample_dir.name}', sample_hist_dir / f'cylindrical_analysis_{sample_dir.name}.png')
                 logging.debug("Created cylindrical analysis plot")
 
-
-
                 # Top-down view with aspect ratio
-                save_top_down_view_aspect_ratio(data, f'Top-Down View (Aspect Ratio) - {sample_dir.name}', sample_hist_dir / f'top_down_view_aspect_ratio_{sample_dir.name}.png')
+                save_top_down_view_aspect_ratio(data, f'Top-Down View (Aspect Ratio) - {sample_dir.name}', sample_hist_dir / f'top_down_view_aspect_ratio_{sample_dir.name}.png', _lower_percentile_iqr, _upper_percentile_iqr, _lower_percentile_iqr_zero, _upper_percentile_iqr_zero)
                 logging.info("Created top-down view plot with aspect ratio")
 
                 # Combined view
-                save_combined_view(data, f'Combined View - {sample_dir.name}', sample_hist_dir / f'combined_view_{sample_dir.name}.png', angles, _radius, avg_thickness)
+                save_combined_view(data, f'Combined View - {sample_dir.name}', sample_hist_dir / f'combined_view_{sample_dir.name}.png', angles, _radius, avg_thickness, _lower_percentile_iqr, _upper_percentile_iqr, _lower_percentile_iqr_zero, _upper_percentile_iqr_zero)
                 logging.debug("Created combined view plot")
 
             except Exception as e:
@@ -703,27 +886,23 @@ def calculate_stats(_inference_result_path: Path,
         logging.info("Completed processing sample %s (%d/%d)",
                      sample_dir.name, processed_samples, total_samples)
 
-    # Aggregate and save data for box plots
-    logging.info("Aggregating thickness data for analysis")
+    # Save summary statistics to a .npy file
+    if summary_data_list:
+        # Define the data type for the structured array
+        dtype = [('sample_name', 'U100'), ('q1', 'f8'), ('median', 'f8'), ('q3', 'f8'),
+                 ('lowerfence', 'f8'), ('upperfence', 'f8'), ('mean', 'f8'), ('std', 'f8')]
 
-    # Save aggregated thickness data
-    if all_thickness_data:
-        # Concatenate all thickness data into single array of datapoints
-        aggregated_thickness = np.concatenate(all_thickness_data)
-        logging.info("Aggregated %d thickness values from %d samples",
-                     len(aggregated_thickness), len(all_thickness_data))
+        # Convert list of dicts to list of tuples
+        records = [tuple(d.values()) for d in summary_data_list]
 
-        # Save as numpy array only - just the aggregated datapoints
-        thickness_np_file = _stats_dir / "aggregated_thickness_data.npy"
-        np.save(thickness_np_file, aggregated_thickness)
-        logging.info("Saved aggregated thickness data to %s", thickness_np_file)
+        summary_array = np.array(records, dtype=dtype)
 
-        # Create and save comparative box plot for all samples
-        save_comparative_box_plot(all_thickness_data,
-                                  sample_names,
-                                  "Comparative Box Plot of Thickness Across Samples",
-                                  _stats_dir / "comparative_box_plot.png")
-        logging.info("Saved comparative box plot of all samples to %s", _stats_dir / "comparative_box_plot.png")
+        summary_file = _stats_dir / "summary_statistics.npy"
+        np.save(summary_file, summary_array)
+        logging.info("Saved summary statistics to %s", summary_file)
+
+    # Generate the fast comparative box plot from the summary file
+    generate_comparative_box_plot(_stats_dir)
 
     # Save metadata file with sample information
     metadata_file = _stats_dir / "metadata.txt"
@@ -733,16 +912,19 @@ def calculate_stats(_inference_result_path: Path,
         f.write(f"Input directory: {_inference_result_path}\n")
         f.write(f"Output directory: {_stats_dir}\n")
         f.write(f"Total samples processed: {total_samples}\n")
-        f.write(f"Samples with valid data: {len(sample_names)}\n")
+        f.write(f"Samples with valid data: {len(summary_data_list)}\n")
         f.write(f"Bin sizes used: {bin_sizes}\n")
         f.write(f"Alpha step for cylindrical analysis: {_alpha_step}\n")
         f.write(f"Radius for cylindrical analysis: {_radius}\n")
         f.write("\nSample names:\n")
-        for name in sample_names:
-            f.write(f"  - {name}\n")
+        for item in summary_data_list:
+            f.write(f"  - {item['sample_name']}\n")
         f.write("\nGenerated files:\n")
-        if all_thickness_data:
-            f.write("  - aggregated_thickness_data.npy (all thickness values)\n")
+        if summary_data_list:
+            f.write("  - summary_statistics.npy (quartiles, fences, mean, std for each sample)\n")
+            f.write("  - comparative_box_plot.png (box plot generated from summary)\n")
+        if all_thickness_data_for_violin:
+            f.write("  - thickness_violin_plot.png (violin plot of all samples)\n")
 
     logging.info("Saved metadata to %s", metadata_file)
     logging.info("Statistical analysis completed successfully")

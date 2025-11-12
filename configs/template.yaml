@@ -185,7 +185,7 @@ inference:
     workers: 8
 
 logging:
-  log_level: INFO
+  log_level: DEBUG
   log_file: logs/train.log
   log_std: True
   log_summary: False
