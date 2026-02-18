@@ -46,8 +46,8 @@ class PSP():
         logging.info("Creating a mulitprocessing pool with %d processes", _max_concurrent)
         with multiprocessing.Pool(_max_concurrent) as pool:
             pool.starmap(self.post_processing, tasks)
-        # for task in tasks:
-        #     self.post_processing(task[0], task[1])
+        for task in tasks:
+            self.post_processing(task[0], task[1])
 
     def post_processing(self,
                         _input_path: Path,

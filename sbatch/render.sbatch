@@ -4,7 +4,7 @@
 #SBATCH --error=/home/afatehi/gbm_log/render.log
 #SBATCH --time=7-00:00:00   # Adjust time as needed
 #SBATCH --partition=train   # Adjust partition based on available resources
-#SBATCH --gres=gpu:4        # Request 4 GPU
+#SBATCH --gres=gpu:V100:4        # Request 4 GPU
 #SBATCH --mem=320GB         # Adjust memory as needed
 #SBATCH --cpus-per-task=64  # Adjust CPU cores as needed
 

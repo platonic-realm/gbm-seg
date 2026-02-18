@@ -18,6 +18,7 @@ import plotly.graph_objects as go
 from torch.utils.data import DataLoader
 from torch import nn
 from scipy.ndimage import zoom
+from scipy.ndimage import binary_dilation, binary_erosion
 from skimage import measure
 from numpy import array
 from skimage.transform import resize
@@ -787,8 +788,32 @@ def generate_comparative_box_plot(_stats_dir: Path):
     logging.info(f"Saving comparative box plot from summary: {plot_path}")
     fig.write_image(plot_path, width=1400, height=1000)
 
+
+def detect_group_type(_sample_name):
+    """
+    Identifies the group type based on string prefixes.
+    """
+    # Mapping group types to a tuple of possible prefixes
+    mapping = {
+        "Control": ("NCW.AUY381", "NCW.AUY380", "CKM103", "CKM110"),
+        "Podocin": ("NCW.BDP669", "NCW.BDP672", "NCW.BDP675"),
+        "Collagen": ("NCW.CKM105", "NCW.CKM104"),
+    }
+
+    # Clean the input to ensure minor typos or casing don't break the check
+    input_clean = _sample_name.strip().upper()
+
+    for group_type, prefixes in mapping.items():
+        if input_clean.startswith(prefixes):
+            return group_type
+
+    return "Control"
+
+
 def calculate_stats(_inference_result_path: Path,
-                    _stats_dir: Path):
+                    _stats_dir: Path,
+                    _source: str):
+
     _alpha_step = 10
     _radius = 1000
     _lower_percentile_iqr = 5
@@ -799,6 +824,7 @@ def calculate_stats(_inference_result_path: Path,
     logging.info("Starting statistical analysis for inference results")
     logging.info("Input path: %s", _inference_result_path)
     logging.info("Output path: %s", _stats_dir)
+    logging.info("Data source: %s", _source)
 
     # Create stats directory if it doesn't exist
     _stats_dir.mkdir(parents=True, exist_ok=True)
@@ -830,10 +856,19 @@ def calculate_stats(_inference_result_path: Path,
         sample_hist_dir.mkdir(exist_ok=True)
         logging.debug("Created sample histogram directory: %s", sample_hist_dir)
 
-        # Process distance_result.npy (thickness)
-        distance_file = sample_dir / "distance_artifact_removed.npy"
+        # Determine the file to load based on the source
+        if _source == 'vanilla':
+            distance_file = sample_dir / "distance_result.npy"
+        elif _source == 'artifact_removed':
+            distance_file = sample_dir / "distance_artifact_removed.npy"
+        elif _source == 'aggressive':
+            distance_file = sample_dir / "distance_aggressive_removed.npy"
+        else:
+            logging.error(f"Unknown source: {_source}")
+            continue
+
         if not distance_file.exists():
-            logging.warning("Artifact removed file not found, falling back to distance_result.npy")
+            logging.warning(f"File not found for source '{_source}': {distance_file}. Falling back to vanilla.")
             distance_file = sample_dir / "distance_result.npy"
 
         if distance_file.exists():
@@ -842,6 +877,32 @@ def calculate_stats(_inference_result_path: Path,
                 data = np.load(distance_file)
                 original_size = len(data)
                 logging.debug("Loaded thickness data with %d values", original_size)
+
+                # Laoding the input file
+                sample = tifffile.imread(_inference_result_path / sample_dir.name / "prediction.tif")
+                col4_stack = sample[:, 1, :, :]
+
+                logging.debug("Creating the mask for %s", sample_dir.name)
+                # Creating the mask from WGA
+                sample_group = detect_group_type(sample_dir.name)
+                if sample_group == 'Control':
+                    mask_threshold = np.percentile(col4_stack, 91)
+                elif sample_group == 'Collagen':
+                    mask_threshold = np.percentile(col4_stack, 97)
+                elif sample_group == 'Podocin':
+                    mask_threshold = np.percentile(col4_stack, 92.5)
+
+                mask = col4_stack > mask_threshold
+                mask = mask.astype(int)
+
+                for i in range(mask.shape[0]):
+                    mask[i] = binary_erosion(mask[i], structure=np.ones((3, 3)))
+                    mask[i] = binary_dilation(mask[i], structure=np.ones((3, 3)))
+
+                logging.debug("Applying mask: %s", sample_dir.name)
+                logging.debug("Before mask mean: %.4f, std: %.4f", np.mean(data[data != 0]), np.std(data[data != 0]))
+                data[mask > 0] = 0
+                logging.debug("After mask mean: %.4f, std: %.4f", np.mean(data[data != 0]), np.std(data[data != 0]))
 
                 # Remove zero values
                 data_no_zeros = data[data != 0]
@@ -1004,8 +1065,8 @@ def _recursive_roi_analysis(data,
         sub_mean = sub_region_means[i]
         logging.debug(f"Depth {depth}: Sub-region {i} at {origin}: mean={sub_mean:.4f}")
 
-        if abs(sub_mean - median_of_means) > anomaly_threshold * std_of_means:
-            logging.warning(f"Depth {depth}: Anomaly detected in sub-region {i} at {origin} (mean={sub_mean:.4f}).")
+        if abs(sub_mean - median_of_means) > anomaly_threshold * std_of_means and sub_mean > 1000:
+            logging.warning(f"Depth {depth}: Anomaly detected in sub-region {i} at {origin} (mean={sub_mean:.4f} > 1000).")
 
             if sub_region.size < min_region_size:
                 logging.warning(f"Depth {depth}: Region at {origin} is smaller than {min_region_size} and will be removed.")
@@ -1025,7 +1086,7 @@ def _recursive_roi_analysis(data,
                 anomalous_regions_to_remove.extend(_recursive_roi_analysis(sub_region,
                                                                            divisions,
                                                                            min_region_size,
-                                                                           anomaly_threshold + 0.1,
+                                                                           anomaly_threshold + 0.02,
                                                                            depth + 1,
                                                                            new_origin))
         else:

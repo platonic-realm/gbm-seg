@@ -123,15 +123,15 @@ def create_box_plot(data_dict, output_path, k_value):
         fig.add_annotation(
             x=group_name,
             y=0,  # Place at the bottom of the y-axis
-            text=f"Median: {median_val:.2f}<br>Std: {std_val:.2f}",
-            showarrow=False, # No arrow needed if placed at the bottom
-            yshift=-30 # Shift down to avoid overlapping with x-axis labels
+            text=f"Median: {median_val:.2f}<br>Mean: {mean_val:.2f}<br>Std: {std_val:.2f}",
+            showarrow=False,  # No arrow needed if placed at the bottom
+            yshift=-30  # Shift down to avoid overlapping with x-axis labels
         )
 
     fig.update_layout(
         title_text='Thickness Distribution Comparison Across Groups',
         yaxis_title="Thickness (nm)",
-        xaxis_title="Groups",
+        # xaxis_title="Groups",
         showlegend=False,
         boxmode='group'
     )
@@ -171,21 +171,22 @@ def create_raincloud_plot(data_dict, output_path, k_value):
             name=group_name,
             box_visible=True,
             meanline_visible=True,
-            points='outliers', # This creates the "rain"
+            points='outliers',  # This creates the "rain"
             jitter=0.3,
-            pointpos=-1.8, # Position points to the left
-            side='positive' # Show only one side of the violin
+            pointpos=-1.8,  # Position points to the left
+            side='positive'  # Show only one side of the violin
         ))
 
         # Add annotations for median and std
         median_val = np.median(clean_data)
+        mean_val = np.mean(clean_data)
         std_val = np.std(clean_data)
         fig.add_annotation(
             x=group_name,
             y=0,  # Place at the bottom of the y-axis
-            text=f"Median: {median_val:.2f}<br>Std: {std_val:.2f}",
-            showarrow=False, # No arrow needed if placed at the bottom
-            yshift=-30 # Shift down to avoid overlapping with x-axis labels
+            text=f"Median: {median_val:.2f}<br>Mean: {mean_val:.2f}<br>Std: {std_val:.2f}",
+            showarrow=False,  # No arrow needed if placed at the bottom
+            yshift=-30  # Shift down to avoid overlapping with x-axis labels
         )
 
     fig.update_layout(

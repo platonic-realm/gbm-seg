@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=gbm_roi
-#SBATCH --output=/home/afatehi/gbm_log/roi.log
-#SBATCH --error=/home/afatehi/gbm_log/roi.log
+#SBATCH --job-name=gbm_aggressive
+#SBATCH --output=/home/afatehi/gbm_log/aggressive.log
+#SBATCH --error=/home/afatehi/gbm_log/aggressive.log
 # (No GPU request here so the parent job does not get a GPU)
 
 # Check if this is the parent job (no SLURM_ARRAY_TASK_ID defined)
@@ -38,16 +38,16 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
 
     # Convert DIR_NAMES into a single string with a safe delimiter (e.g., `|`)
     DIR_NAMES_STR=$(printf "%s|" "${DIR_NAMES[@]}")
-    DIR_NAMES_STR=${DIR_NAMES_STR%|}  # Remove trailing separator
+    DIR_NAMES_STR=${DIR_NAMES_STR%|}
 
     # Create log directory and subdirectory for child job logs if they don't exist
-    mkdir -p /home/afatehi/gbm_log/roi
+    mkdir -p /home/afatehi/gbm_log/aggressive
 
     # Submit a job array with DIR_NAMES properly passed and individual log files
     sbatch --partition=cpu --cpus-per-task=8 --mem=16G --time=1-00:00:00 \
         --array=1-${N} \
-        --output=/home/afatehi/gbm_log/roi/job_%A_%a.log \
-        --error=/home/afatehi/gbm_log/roi/job_%A_%a.log \
+        --output=/home/afatehi/gbm_log/aggressive/job_%A_%a.log \
+        --error=/home/afatehi/gbm_log/aggressive/job_%A_%a.log \
         --export=ALL,DIR_NAMES="$DIR_NAMES_STR" "$0" "$@"
 
     exit
@@ -77,7 +77,7 @@ echo "DEBUG: Total directories in array: ${#DIR_NAMES[@]}"
 if [ -n "$SUBDIR" ]; then
     echo "Processing directory: $SUBDIR"
     source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
-    ./gbm.py roi "$1" -it "$2" -sn "$SUBDIR" --source "$3"
+    ./gbm.py aggressive "$1" -it "$2" -sn "$SUBDIR"
 else
     echo "Error: SUBDIR is empty for task ID $SLURM_ARRAY_TASK_ID!"
     exit 1

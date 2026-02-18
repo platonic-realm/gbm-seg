@@ -11,4 +11,4 @@
 mkdir -p /home/afatehi/gbm_log
 
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
-./gbm.py stats $1 -it $2
+./gbm.py stats $1 -it $2 --source $3

@@ -248,48 +248,6 @@ sbatch ./sbatch/infer.sbatch <name> <snapshot> <batch_size> "<sample_dimension>"
 ```
 Refer to the specific `.sbatch` files for their required arguments and usage.
 
-
-## Project Structure
-```
-├───.gitignore
-├───.pylintrc
-├───blender.py
-├───gbm_inference.sh
-├───gbm.py
-├───infer.py
-├───README.md
-├───setup.cfg
-├───train.py
-├───__pycache__/
-├───configs/
-│   └───template.yaml
-├───res/
-│   ├───blender_template.blend
-│   ├───gbm_render.jpg
-│   └───prediction.jpg
-├───sbatch/
-│   ├───blender.sbatch
-│   ├───export.sbatch
-│   ├───infer.sbatch
-│   ├───morph.sbatch
-│   ├───psp.sbatch
-│   └───render.sbatch
-└───src/
-    ├───data/
-    ├───infer/
-    ├───models/
-    ├───scripts/
-    ├───train/
-    └───utils/
-```
-
-- **`gbm.py`**: Main CLI entry point.
-- **`train.py`, `infer.py`**: Core training and inference scripts.
-- **`configs/template.yaml`**: Main configuration file.
-- **`src/`**: Source code, including data loaders, models, and utilities.
-- **`sbatch/`**: SLURM scripts for job submission on a cluster.
-- **`res/`**: Resources like Blender templates and images.
-
 ## Debugging
 
 Add the `--debug` flag to any command to enable debugging mode.

@@ -27,6 +27,10 @@ while [[ $# -gt 0 ]]; do
       SCALE_FACTOR="${1#*=}"
       shift
       ;;
+    --roi-source=*)
+      ROI_SOURCE="${1#*=}"
+      shift
+      ;;
     --help)
       echo "Usage: $0 [options]"
       echo "Required options:"
@@ -38,6 +42,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --scale-factor=FACTOR   Scale factor value"
       echo ""
       echo "Optional:"
+      echo "  --roi-source=SOURCE     Source for ROI analysis (thickness or bumpiness, default: thickness)"
       echo "  --help                  Display this help message"
       exit 0
       ;;
@@ -107,9 +112,12 @@ echo "Running: sbatch --dependency=afterok:$JOB5 ./sbatch/export.sbatch \"$NAME\
 JOB6=$(sbatch --dependency=afterok:$JOB5 ./sbatch/export.sbatch "$NAME" "$TAG" | awk '{print $4}')
 echo "Submitted job 6 (Export): $JOB6 (depends on $JOB5)"
 
+# Set default for ROI_SOURCE if not provided
+ROI_SOURCE=${ROI_SOURCE:-thickness}
+
 # Job 7: ROI (parent job that spawns array)
-echo "Running: sbatch --dependency=afterok:$JOB6 ./sbatch/roi.sbatch \"$NAME\" \"$TAG\""
-JOB7=$(sbatch --dependency=afterok:$JOB6 ./sbatch/roi.sbatch "$NAME" "$TAG" | awk '{print $4}')
+echo "Running: sbatch --dependency=afterok:$JOB6 ./sbatch/roi.sbatch \"$NAME\" \"$TAG\" \"$ROI_SOURCE\""
+JOB7=$(sbatch --dependency=afterok:$JOB6 ./sbatch/roi.sbatch "$NAME" "$TAG" "$ROI_SOURCE" | awk '{print $4}')
 echo "Submitted job 7 (ROI): $JOB7 (depends on $JOB6)"
 
 # Job 8: Stats
