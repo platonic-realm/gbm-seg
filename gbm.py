@@ -130,33 +130,9 @@ if __name__ == '__main__':
         configure_logger(configs, _log_to_file=False)
         name = args.name
         inference_tag = args.inference_tag
+        clipping = args.clipping
         root = configs['experiments']['root']
-        source = args.source
         exper.stats(name,
                     root,
                     inference_tag,
-                    source)
-
-    if args.action == 'roi':
-        configure_logger(configs, _log_to_file=False)
-        name = args.name
-        inference_tag = args.inference_tag
-        sample_name = args.sample_name
-        root = configs['experiments']['root']
-        source = args.source
-        exper.roi(name,
-                  root,
-                  inference_tag,
-                  sample_name,
-                  source)
-
-    if args.action == 'aggressive':
-        configure_logger(configs, _log_to_file=False)
-        name = args.name
-        inference_tag = args.inference_tag
-        sample_name = args.sample_name
-        root = configs['experiments']['root']
-        exper.aggressive(name,
-                         root,
-                         inference_tag,
-                         sample_name)
+                    clipping)

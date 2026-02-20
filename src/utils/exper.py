@@ -100,67 +100,8 @@ def render_results(_name: str,
 
     blender_render(inference_result_path)
 
-def roi_analysis(sample_path, source='thickness'):
-    # ROI configuration
-    divisions = (2, 4, 4)  # (z, y, x)
-    min_region_size = 5000
-    anomaly_threshold = 1  # In standard deviations
 
-    logging.info(f"Starting ROI analysis for sample: {sample_path} using {source} data.")
-
-    # Define paths for thickness and bumpiness maps
-    thickness_map_path = os.path.join(sample_path, 'distance_result.npy')
-    bumpiness_map_path = os.path.join(sample_path, 'fd_result.npy')
-
-    # Determine the source for artifact detection
-    if source == 'thickness':
-        source_map_path = thickness_map_path
-    elif source == 'bumpiness':
-        source_map_path = bumpiness_map_path
-    else:
-        raise ValueError(f"Invalid source for ROI analysis: {source}")
-
-    # Ensure source and thickness maps exist
-    if not os.path.exists(source_map_path):
-        raise FileNotFoundError(f"Source map not found: {source_map_path}")
-    if not os.path.exists(thickness_map_path):
-        raise FileNotFoundError(f"Thickness map not found: {thickness_map_path}")
-
-    logging.info(f"Loading source map for artifact detection from: {source_map_path}")
-    source_map = np.load(source_map_path)
-
-    logging.info(f"Loading thickness map for cleaning from: {thickness_map_path}")
-    thickness_map = np.load(thickness_map_path)
-    original_non_zero_voxels = np.count_nonzero(thickness_map)
-
-    logging.info("Starting recursive ROI analysis to find artifacts.")
-    anomalous_regions = _recursive_roi_analysis(source_map,
-                                                divisions=divisions,
-                                                min_region_size=min_region_size,
-                                                anomaly_threshold=anomaly_threshold,
-                                                depth=1)
-
-    logging.info(f"Found {len(anomalous_regions)} anomalous regions to remove.")
-    for region in anomalous_regions:
-        thickness_map[region] = 0
-
-    final_non_zero_voxels = np.count_nonzero(thickness_map)
-    altered_voxels = original_non_zero_voxels - final_non_zero_voxels
-    if original_non_zero_voxels > 0:
-        percentage_altered = (altered_voxels / original_non_zero_voxels) * 100
-        logging.info(f"Altered {altered_voxels} voxels, which is {percentage_altered:.2f}% of the original non-zero data.")
-    else:
-        logging.info("No non-zero voxels to alter.")
-
-    save_path = os.path.join(sample_path, 'distance_artifact_removed.npy')
-    logging.info(f"Saving artifact-removed thickness map to: {save_path}")
-
-    np.save(save_path, thickness_map)
-
-    logging.info("ROI analysis completed.")
-
-
-def aggressive_analysis(sample_path):
+def clipping_high_values(sample_path):
     logging.info(f"Starting aggressive analysis for sample: {sample_path}")
     thickness_map_path = os.path.join(sample_path, 'distance_result.npy')
 
@@ -188,33 +129,10 @@ def aggressive_analysis(sample_path):
     logging.info("Aggressive analysis completed.")
 
 
-def roi(_name: str,
-        _root_path: str,
-        _inference_tag: str,
-        _sample_name: str = None,
-        _source: str = 'thickness'):
-
-    if not experiment_exists(_root_path, _name):
-        message = f"Experiment '{_name}' doesn't exist"
-        raise FileNotFoundError(message)
-
-    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
-    inference_result_path = os.path.join(inference_root_path, _inference_tag)
-
-    if not os.path.exists(inference_result_path):
-        raise FileNotFoundError("Incorrect path: {inference_result_path}")
-
-    if _sample_name:
-        sample_path = os.path.join(inference_result_path, _sample_name)
-        if not os.path.exists(sample_path):
-            raise FileNotFoundError(f"Incorrect path: {sample_path}")
-        roi_analysis(sample_path, _source)
-
-
-def aggressive(_name: str,
-               _root_path: str,
-               _inference_tag: str,
-               _sample_name: str = None):
+def clipping(_name: str,
+             _root_path: str,
+             _inference_tag: str,
+             _sample_name: str = None):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
@@ -230,7 +148,7 @@ def aggressive(_name: str,
         sample_path = os.path.join(inference_result_path, _sample_name)
         if not os.path.exists(sample_path):
             raise FileNotFoundError("Incorrect path: {sample_path}")
-        aggressive_analysis(sample_path)
+        clipping_high_values(sample_path)
 
 
 def stats(_name: str,

@@ -210,57 +210,9 @@ def parse_exper() -> None:
                               required=True,
                               help='select the snapshot used for inference')
 
-    infer_parser.add_argument('--source',
-                              action='store',
-                              choices=['vanilla', 'artifact_removed', 'aggressive'],
-                              default='artifact_removed',
-                              help='select the source for statistics generation')
-
-    # Define a subparser for the 'roi' action
-    infer_parser = \
-        subparsers.add_parser('roi',
-                              help='generate region of interest')
-
-    infer_parser.add_argument('name',
-                              help='name of the experiment.')
-
-    infer_parser.add_argument('-it',
-                              '--inference-tag',
-                              action='store',
-                              required=True,
-                              help='select the snapshot used for inference')
-
-    infer_parser.add_argument('-sn',
-                              '--sample-name',
-                              action='store',
-                              required=False,
-                              help='the relative path to the sample')
-
-    infer_parser.add_argument('--source',
-                              action='store',
-                              choices=['thickness', 'bumpiness'],
-                              default='thickness',
-                              help='select the source for artifact detection')
-
-    # Define a subparser for the 'aggressive' action
-    infer_parser = \
-        subparsers.add_parser('aggressive',
-                              help='aggressively remove artifacts')
-
-    infer_parser.add_argument('name',
-                              help='name of the experiment.')
-
-    infer_parser.add_argument('-it',
-                              '--inference-tag',
-                              action='store',
-                              required=True,
-                              help='select the snapshot used for inference')
-
-    infer_parser.add_argument('-sn',
-                              '--sample-name',
-                              action='store',
-                              required=False,
-                              help='the relative path to the sample')
+    infer_parser.add_argument('--clipping',
+                              action='store_true',
+                              help='removes unreal values from the statistics')
 
     # Parse the arguments
     args = parser.parse_args()

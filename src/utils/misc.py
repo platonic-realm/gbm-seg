@@ -812,7 +812,7 @@ def detect_group_type(_sample_name):
 
 def calculate_stats(_inference_result_path: Path,
                     _stats_dir: Path,
-                    _source: str):
+                    _clipping: bool):
 
     _alpha_step = 10
     _radius = 1000
@@ -824,7 +824,6 @@ def calculate_stats(_inference_result_path: Path,
     logging.info("Starting statistical analysis for inference results")
     logging.info("Input path: %s", _inference_result_path)
     logging.info("Output path: %s", _stats_dir)
-    logging.info("Data source: %s", _source)
 
     # Create stats directory if it doesn't exist
     _stats_dir.mkdir(parents=True, exist_ok=True)
@@ -856,27 +855,29 @@ def calculate_stats(_inference_result_path: Path,
         sample_hist_dir.mkdir(exist_ok=True)
         logging.debug("Created sample histogram directory: %s", sample_hist_dir)
 
-        # Determine the file to load based on the source
-        if _source == 'vanilla':
-            distance_file = sample_dir / "distance_result.npy"
-        elif _source == 'artifact_removed':
-            distance_file = sample_dir / "distance_artifact_removed.npy"
-        elif _source == 'aggressive':
-            distance_file = sample_dir / "distance_aggressive_removed.npy"
-        else:
-            logging.error(f"Unknown source: {_source}")
-            continue
-
-        if not distance_file.exists():
-            logging.warning(f"File not found for source '{_source}': {distance_file}. Falling back to vanilla.")
-            distance_file = sample_dir / "distance_result.npy"
+        distance_file = sample_dir / "distance_result.npy"
 
         if distance_file.exists():
             logging.debug("Processing thickness file: %s", distance_file)
             try:
                 data = np.load(distance_file)
-                original_size = len(data)
-                logging.debug("Loaded thickness data with %d values", original_size)
+
+                if _clipping:
+                    max_clipping_value = 1400
+                    logging.info("Clipping is enabled, removing values above %d", max_clipping_value)
+                    original_non_zero_voxels = np.count_nonzero(data)
+                    data[data > max_clipping_value] = 0
+
+                    final_non_zero_voxels = np.count_nonzero(data)
+                    altered_voxels = original_non_zero_voxels - final_non_zero_voxels
+                    if original_non_zero_voxels > 0:
+                        percentage_altered = (altered_voxels / original_non_zero_voxels) * 100
+                        logging.info(f"Altered {altered_voxels:,} voxels, which is {percentage_altered:.2f}% of the original non-zero data.")
+                    else:
+                        logging.info("No non-zero voxels to alter.")
+
+                original_size = np.count_nonzero(data)
+                logging.debug(f"Loaded thickness data with {original_size:,} values")
 
                 # Laoding the input file
                 sample = tifffile.imread(_inference_result_path / sample_dir.name / "prediction.tif")
@@ -906,7 +907,7 @@ def calculate_stats(_inference_result_path: Path,
 
                 # Remove zero values
                 data_no_zeros = data[data != 0]
-                after_zero_removal = len(data_no_zeros)
+                after_zero_removal = data_no_zeros.count_nonzero
                 logging.debug("Removed %d zero values, %d values remaining",
                               original_size - after_zero_removal, after_zero_removal)
 
@@ -956,7 +957,9 @@ def calculate_stats(_inference_result_path: Path,
                 logging.debug("Created cylindrical analysis plot")
 
                 # Top-down view with aspect ratio
-                save_top_down_view_aspect_ratio(data, f'Top-Down View (Aspect Ratio) - {sample_dir.name}', sample_hist_dir / f'top_down_view_aspect_ratio_{sample_dir.name}.png', _lower_percentile_iqr, _upper_percentile_iqr, _lower_percentile_iqr_zero, _upper_percentile_iqr_zero)
+                save_top_down_view_aspect_ratio(data,
+                                                f'Top-Down View (Aspect Ratio) - {sample_dir.name}',
+                                                sample_hist_dir / f'top_down_view_aspect_ratio_{sample_dir.name}.png', _lower_percentile_iqr, _upper_percentile_iqr, _lower_percentile_iqr_zero, _upper_percentile_iqr_zero)
                 logging.info("Created top-down view plot with aspect ratio")
 
                 # Combined view
