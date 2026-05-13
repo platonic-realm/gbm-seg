@@ -377,9 +377,10 @@ class Morph(nn.Module):
             distance_tesnor = torch.sqrt(distance_tesnor) * self.voxel_size
 
             # Calculate angles for PSF correction
-            corrected_thickness = self.calculate_thickness_correction(slope_tensor=slope_tensor.squeeze(0).squeeze(0),
-                                                                      surface_mask=surface_mask.squeeze(0).squeeze(0),
-                                                                      distance_tensor=distance_tesnor)
+            corrected_thickness, clamp_info = self.calculate_thickness_correction(
+                slope_tensor=slope_tensor.squeeze(0).squeeze(0),
+                surface_mask=surface_mask.squeeze(0).squeeze(0),
+                distance_tensor=distance_tesnor)
 
             x_slope_std = self.calculate_patched_std(x_slope, surface_mask)
             self.empty_cache()
@@ -397,7 +398,7 @@ class Morph(nn.Module):
             bumpiness_tensor[surface_mask == 0] = 0
             bumpiness_tensor = bumpiness_tensor.squeeze()
 
-            return distance_tesnor, corrected_thickness, bumpiness_tensor
+            return distance_tesnor, corrected_thickness, bumpiness_tensor, clamp_info
 
     def calculate_patched_std(self,
                               _slope: Tensor,
@@ -580,11 +581,33 @@ class Morph(nn.Module):
         # Calculate corrected thickness: sqrt(measured^2 - PSF_term)
         measured_squared = distance_tensor**2
 
+        # Diagnostic: count surface voxels where measured² < PSF², i.e. the
+        # measured thickness is below the PSF resolution floor. Without this
+        # clamp these voxels would have an imaginary corrected thickness; the
+        # clamp silently makes the GBM "invisible" at those voxels, so we log
+        # the rate to surface the failure mode.
+        surface_bool = (surface_mask > 0)
+        clamp_bool = (measured_squared < psf_term) & surface_bool
+        clamp_count = int(clamp_bool.sum().item())
+        surface_count = int(surface_bool.sum().item())
+        clamp_percentage = (100.0 * clamp_count / surface_count) if surface_count > 0 else 0.0
+        logging.info(
+            "PSF clamp activated on %d/%d surface voxels (%.2f%%) — "
+            "corrected thickness is 0 for these (measured² < PSF²)",
+            clamp_count, surface_count, clamp_percentage)
+        clamp_info = {
+            'clamp_count': clamp_count,
+            'surface_count': surface_count,
+            'clamp_percentage': clamp_percentage,
+            'psf_lateral_nm': PSFLateral,
+            'psf_axial_nm': PSFAxial,
+        }
+
         # Ensure we don't take square root of negative values
         corrected_squared = torch.clamp(measured_squared - psf_term, min=0)
         corrected_tensor = torch.sqrt(corrected_squared)
 
-        return corrected_tensor
+        return corrected_tensor, clamp_info
 
     def empty_cache(self):
         if "cuda" in self.device:

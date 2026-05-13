@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 import tifffile
+import yaml
 from scipy.ndimage import binary_dilation, binary_erosion
 
 
@@ -318,6 +319,7 @@ def calculate_stats(_inference_result_path: Path,
     sample_names_for_violin = []
     all_thickness_data_for_violin = []
     all_thickness_data_before_outliers = []
+    clamp_stats_list = []  # per-sample PSF-clamp diagnostics written by morph_analysis
 
     processed_samples = 0
 
@@ -327,6 +329,16 @@ def calculate_stats(_inference_result_path: Path,
         sample_hist_dir = _stats_dir / sample_dir.name
         sample_hist_dir.mkdir(exist_ok=True)
         logging.debug("Created sample histogram directory: %s", sample_hist_dir)
+
+        clamp_yaml = sample_dir / "psf_clamp_stats.yaml"
+        if clamp_yaml.exists():
+            try:
+                with open(clamp_yaml, encoding="UTF-8") as f:
+                    sample_clamp = yaml.safe_load(f) or {}
+                sample_clamp['sample_name'] = sample_dir.name
+                clamp_stats_list.append(sample_clamp)
+            except Exception as e:
+                logging.warning("Could not read clamp stats for %s: %s", sample_dir.name, e)
 
         distance_file = sample_dir / "psf_result.npz"
 
@@ -498,6 +510,16 @@ def calculate_stats(_inference_result_path: Path,
             f.write("  - aggregated_thickness_data.npz (all thickness values before outlier removal)\n")
         if all_thickness_data_for_violin:
             f.write("  - thickness_violin_plot.png (violin plot of all samples)\n")
+
+        if clamp_stats_list:
+            f.write("\nPSF clamp activation (% of surface voxels where measured² < PSF²):\n")
+            f.write("(rows where clamp_percentage is high indicate thin GBM regions where\n")
+            f.write("the corrected thickness is silently 0 — interpret these samples cautiously.)\n")
+            for row in clamp_stats_list:
+                pct = row.get('clamp_percentage', float('nan'))
+                cc = row.get('clamp_count', '?')
+                sc = row.get('surface_count', '?')
+                f.write(f"  - {row['sample_name']}: {pct:.2f}% ({cc}/{sc} surface voxels)\n")
 
     logging.info("Saved metadata to %s", metadata_file)
     logging.info("Statistical analysis completed successfully")

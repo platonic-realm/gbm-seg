@@ -269,12 +269,16 @@ def morph_analysis(_sample_path: str, _morph) -> None:
     input_path = sample / "prediction_psp.npz"
     distance_path = sample / "distance_result.npz"
     psf_path = sample / "psf_result.npz"
+    clamp_path = sample / "psf_clamp_stats.yaml"
 
     result = np.load(input_path)['arr']
-    distance_result, psf_result, _ = _morph(torch.from_numpy(result).float())
+    distance_result, psf_result, _, clamp_info = _morph(torch.from_numpy(result).float())
 
     distance_result = distance_result.detach().cpu().numpy()
     psf_result = psf_result.detach().cpu().numpy()
 
     np.savez_compressed(distance_path, arr=distance_result)
     np.savez_compressed(psf_path, arr=psf_result)
+
+    with open(clamp_path, "w", encoding="UTF-8") as f:
+        yaml.safe_dump(clamp_info, f, sort_keys=False)
