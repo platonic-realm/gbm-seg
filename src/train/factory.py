@@ -89,7 +89,10 @@ class Factory:
         if loss_name == 'CrossEntropy':
             loss = nn.CrossEntropyLoss(weight=weights)
         if loss_name == 'Cont':
-            loss = ContLoss(nn.CrossEntropyLoss(weight=weights))
+            cont_alpha = self.configs['trainer'].get('cont_alpha', 0.7)
+            cont_beta = self.configs['trainer'].get('cont_beta', 0.3)
+            loss = ContLoss(nn.CrossEntropyLoss(weight=weights),
+                            _alpha=cont_alpha, _beta=cont_beta)
             loss = loss.to(device)
 
         return loss

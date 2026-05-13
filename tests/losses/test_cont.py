@@ -39,14 +39,18 @@ def test_rejects_wrong_rank():
 
 
 def test_cont_loss_module_runs_and_backprops():
-    """End-to-end ContLoss: forward pass produces a finite scalar and the
-    learned alpha/beta weights actually receive gradients."""
+    """End-to-end ContLoss: forward produces a finite scalar; gradient
+    flows back to the input logits. After the A2-precursor refactor,
+    ContLoss no longer has learnable alpha/beta — its weights are
+    fixed hyperparameters, so we just verify the loss is differentiable
+    w.r.t. its inputs."""
     from torch import nn
 
     from src.train.losses.loss_cont import ContLoss
 
     weights = torch.tensor([1.0, 1.0])
-    loss_fn = ContLoss(nn.CrossEntropyLoss(weight=weights))
+    loss_fn = ContLoss(nn.CrossEntropyLoss(weight=weights),
+                       _alpha=0.7, _beta=0.3)
 
     logits = torch.randn(2, 2, 4, 8, 8, requires_grad=True)
     labels = torch.randint(0, 2, (2, 4, 8, 8))
@@ -54,14 +58,42 @@ def test_cont_loss_module_runs_and_backprops():
     out = loss_fn(logits, labels)
     assert torch.isfinite(out).item()
     out.backward()
-    assert loss_fn.w_alpha.grad is not None
-    assert loss_fn.w_beta.grad is not None
+    assert logits.grad is not None and torch.isfinite(logits.grad).all()
 
 
-def test_cont_loss_rejects_bad_minimums():
-    import pytest
+def test_cont_loss_has_no_learnable_params():
+    """A2-precursor: confirm ContLoss has no nn.Parameters anymore.
+    The factory's `list(_model.parameters()) + list(_loss.parameters())`
+    pattern must therefore add zero parameters from the loss."""
     from torch import nn
 
-    with pytest.raises(ValueError):
-        from src.train.losses.loss_cont import ContLoss
-        ContLoss(nn.CrossEntropyLoss(), min_alpha=0.7, min_beta=0.5)
+    from src.train.losses.loss_cont import ContLoss
+
+    loss_fn = ContLoss(nn.CrossEntropyLoss())
+    assert list(loss_fn.parameters()) == []
+    # The fixed weights live on the module as plain floats:
+    assert isinstance(loss_fn.alpha, float)
+    assert isinstance(loss_fn.beta, float)
+
+
+def test_cont_loss_respects_alpha_beta_extremes():
+    """At (alpha=1, beta=0) the loss is exactly CE.
+    At (alpha=0, beta=1) the loss is exactly the continuity term."""
+    from torch import nn
+
+    from src.train.losses.loss_cont import ContLoss, continuity_loss_diff
+
+    weights = torch.tensor([1.0, 1.0])
+    ce = nn.CrossEntropyLoss(weight=weights)
+
+    logits = torch.randn(2, 2, 4, 8, 8)
+    labels = torch.randint(0, 2, (2, 4, 8, 8))
+
+    only_ce = ContLoss(ce, _alpha=1.0, _beta=0.0)(logits, labels)
+    only_ct = ContLoss(ce, _alpha=0.0, _beta=1.0)(logits, labels)
+
+    expected_ce = ce(logits, labels)
+    expected_ct = continuity_loss_diff(logits)
+
+    assert torch.isclose(only_ce, expected_ce, atol=1e-6)
+    assert torch.isclose(only_ct, expected_ct, atol=1e-6)

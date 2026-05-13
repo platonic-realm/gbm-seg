@@ -16,48 +16,31 @@ def continuity_loss_diff(logits):
 
 
 class ContLoss(nn.Module):
+    """``alpha * CE + beta * continuity`` with **fixed** weights.
+
+    A2-precursor refactor: the previous version learned ``alpha``/``beta``
+    via sigmoid-renormalise-with-floors on two ``nn.Parameter``s, with an
+    L2 regulariser on the pre-sigmoid weights. That mechanism was opaque
+    — the gradient on the raw parameters was dominated by sigmoid
+    saturation, and the L2 reg fired on weights that had a non-monotone
+    relationship to the effective ``alpha``/``beta``. Replaced with a
+    single fixed weight per term, sweepable as a hyperparameter.
+
+    Defaults (``alpha=0.7``, ``beta=0.3``) approximate the initialisation-
+    time equilibrium of the prior learned mechanism so existing experiments
+    don't see a sudden behaviour shift.
+    """
+
     def __init__(self,
                  cross_entropy_loss,
-                 min_alpha=0.6,
-                 min_beta=0.3,
-                 reg_lambda=0.01):
-
+                 _alpha: float = 0.7,
+                 _beta: float = 0.3):
         super().__init__()
-        self.w_alpha = nn.Parameter(torch.tensor(0.0))
-        self.w_beta = nn.Parameter(torch.tensor(0.0))
         self.cross_entropy_loss = cross_entropy_loss
-        self.min_alpha = min_alpha
-        self.min_beta = min_beta
-        self.reg_lambda = reg_lambda
-
-        if self.min_alpha + self.min_beta > 1.0:
-            raise ValueError("The sum of min_alpha and min_beta must be less than or equal to 1.")
+        self.alpha = float(_alpha)
+        self.beta = float(_beta)
 
     def forward(self, logits, labels):
         ce_loss = self.cross_entropy_loss(logits, labels)
         cont_loss = continuity_loss_diff(logits)
-
-        variable_weight = 1.0 - self.min_alpha - self.min_beta
-
-        if variable_weight < 0.0:
-            raise ValueError("The sum of min_alpha and min_beta must be less than or equal to 1.")
-
-        # Apply sigmoid to ensure weights are between 0 and 1
-        scaled_alpha = torch.sigmoid(self.w_alpha)
-        scaled_beta = torch.sigmoid(self.w_beta)
-
-        # Normalize the scaled weights
-        weight_sum = scaled_alpha + scaled_beta + 1e-6  # Avoid division by zero
-        scaled_alpha_norm = scaled_alpha / weight_sum
-        scaled_beta_norm = scaled_beta / weight_sum
-
-        # Adjust weights with minimums
-        alpha = self.min_alpha + variable_weight * scaled_alpha_norm
-        beta = self.min_beta + variable_weight * scaled_beta_norm
-
-        total_loss = alpha * ce_loss + beta * cont_loss
-
-        reg_loss = self.reg_lambda * (self.w_alpha.pow(2) + self.w_beta.pow(2))
-        total_loss += reg_loss
-
-        return total_loss
+        return self.alpha * ce_loss + self.beta * cont_loss

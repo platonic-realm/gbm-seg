@@ -75,6 +75,10 @@ trainer:
 
   loss: Cont
   loss_weights: [3.0, 7.0]
+  # ContLoss = cont_alpha * CE + cont_beta * continuity. Only consulted when loss=Cont.
+  # Defaults approximate the prior learned-weight initialisation equilibrium.
+  cont_alpha: 0.7
+  cont_beta: 0.3
   report_freq: 100
 
   metrics: [
