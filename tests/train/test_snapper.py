@@ -25,7 +25,10 @@ class _TinyModel(nn.Module):
 def _state_dicts_equal(a, b):
     if a.keys() != b.keys():
         return False
-    return all(torch.equal(a[k], b[k]) for k in a)
+    # DataParallel moves the wrapped module to cuda:0 on hosts where CUDA
+    # is available, but Snapper.load uses map_location='cpu'. Compare on CPU
+    # so the round-trip is device-agnostic.
+    return all(torch.equal(a[k].cpu(), b[k].cpu()) for k in a)
 
 
 def test_save_load_no_dp(tmp_snapshot_dir):
