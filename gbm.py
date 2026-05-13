@@ -110,6 +110,22 @@ def _do_stats(args, configs):
                 args.clipping)
 
 
+def _do_ablate(args, configs):
+    basic_logger()
+    from src.ablation.runner import emit_commands, materialise
+    from src.ablation.spec import parse_spec
+
+    spec = parse_spec(args.spec_path)
+    experiments_root = configs['experiments']['root']
+    cell_paths = materialise(spec, experiments_root)
+    commands = emit_commands(spec, cell_paths,
+                             sbatch_wrapper=args.sbatch_wrapper)
+    print(f"# {len(commands)} cells materialised under {experiments_root}")
+    print("# Submit the following:")
+    for cmd in commands:
+        print(cmd)
+
+
 # Aligned by hand for readability; suppress pycodestyle's "multiple spaces after ':'".
 HANDLERS = {
     'create':  _do_create,
@@ -123,6 +139,7 @@ HANDLERS = {
     'render':  _do_render,
     'export':  _do_export,
     'stats':   _do_stats,
+    'ablate':  _do_ablate,
 }
 
 

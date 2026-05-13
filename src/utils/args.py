@@ -212,6 +212,18 @@ def parse_exper() -> None:
                               required=True,
                               help='select the snapshot used for inference')
 
+    # Define a subparser for the 'ablate' action
+    ablate_parser = \
+        subparsers.add_parser('ablate',
+                              help='materialise an ablation study from a YAML spec')
+    ablate_parser.add_argument('spec_path',
+                               help='path to the ablation spec YAML')
+    ablate_parser.add_argument('--sbatch',
+                               dest='sbatch_wrapper',
+                               default=None,
+                               help='if set, emit `sbatch <path> <name> <fold>` '
+                                    'commands instead of plain python ones')
+
     # Define a subparser for the 'stats' action
     infer_parser = \
         subparsers.add_parser('stats',

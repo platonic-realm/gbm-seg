@@ -1,0 +1,25 @@
+# Optimiser/scheduler ablation — pilot on fold 0.
+# Run AFTER the loss pilot picks a winner; pin trainer.loss to that winner
+# in `base_experiment` (re-use the loss_pilot winning cell, or update
+# my_baseline's configs.yaml).
+
+study: optim_pilot
+base_experiment: my_baseline
+
+cells:
+  - name: adam_rlop
+    overrides:
+      trainer.optim.name: adam
+      trainer.optim.lr: 1.0e-4
+      trainer.scheduler.name: reduce_on_plateau
+      trainer.scheduler.mode: max
+
+  - name: sgd_poly
+    overrides:
+      trainer.optim.name: sgd
+      trainer.optim.lr: 1.0e-2
+      trainer.optim.momentum: 0.99
+      trainer.scheduler.name: poly_decay
+      trainer.scheduler.power: 0.9
+
+folds: [0]
