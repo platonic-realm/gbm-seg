@@ -47,9 +47,12 @@ DEFAULT_K = 5
 # here so that file (which is downstream stats, not training data) can be
 # evolved independently. Keys are uppercased prefix tuples.
 SAMPLE_GROUP_PREFIXES: dict[str, tuple[str, ...]] = {
-    "Control": ("NCW.AUY381", "NCW.AUY380", "CKM103", "CKM110"),
-    "Podocin": ("NCW.BDP669", "NCW.BDP672", "NCW.BDP675"),
-    "Collagen": ("NCW.CKM105", "NCW.CKM104"),
+    "Control": ("NCW.AUY381", "NCW.AUY380", "CKM103", "CKM110",
+                "NCWM.AUY380", "NCWM.AUY381", "NCWM.CKM103", "NCWM.CKM110"),
+    "Podocin": ("NCW.BDP669", "NCW.BDP672", "NCW.BDP675",
+                "NCWM.BDP669", "NCWM.BDP672", "NCWM.BDP675"),
+    "Collagen": ("NCW.CKM105", "NCW.CKM104",
+                 "NCWM.CKM104", "NCWM.CKM105"),
 }
 
 
