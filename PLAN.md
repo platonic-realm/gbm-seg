@@ -132,7 +132,7 @@ A second agent reviewed the methodology (architecture choices, training protocol
 
 ### Phase 6 — Pass 2 plumbing (done)
 
-Five commits on top of `9b543ff`, each with its own regression-test suite (12 new test files / 30 new tests; full suite 31 → 61).
+Five commits on top of `9b543ff`, each with its own regression-test suite.
 
 | Commit | Item | What |
 |---|---|---|
@@ -142,23 +142,50 @@ Five commits on top of `9b543ff`, each with its own regression-test suite (12 ne
 | `51aa1f4` | A3 | Sliding-window accumulator extracted to `src/infer/stitching.py:StitchAccumulator`; 4 configurable modes via `inference.stitching`. Unet3D loses inference-mode state. `main_infer` builds the model once (no longer per-volume). |
 | `32b1c14` | B1.2 | `src/models/__init__.py:MODEL_REGISTRY` + `build_model(name, configs, in_ch, num_classes)`. Each model in its own subdir with a `build()` callable. Trainer is now fully model-agnostic. |
 
-### Phase 7 — Training-methodology changes (pending)
+### Phase 7 — Training-methodology changes (done)
 
-- **C1.1** — Add SGD+momentum+poly-decay as a config option in the optimiser/scheduler factory. Keep Adam as the alternative.
-- **C1.2** — Deep supervision: expose decoder mid-level features in `Unet3D`; wrap the loss in the factory.
-- **E2** — W&B integration. `wandb.init` + metric/artifact logging in `trainer.py` + `metric_logger.py`. Snapshot artifacts uploaded on save.
-- **A1** — Subject-wise stratified 5-fold CV. New `src/data/folds.py`. `--fold 0..4` CLI flag. Sample-group guard fails loudly on unknown prefixes.
-- **A2 precursor** — Drop the learned α/β from ContLoss.
+Five commits, each gated on its own regression-test suite. Full test suite reaches 106 at end of Phase 7.
 
-### Phase 8 — A2 ablation experiment (pending)
+| Commit | Item | What |
+|---|---|---|
+| `3393322` | C1.1 | SGD+momentum=0.99+poly-decay added alongside Adam+ReduceLROnPlateau. Trainer dispatches `.step()` by scheduler type. Default backwards-compat to ReduceLROnPlateau when the new `trainer.scheduler` block is missing. |
+| `b3bb5b2` | A2-precursor | ContLoss drops the learned-α/β sigmoid-renormalise-with-floors machinery. Replaced with fixed `cont_alpha` / `cont_beta` HP fields (defaults 0.7 / 0.3, approximating the prior init-time equilibrium). |
+| `b915b58` | C1.2 | Deep supervision auxiliary heads at decoder mid-levels in `Unet3D`; new `DeepSupervisionLoss` wrapper sums per-level losses against downsampled labels with `0.5^k` weights. Wrapper degrades transparently when the model produces a single tensor. |
+| `e123eb0` | A1 | Subject-wise stratified k-fold CV. New `src/data/folds.py` with hand-rolled stratified round-robin (no sklearn dep). `--fold 0..4` CLI flag; `fold_assignments.yaml` persisted per experiment; fail-loud guard for unknown sample-name prefixes. Replaces the leaky patch-level `random_split`. |
+| `ce2170f` | E2 | W&B integration. New `MetricWandb` backend alongside the existing tensorboard/SQL ones. `wandb.init(config=configs)` at training start so every ablation axis is filterable on the UI; snapshot `.pt` files uploaded as artifacts via `wandb.save`. Lazy import; missing wandb logs a warning rather than crashing. |
 
-Build the ablation harness — config plumbing for 5 loss configurations, SLURM array template for the 25 fold × loss runs, aggregation script reading W&B history. Actually running the ablation is research time, not engineering time.
+### Phase 8 — Ablation orchestrator (done)
+
+Two commits; tests reach 134 at end of Phase 8.
+
+| Commit | Item | What |
+|---|---|---|
+| `e5ab318` | Orchestrator | `gbm.py ablate <spec.yaml>` reads a YAML spec, materialises one experiment per `(cell, fold)` cross-product under `experiments.root`, and prints the exact training commands to submit. Cells symlink `datasets/` + `code/` from the base experiment (no GB-scale copies) and inherit `fold_assignments.yaml`; only the rewritten `configs.yaml` carries the per-cell overrides + a unique `wandb.run_name`. Idempotent: re-running over an existing cell directory leaves it alone. Three example specs in `ablation_specs/` (loss / optim / DS pilots). |
+| `ab0ef8c` | CompoundLoss | Weighted sum of base losses (`Dice + CrossEntropy`, `Dice + ContLoss`, …) so the catalog's literal A2 ablation configs (b)–(d) can be expressed in YAML. `_build_single_loss` extracted as the factory's name→class helper so adding a new sub-loss class touches one place. Existing `DeepSupervisionLoss` wrapper composes on top transparently. |
 
 ---
 
-## Open questions parked for later
+## What's still open
 
-- **A2 ablation results** will dictate whether to revisit B2 (focal/Tversky), C1.3 (TTA), C1.4 (FG-balanced sampling), or D1 (channel ablation).
-- **Custom SwinUNETR for shallow Z-stacks** is on the user's roadmap; B1.2 set up the slot but the implementation is independent.
-- **DDP** is technical debt; revisit when DP throughput becomes a bottleneck.
-- **Remove profiler / TensorBoard / SQLite** when the user signals readiness (they're slated for removal but kept working for now).
+- **A2 (e) TV-on-argmaxed-mask loss** — the 5th A2 configuration needs a new loss class operating on `argmax(softmax(logits))` rather than softmax probabilities. ~1 hour of work; not strictly required to start running the (a)–(d) ablation.
+- **Custom SwinUNETR for shallow Z-stacks** — B1.2's model registry has a slot for it. The actual implementation is an independent piece of research work.
+- **DDP scaffolding** — DataParallel works today; revisit if single-experiment throughput becomes a bottleneck on 4× A100.
+- **Remove profiler / TensorBoard / SQLite** — slated for removal once the W&B logging path is in active use. New code already avoids depending on them.
+- **A2 ablation results will dictate** whether to revisit B2 (focal/Tversky), C1.3 (TTA), C1.4 (foreground-balanced sampling), or D1 (channel ablation). All four are parked in the DEFER bucket until the loss ablation lands a winner.
+
+## How to run an ablation
+
+```bash
+# 1. Create a baseline experiment with the current `gbm.py create`.
+python gbm.py create my_baseline --batch-size 8
+
+# 2. Verify fold_assignments.yaml landed in <experiments.root>/my_baseline/.
+# 3. Pick an ablation study, e.g. the loss pilot:
+python gbm.py ablate ablation_specs/loss_pilot.yaml
+
+# 4. The orchestrator prints commands like:
+#    python gbm.py train loss_pilot__dice__fold0 --fold 0
+#    ...
+# 5. Submit each command (interactively, or wrap in sbatch yourself).
+# 6. Compare runs on W&B (filtering by `cell` or `fold`) once results land.
+```
