@@ -60,7 +60,25 @@ This application features an experiment management system accessible via the `gb
 
 ### Configuration
 
-The application uses a YAML configuration file located at `./configs/template.yaml`. This file contains various settings such as the root directory for experiments, model architecture, training parameters, and inference settings. Before running any experiments, you should review and customize this file to match your environment and requirements.
+The application uses a YAML configuration file located at `./configs/template.yaml`. This file is the *template* — `gbm.py create` renders it into a per-experiment `configs.yaml` at experiment-create time, after which each experiment reads its own copy (template edits don't retroactively affect old experiments). Before running anything, review the template and adjust paths + parameters to your environment.
+
+Key tunable sections of the template:
+
+- `experiments.root` — where created experiments live (cluster vs. laptop toggle near the top).
+- `trainer.model.name` — dispatched through a registry; defaults to `unet_3d`. New models register in `src/models/__init__.py`.
+- `trainer.loss` — one of `Dice`, `IoU`, `CrossEntropy`, `Cont`, or `Compound` (weighted sum of other losses; see Ablation Studies below).
+- `trainer.optim.name` — `adam` (default) or `sgd` (with momentum / Nesterov / weight-decay fields).
+- `trainer.scheduler.name` — `reduce_on_plateau` (default) or `poly_decay`. Omit the block entirely to keep the prior behaviour.
+- `trainer.deep_supervision.enabled` — toggle decoder mid-level auxiliary heads (off by default).
+- `trainer.wandb.{enabled, project, entity, run_name}` — opt-in Weights & Biases experiment tracking.
+- `inference.stitching` — sliding-window stitching mode (`gaussian` / `hann` / `sum_logits` / `flat_softmax`).
+- `inference.morph.thickness_clip_max` — threshold (nm) for `gbm.py stats --clipping`.
+
+For each new experiment, `gbm.py create` also writes:
+
+- `configs.yaml` (the rendered template),
+- `fold_assignments.yaml` (subject-wise stratified 5-fold partition, deterministic from a fixed seed),
+- `requirements.txt`, `git_sha.txt`, and (if the tree is dirty) `git_diff.patch` for reproducibility.
 
 ### Local Execution (Without SLURM)
 
@@ -95,34 +113,42 @@ Options:
 
 #### Delete an Experiment
 
-Delete the selected experiment.
+Delete the selected experiment. Requires `-f/--force` (non-interactive — there is no confirmation prompt, so SLURM jobs that delete won't hang).
 
 ```bash
-python gbm.py delete <name>
+python gbm.py delete <name> -f
 ```
 
 #### Train an Experiment
 
-Start or continue training for the specified experiment.
+Start or continue training for the specified experiment. Pick which CV fold to train via `--fold` (default `0`); the partition lives in `<experiment>/fold_assignments.yaml`, generated at create time.
 
 ```bash
-python gbm.py train <name>
-```
-
-#### Run Inference
-
-Create an inference session for the specified experiment.
-
-```bash
-python gbm.py infer <name> -s SNAPSHOT [-bs BATCH_SIZE] [-sd SAMPLE_DIMENSION] [-st STRIDE] [-sf SCALE_FACTOR]
+python gbm.py train <name> [--fold 0..4]
 ```
 
 Options:
-- `-s SNAPSHOT`, `--snapshot SNAPSHOT`: Select the snapshot for inference (required)
-- `-bs BATCH_SIZE`, `--batch-size BATCH_SIZE`: Set the batch size for inference (default: 8)
-- `-sd SAMPLE_DIMENSION`, `--sample-dimension SAMPLE_DIMENSION`: Set sample dimension for inference (default: '12, 256, 256')
-- `-st STRIDE`, `--stride STRIDE`: Set the stride for inference (default: '1, 64, 64')
-- `-sf SCALE_FACTOR`, `--scale-factor SCALE_FACTOR`: Set the scale for interpolation (default: 1)
+- `--fold FOLD`: Which subject-wise stratified fold (0..k-1) to train. Defaults to `0`.
+
+To get publication-ready mean ± std, submit one job per fold (a SLURM array typically) and aggregate.
+
+#### Run Inference
+
+Create an inference session for the specified experiment. Refuses to overwrite an existing inference dir without `-f/--force` (also non-interactive).
+
+```bash
+python gbm.py infer <name> -s SNAPSHOT [-bs BATCH_SIZE] [-sd SAMPLE_DIMENSION] [-st STRIDE] [-sf SCALE_FACTOR] [-f]
+```
+
+Options:
+- `-s SNAPSHOT`, `--snapshot SNAPSHOT`: Select the snapshot for inference (required).
+- `-bs BATCH_SIZE`, `--batch-size BATCH_SIZE`: Set the batch size for inference (default: 8).
+- `-sd SAMPLE_DIMENSION`, `--sample-dimension SAMPLE_DIMENSION`: Set sample dimension for inference (default: `'12, 256, 256'`).
+- `-st STRIDE`, `--stride STRIDE`: Set the stride for inference (default: `'1, 64, 64'`).
+- `-sf SCALE_FACTOR`, `--scale-factor SCALE_FACTOR`: Set the Z-axis interpolation scale (default: 1).
+- `-f`, `--force`: Overwrite an existing inference output directory.
+
+The stitching mode used by inference is read from the experiment's `configs.yaml` (`inference.stitching`). New experiments default to `gaussian`; existing experiments preserve their original behaviour (`sum_logits` if absent).
 
 #### Post-processing
 
@@ -187,15 +213,16 @@ Options:
 Generate statistics from the analysis results.
 
 ```bash
-python gbm.py stats <name> -it INFERENCE_TAG
+python gbm.py stats <name> -it INFERENCE_TAG [--clipping]
 ```
 
 Options:
 - `-it INFERENCE_TAG`, `--inference-tag INFERENCE_TAG`: Tag of the inference session.
+- `--clipping`: Discard thickness values above `inference.morph.thickness_clip_max` (default 1400 nm) before computing the histograms. Useful for visually pathological samples; the rate of clamped voxels also appears per-sample in `metadata.txt` regardless of this flag.
 
 #### Examples for Local Execution
 
-1.  **Create a new experiment:**
+1.  **Create a new experiment** (this also generates `fold_assignments.yaml` from the copied `ds_train/`):
     ```bash
     python gbm.py create my_experiment --batch-size 16
     ```
@@ -205,14 +232,19 @@ Options:
     python gbm.py list
     ```
 
-3.  **Train an experiment:**
+3.  **Train fold 0:**
     ```bash
-    python gbm.py train my_experiment
+    python gbm.py train my_experiment --fold 0
+    ```
+
+    For 5-fold cross-validation, submit each fold separately (locally in sequence, or as a SLURM array):
+    ```bash
+    for f in 0 1 2 3 4; do python gbm.py train my_experiment --fold "$f"; done
     ```
 
 4.  **Run inference:**
     ```bash
-    python gbm.py infer my_experiment --snapshot best_model --batch-size 4 --sample-dimension "24, 512, 512" --stride "2, 128, 128" --scale-factor 2
+    python gbm.py infer my_experiment --snapshot 020-30000.pt --batch-size 4 --sample-dimension "24, 512, 512" --stride "2, 128, 128" --scale-factor 2
     ```
 
 ### SLURM Execution
@@ -248,6 +280,93 @@ sbatch ./sbatch/infer.sbatch <name> <snapshot> <batch_size> "<sample_dimension>"
 ```
 Refer to the specific `.sbatch` files for their required arguments and usage.
 
+## Ablation Studies
+
+The `ablate` subcommand materialises one experiment per cell of a study, ready to submit. See `ablation_specs/` for working templates (`loss_pilot.yaml`, `optim_pilot.yaml`, `ds_pilot.yaml`).
+
+A spec describes one study as a list of cells (each varying some axes via dotted-path config overrides) plus the folds to run:
+
+```yaml
+study: loss_pilot
+base_experiment: my_baseline          # must already exist (gbm.py create)
+cells:
+  - name: dice
+    overrides: {trainer.loss: Dice}
+  - name: dice_ce
+    overrides:
+      trainer.loss: Compound
+      trainer.compound_loss:
+        - {name: Dice, weight: 1.0}
+        - {name: CrossEntropy, weight: 1.0}
+folds: [0]                             # pilot; switch to [0, 1, 2, 3, 4] for the final
+```
+
+Run the orchestrator:
+
+```bash
+python gbm.py ablate ablation_specs/loss_pilot.yaml
+```
+
+For each `(cell, fold)`, the orchestrator creates an experiment under `experiments.root` named `<study>__<cell>__fold<n>`. Datasets and code are symlinked from the base experiment (no GB-scale copies for 25 cells); fold assignments and provenance files are copied. Only the per-cell `configs.yaml` is rewritten with the overrides applied and a unique `trainer.wandb.run_name`.
+
+The orchestrator prints the exact training commands — submit them yourself (interactively, or wrap in `sbatch`):
+
+```
+python gbm.py train loss_pilot__dice__fold0 --fold 0
+python gbm.py train loss_pilot__dice_ce__fold0 --fold 0
+...
+```
+
+If you have a SLURM submission wrapper script, point `--sbatch` at it:
+
+```bash
+python gbm.py ablate ablation_specs/loss_pilot.yaml --sbatch ./sbatch/train.sbatch
+# Emits: sbatch ./sbatch/train.sbatch loss_pilot__dice__fold0 0
+```
+
+Re-running `ablate` over an existing set of cells is idempotent — already-materialised cell directories are left alone.
+
+The recommended workflow is **sequential pinning**: pilot each axis (loss → optimiser → deep supervision) on one fold, pick the winner, pin it in the base experiment, move to the next axis. Stitching is "free" — one trained snapshot produces a result for each of the four stitching modes via inference fan-out without re-training.
+
+## Experiment Tracking (Weights & Biases)
+
+Setting `trainer.wandb.enabled: true` in `configs.yaml` enables per-step metric logging + snapshot artifact uploads to a W&B run. The full `configs` dict is logged as `wandb.config` so every ablation axis (model × loss × stitching × optimiser × fold) is filterable on the W&B UI.
+
+Authentication options:
+
+```bash
+# Interactive (stores in ~/.netrc):
+wandb login
+
+# Or via env var (best for SLURM):
+export WANDB_API_KEY=<your_key>     # get from https://wandb.ai/authorize
+
+# Or fully offline (no network; sync later with `wandb sync`):
+export WANDB_MODE=offline
+```
+
+If wandb isn't installed, the training pipeline logs a warning and continues without it — never aborts.
+
+## Reproducibility
+
+Each `gbm.py create` writes `git_sha.txt` and (if dirty) `git_diff.patch` into the experiment dir. Each `gbm.py train --fold N` invocation seeds Python/NumPy/PyTorch/CUDA + dataloader workers from a fixed seed (`88233474`), and enables `torch.use_deterministic_algorithms(True, warn_only=True)` with `CUBLAS_WORKSPACE_CONFIG=:4096:8` for bit-exact reproducibility on CUDA. Expect a ~5–10% speed regression in exchange.
+
+Per-snapshot `<epoch>-<step>.yaml` model cards are written next to each `.pt` file, capturing the torch/CUDA/cuDNN versions, GPU name, Python version, the torch RNG seed, git SHA, and the experiment name. Useful months later when reconstructing how a snapshot was produced.
+
+## Testing
+
+The test suite runs on CPU and does not need a real dataset (synthetic fixtures throughout):
+
+```bash
+python -m pytest tests/                       # full suite
+python -m pytest tests/ --cov=src             # with coverage
+python -m ruff check .                        # lint
+```
+
 ## Debugging
 
-Add the `--debug` flag to any command to enable debugging mode.
+Add the `--debug` flag to any command to enable interactive debugging via `pudb`.
+
+## Project history
+
+See [`PLAN.md`](PLAN.md) for the planning ledger covering the bug-fix overhaul, the methodology-review backlog (25 catalogued items with decisions and rationale), and the implementation status of each.
