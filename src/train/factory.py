@@ -58,9 +58,13 @@ class Factory:
 
     def createModel(self,
                     _no_of_channles: int,
-                    _no_of_classes: int,
-                    _result_shape: list = None,
-                    _inference: bool = False) -> nn.Module:
+                    _no_of_classes: int) -> nn.Module:
+        """Build the segmentation model from ``configs.trainer.model``.
+
+        A3 refactor: the model is now stateless w.r.t. inference. Inference-time
+        sliding-window accumulation lives in :class:`src.infer.stitching.StitchAccumulator`
+        and is configured at ``Inference`` construction time.
+        """
 
         sample_dimension = self.configs['trainer']['train_ds']['sample_dimension'].copy()
 
@@ -70,9 +74,7 @@ class Factory:
                        _encoder_kernel_size=self.configs['trainer']['model']['encoder_kernel'],
                        _decoder_kernel_size=self.configs['trainer']['model']['decoder_kernel'],
                        _feature_maps=self.configs['trainer']['model']['feature_maps'],
-                       _sample_dimension=sample_dimension,
-                       _inference=_inference,
-                       _result_shape=_result_shape)
+                       _sample_dimension=sample_dimension)
 
         if self.configs['trainer']['dp']:
             model = DP(model)
@@ -384,10 +386,16 @@ class Factory:
 
     def createInferer(self,
                       _model: nn.Module,
-                      _data_loaders: list,
+                      _data_loader: DataLoader,
                       _morph: Morph,
                       _snapper: Snapper):
+        """Build an :class:`Inference` for one DataLoader.
 
+        A3 refactor: the inferer now owns the sliding-window accumulator
+        (``StitchAccumulator``); the stitching mode is read from
+        ``configs.inference.stitching``. ``patch_size`` and ``result_shape``
+        come from the data_loader's dataset.
+        """
         device = self.configs['trainer']['device']
         result_path = self.configs['inference']['result_dir']
         snapshot_path = self.configs['inference']['snapshot_path']
@@ -395,15 +403,25 @@ class Factory:
 
         interpolate = self.configs['inference']['interpolate']
         scale_factor = self.configs['inference']['inference_ds']['scale_factor']
+        stitching_mode = self.configs['inference'].get('stitching', 'gaussian')
+
+        # The dataset knows both the per-patch sample dimension (Z, X, Y)
+        # and the full-volume result shape (C, Z, X, Y) it expects from
+        # the stitched output.
+        patch_size = self.configs['inference']['inference_ds']['sample_dimension']
+        result_shape = _data_loader.dataset.getResultShape()
 
         inferer = Inference(_model,
-                            _data_loaders,
+                            _data_loader,
                             _snapper,
                             device,
                             result_path,
                             snapshot_path,
                             dp,
                             interpolate,
-                            scale_factor)
+                            scale_factor,
+                            stitching_mode,
+                            patch_size,
+                            result_shape)
 
         return inferer

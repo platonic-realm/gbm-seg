@@ -15,14 +15,18 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # Local Imports
+from src.infer.stitching import StitchAccumulator
 from src.train.snapper import Snapper
 from src.utils.misc import create_dirs_recursively
 
 
 class Inference:
-    """Slides an inference DataLoader through the model, accumulating logits
-    into the model's CPU-side ``result_tensor`` at each patch's offsets, then
-    argmaxes once at the end to produce the final per-voxel class mask.
+    """Slides an inference DataLoader through the model and stitches patches.
+
+    A3 (Phase 6): the full-volume accumulator lives here, not in the model.
+    The stitching mode is config-driven via ``inference.stitching``
+    (gaussian / hann / sum_logits / flat_softmax). See
+    ``src/infer/stitching.py`` for the four-mode contract.
     """
 
     def __init__(self,
@@ -34,7 +38,10 @@ class Inference:
                  _snapshot_path: str,
                  _dp: bool,
                  _interpolate: bool,
-                 _scale_factor: int):
+                 _scale_factor: int,
+                 _stitching_mode: str,
+                 _patch_size,
+                 _result_shape):
 
         self.data_loader = _data_loader
         self.device = _device
@@ -49,6 +56,11 @@ class Inference:
         self.model = _model
         self.model.eval()
 
+        self.accumulator = StitchAccumulator(
+            mode=_stitching_mode,
+            patch_size=_patch_size,
+            result_shape=_result_shape)
+
     def infer(self) -> None:
         """Run the full inference loop and write predictions to ``results_path``."""
         for data in tqdm(self.data_loader,
@@ -58,15 +70,16 @@ class Inference:
             offsets = data['offsets'].to(self.device)
 
             with torch.no_grad():
-                _, _ = self.model(sample, offsets)
+                logits, _ = self.model(sample)
+
+            self.accumulator.add_batch(logits, offsets)
 
         output_dir = os.path.join(self.results_path,
                                   self.data_loader.dataset.file_name)
 
         create_dirs_recursively(os.path.join(output_dir, "dummy"))
 
-        result = self.model.module.get_result()
-        result = torch.argmax(result, dim=0)
+        result = self.accumulator.finalize()
 
         del offsets
         del sample

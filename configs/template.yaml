@@ -163,6 +163,14 @@ inference:
   device: cuda
   interpolate: True
 
+  # Sliding-window stitching mode for overlapping patches.
+  # Options:
+  #   gaussian      — softmax probabilities + 3D Gaussian window (sigma=patch/8). nnU-Net default; recommended for new experiments.
+  #   hann          — softmax probabilities + 3D Hann window. Parameter-free, sharper rolloff.
+  #   flat_softmax  — softmax probabilities + uniform window. Diagnostic baseline.
+  #   sum_logits    — sum raw logits with uniform window (legacy behaviour; preserved for backwards-compat).
+  stitching: gaussian
+
   post_processing:
     enabled: True
     min_2d_size: 500

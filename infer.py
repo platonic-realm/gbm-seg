@@ -12,23 +12,18 @@ def main_infer(_configs):
     factory = Factory(_configs)
 
     data_loaders = factory.createInferenceDataLoaders()
-
     morph = factory.createMorphModule()
-
     snapper = factory.createSnapper()
 
+    # A3 refactor: the model is stateless w.r.t. inference (the sliding-window
+    # accumulator now lives in Inference). Build it once and re-use it for every
+    # volume; each Inference owns its own accumulator sized to the volume.
+    first_dataset = data_loaders[0].dataset
+    model = factory.createModel(first_dataset.getNumberOfChannels(),
+                                first_dataset.getNumberOfClasses())
+
     for data_loader in data_loaders:
-
-        model = factory.createModel(data_loader.dataset.getNumberOfChannels(),
-                                    data_loader.dataset.getNumberOfClasses(),
-                                    _inference=True,
-                                    _result_shape=data_loader.dataset.getResultShape())
-
-        inferer = factory.createInferer(model,
-                                        data_loader,
-                                        morph,
-                                        snapper)
-
+        inferer = factory.createInferer(model, data_loader, morph, snapper)
         inferer.infer()
 
 
