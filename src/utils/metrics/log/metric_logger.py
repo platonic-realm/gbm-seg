@@ -2,13 +2,12 @@
 import logging
 
 # Library Imports
-
 # Local Imports
 from src.utils.metrics.log.metric_sql import MetricSQL
 from src.utils.metrics.log.metric_tboard import MetricTensorboard
 
 
-class MetricLogger():
+class MetricLogger:
 
     def __init__(self,
                  _metric_sql: MetricSQL = None,

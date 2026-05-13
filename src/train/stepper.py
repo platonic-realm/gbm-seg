@@ -3,8 +3,7 @@ from abc import ABC, abstractmethod
 
 # Library Imports
 import torch
-from torch import Tensor
-from torch import nn
+from torch import Tensor, nn
 
 # Local Imports
 
@@ -79,9 +78,8 @@ class StepperMixedPrecision(StepperInterface):
         self.optimizer = optimizer
         self.loss_function = loss_function
 
-        # Needed for gradient scaling
         # https://pytorch.org/docs/stable/notes/amp_examples.html
-        self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler = torch.amp.GradScaler('cuda')
 
         self.steps = 0
         self.seen_labels = 0

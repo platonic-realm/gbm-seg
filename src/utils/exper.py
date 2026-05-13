@@ -1,24 +1,55 @@
 # Python Imports
-import os
 import logging
-import subprocess
-import shutil
-import yaml
 import math
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 # Library Imports
 import numpy as np
+import yaml
+
+from infer import main_infer
+from src.infer.blender_io import blender_prepare, blender_render, export_results
+from src.infer.stats import calculate_stats
 
 # Local Imports
 from src.train.factory import Factory
-from src.utils.misc import create_dirs_recursively, \
-        copy_directory, read_configs, resize_and_copy, \
-        morph_analysis, blender_render, blender_prepare, \
-        export_results, calculate_stats, _recursive_roi_analysis
-
+from src.utils.misc import (
+    copy_directory,
+    create_dirs_recursively,
+    morph_analysis,
+    read_configs,
+    resize_and_copy,
+)
 from train import main_train
-from infer import main_infer
+
+
+def _persist_git_provenance(_destination_path: str, _source_path: str):
+    """Write git SHA and uncommitted diff next to requirements.txt.
+
+    `pip freeze` alone doesn't capture the working-tree state; this makes the
+    experiment dir genuinely reproducible.
+    """
+    try:
+        sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=_source_path, stderr=subprocess.DEVNULL).decode().strip()
+        with open(os.path.join(_destination_path, "git_sha.txt"), "w",
+                  encoding="UTF-8") as f:
+            f.write(sha + "\n")
+
+        diff = subprocess.check_output(
+            ["git", "diff", "HEAD"],
+            cwd=_source_path, stderr=subprocess.DEVNULL).decode()
+        if diff:
+            with open(os.path.join(_destination_path, "git_diff.patch"), "w",
+                      encoding="UTF-8") as f:
+                f.write(diff)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logging.warning("Could not capture git provenance for %s", _source_path)
+
 
 def experiment_exists(_root_path, _name) -> bool:
     result = False
@@ -154,28 +185,30 @@ def clipping(_name: str,
 def stats(_name: str,
           _root_path: str,
           _inference_tag: str,
-          _source: str):
+          _clipping: bool):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
         raise FileNotFoundError(message)
 
+    configs_path = os.path.join(_root_path, _name, 'configs.yaml')
+    configs = read_configs(configs_path)
+    thickness_clip_max = configs['inference']['morph'].get('thickness_clip_max', 1400)
+
     inference_root_path = os.path.join(_root_path, _name, 'results-infer')
-    inference_dataset_path = os.path.join(_root_path, _name, 'datasets')
     inference_result_path = os.path.join(inference_root_path, _inference_tag)
     if not os.path.exists(inference_result_path):
         raise FileNotFoundError("Incorrect path: {inference_result_path}")
 
     inference_root_path = Path(inference_root_path)
-    inference_dataset_path = Path(inference_dataset_path)
     inference_result_path = Path(inference_result_path)
 
-    # Create stats directory based on inference tag
     stats_dir = inference_root_path / f"{_inference_tag}_stats"
 
     calculate_stats(inference_result_path,
                     stats_dir,
-                    _source)
+                    _clipping,
+                    thickness_clip_max)
 
 
 def export(_name: str,
@@ -241,7 +274,8 @@ def infer_experiment(_name: str,
                      _sample_dimension: list,
                      _stride: list,
                      _scale: int,
-                     _interpolate: bool):
+                     _interpolate: bool,
+                     _force: bool = False):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
@@ -263,12 +297,13 @@ def infer_experiment(_name: str,
 
     inference_result_path = os.path.join(inference_root_path, inference_tag)
     if os.path.exists(inference_result_path):
-        answer = input("Inference already exists,"
-                       " overwrite? (y/n) [default=n]: ")
-        if answer.lower() == "y":
-            shutil.rmtree(inference_result_path)
-        else:
-            return
+        if not _force:
+            raise FileExistsError(
+                f"Inference already exists at {inference_result_path}. "
+                "Pass --force to overwrite.")
+        logging.info("--force given; removing existing inference at %s",
+                     inference_result_path)
+        shutil.rmtree(inference_result_path)
     create_dirs_recursively(os.path.join(inference_result_path, 'dummy'))
 
     configs['root_path'] = _root_path
@@ -324,15 +359,17 @@ def train_experiment(_name: str,
 
 
 def delete_experiment(_name: str,
-                      _root_path: str):
+                      _root_path: str,
+                      _force: bool = False):
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
         raise FileNotFoundError(message)
-    answer = input("Are you sure? (y/n) [default=n]: ")
-    if answer.lower() == "y":
-        logging.info("Removing the experiment: %s", _name)
-        shutil.rmtree(os.path.join(_root_path, _name))
-        logging.info('Experiment "%s" has been deleted', _name)
+    if not _force:
+        raise RuntimeError(
+            f"Refusing to delete experiment '{_name}' without --force.")
+    logging.info("Removing the experiment: %s", _name)
+    shutil.rmtree(os.path.join(_root_path, _name))
+    logging.info('Experiment "%s" has been deleted', _name)
 
 
 def create_new_experiment(_name: str,
@@ -376,14 +413,12 @@ def create_new_experiment(_name: str,
 
     logging.info("Saving the requirements file to '%s'",
                  destination_path)
-    # Run the 'pip freeze' command and capture the output
     output = subprocess.check_output(["pip", "freeze"])
-    output_str = output.decode().strip()
-
-    # Write the output to a file named 'requirements.txt'
     with open(os.path.join(destination_path, 'requirements.txt'), "w",
               encoding='UTF-8') as f:
-        f.write(output_str)
+        f.write(output.decode().strip())
+
+    _persist_git_provenance(destination_path, _source_path)
 
     logging.warning("Don't forget to edit the configurations")
 

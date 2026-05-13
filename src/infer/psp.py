@@ -1,20 +1,25 @@
 # Python Imports
-import os
 import logging
 import multiprocessing
-import math
+import os
 from pathlib import Path
+
+import imageio
 
 # Library Imports
 import numpy as np
-import imageio
-from skimage import measure, morphology
 from scipy import ndimage
+from skimage import measure, morphology
 
 # Local Imports
 
 
-class PSP():
+class PSP:
+    """Per-sample post-processing: 2D erosion → connected-component filter by
+    ``min_2d_size`` → dilation, then 3D connected-component filter by
+    ``min_3d_size``. Parallelised across samples via multiprocessing.Pool.
+    """
+
     def __init__(self,
                  _kernel_size: int,
                  _min_2d_size: int,
@@ -26,7 +31,8 @@ class PSP():
 
     def parallel_post_processing(self,
                                  _results_path: str,
-                                 _max_concurrent: int):
+                                 _max_concurrent: int) -> None:
+        """Run ``post_processing`` on every sample dir under ``_results_path``."""
 
         inference_dir = Path(_results_path)
         sample_dirs = [d for d in inference_dir.iterdir() if d.is_dir()]
@@ -46,13 +52,11 @@ class PSP():
         logging.info("Creating a mulitprocessing pool with %d processes", _max_concurrent)
         with multiprocessing.Pool(_max_concurrent) as pool:
             pool.starmap(self.post_processing, tasks)
-        for task in tasks:
-            self.post_processing(task[0], task[1])
 
     def post_processing(self,
                         _input_path: Path,
                         _output_path: Path,
-                        _multipier: int = 120) -> None:
+                        _multiplier: int = 120) -> None:
 
         PID = os.getpid()
         logging.info("Process %d: started!", PID)
@@ -95,19 +99,12 @@ class PSP():
 
         logging.info("Process %d: 2D post processing finished", PID)
 
-        logging.info("Process %d: Cylinderical removal", PID)
-
-        space_width = prediction.shape[1]
-        space_height = prediction.shape[2]
-        max_raduis = math.sqrt((space_width/2)**2 + (space_height/2)**2)
-        max_raduis = int(max_raduis)
-
         np.savez_compressed(_output_path, arr=prediction)
         logging.info("Process %d: processed prediction numpy array saved", PID)
 
         gif_path = _output_path.parent / "prediction_psp.gif"
 
-        prediction = prediction * _multipier  # To differentiate the colors
+        prediction = prediction * _multiplier  # To differentiate the colors
         prediction = prediction.astype(np.uint8)
 
         with imageio.get_writer(gif_path, mode='I') as writer:

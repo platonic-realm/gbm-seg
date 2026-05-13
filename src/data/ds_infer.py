@@ -1,16 +1,20 @@
 # Python Imports
 import os
 
-# Library Imports
-import torch
 import numpy as np
 import tifffile
+
+# Library Imports
+import torch
 
 # Local Imports
 from src.data.ds_base import BaseDataset, DatasetType
 
 
 class InferenceDataset(BaseDataset):
+    """Inference dataset wrapping a single 3-channel TIFF; yields overlapping
+    patches with their per-patch offsets so the model can accumulate logits
+    back into the full result volume on CPU."""
 
     def __init__(self,
                  _file_path,

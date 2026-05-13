@@ -1,39 +1,54 @@
 # Python Imports
 import os
+import random
 import re
 from pathlib import Path
 
 # Library Imports
+import numpy as np
 import torch
 from torch import nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.nn.parallel import DataParallel as DP
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
-# Local Imports
-from src.train.stepper import StepperSimple, StepperMixedPrecision, StepperInterface
-from src.train.snapper import Snapper
-from src.train.profiler import Profiler
-from src.train.trainer import Unet3DTrainer
+from src.data.ds_base import BaseDataset
+from src.data.ds_infer import InferenceDataset
+from src.data.ds_train import GBMDataset
+from src.infer.inference import Inference
+from src.infer.morph import Morph
+from src.infer.psp import PSP
+from src.models.unet3d.unet3d import Unet3D
+from src.train.losses.loss_cont import ContLoss
 from src.train.losses.loss_dice import DiceLoss
 from src.train.losses.loss_iou import IoULoss
-from src.train.losses.loss_cont import ContLoss
-from src.models.unet3d.unet3d import Unet3D
-from src.data.ds_base import BaseDataset
-from src.data.ds_train import GBMDataset
-from src.utils.visual.training import TrainVisualizer
-from src.utils.visual.painter import GIFPainter3D, TIFPainter3D
+from src.train.profiler import Profiler
+from src.train.snapper import Snapper
+
+# Local Imports
+from src.train.stepper import StepperInterface, StepperMixedPrecision, StepperSimple
+from src.train.trainer import Unet3DTrainer
+from src.utils.metrics.log.metric_logger import MetricLogger
 from src.utils.metrics.log.metric_sql import MetricSQL
 from src.utils.metrics.log.metric_tboard import MetricTensorboard
-from src.utils.metrics.log.metric_logger import MetricLogger
 from src.utils.misc import blind_test
-from src.data.ds_infer import InferenceDataset
-from src.infer.morph import Morph
-from src.infer.inference import Inference
-from src.infer.psp import PSP
+from src.utils.visual.painter import GIFPainter3D, TIFPainter3D
+from src.utils.visual.training import TrainVisualizer
+
+
+def _worker_init_fn(worker_id: int):
+    # Each worker forks with the parent's RNG state; reseed numpy/random with
+    # a stable per-worker offset so workers don't draw identical samples.
+    base_seed = torch.initial_seed() % 2**32
+    np.random.seed(base_seed + worker_id)
+    random.seed(base_seed + worker_id)
 
 
 class Factory:
+    """Central wiring layer — every component (model, dataset, loss, optimizer,
+    stepper, snapper, visualizer, profiler, metric logger, inferer, PSP, morph)
+    is built here from the experiment's config dict.
+    """
 
     def __init__(self, _configs: dict):
         self.configs = _configs
@@ -94,7 +109,7 @@ class Factory:
         return optimizer
 
     def createScheduler(self, _optimizer):
-        return ReduceLROnPlateau(_optimizer, mode='max', verbose=True)
+        return ReduceLROnPlateau(_optimizer, mode='max')
 
     def createStepper(self,
                       _model: nn.Module,
@@ -151,7 +166,8 @@ class Factory:
                                     report_freq,
                                     epochs)
         else:
-            assert False, "Please provide a valid model name in the config file"
+            raise NotImplementedError(
+                f"Unknown model: {self.configs['trainer']['model']['name']}")
 
         return trainer
 
@@ -193,7 +209,8 @@ class Factory:
                                      batch_size=training_batch_size,
                                      shuffle=training_shuffle,
                                      pin_memory=training_pin_memory,
-                                     num_workers=self.configs['trainer']['train_ds']['workers'])
+                                     num_workers=self.configs['trainer']['train_ds']['workers'],
+                                     worker_init_fn=_worker_init_fn)
 
         return training_loader
 
@@ -207,7 +224,8 @@ class Factory:
                                        batch_size=validation_batch_size,
                                        shuffle=validation_shuffle,
                                        pin_memory=validation_pin_memory,
-                                       num_workers=self.configs['trainer']['train_ds']['workers'])
+                                       num_workers=self.configs['trainer']['train_ds']['workers'],
+                                       worker_init_fn=_worker_init_fn)
 
         return validation_loader
 
@@ -376,7 +394,7 @@ class Factory:
         dp = self.configs['trainer']['dp']
 
         interpolate = self.configs['inference']['interpolate']
-        scale_factor = 6
+        scale_factor = self.configs['inference']['inference_ds']['scale_factor']
 
         inferer = Inference(_model,
                             _data_loaders,

@@ -27,10 +27,6 @@ while [[ $# -gt 0 ]]; do
       SCALE_FACTOR="${1#*=}"
       shift
       ;;
-    --roi-source=*)
-      ROI_SOURCE="${1#*=}"
-      shift
-      ;;
     --help)
       echo "Usage: $0 [options]"
       echo "Required options:"
@@ -42,7 +38,6 @@ while [[ $# -gt 0 ]]; do
       echo "  --scale-factor=FACTOR   Scale factor value"
       echo ""
       echo "Optional:"
-      echo "  --roi-source=SOURCE     Source for ROI analysis (thickness or bumpiness, default: thickness)"
       echo "  --help                  Display this help message"
       exit 0
       ;;
@@ -112,21 +107,13 @@ echo "Running: sbatch --dependency=afterok:$JOB5 ./sbatch/export.sbatch \"$NAME\
 JOB6=$(sbatch --dependency=afterok:$JOB5 ./sbatch/export.sbatch "$NAME" "$TAG" | awk '{print $4}')
 echo "Submitted job 6 (Export): $JOB6 (depends on $JOB5)"
 
-# Set default for ROI_SOURCE if not provided
-ROI_SOURCE=${ROI_SOURCE:-thickness}
-
-# Job 7: ROI (parent job that spawns array)
-echo "Running: sbatch --dependency=afterok:$JOB6 ./sbatch/roi.sbatch \"$NAME\" \"$TAG\" \"$ROI_SOURCE\""
-JOB7=$(sbatch --dependency=afterok:$JOB6 ./sbatch/roi.sbatch "$NAME" "$TAG" "$ROI_SOURCE" | awk '{print $4}')
-echo "Submitted job 7 (ROI): $JOB7 (depends on $JOB6)"
-
-# Job 8: Stats
-echo "Running: sbatch --dependency=aftercorr:$JOB7 ./sbatch/stats.sbatch \"$NAME\" \"$TAG\""
-JOB8=$(sbatch --dependency=aftercorr:$JOB7 ./sbatch/stats.sbatch "$NAME" "$TAG" | awk '{print $4}')
-echo "Submitted job 8 (Stats): $JOB8 (depends on $JOB7)"
+# Job 7: Stats
+echo "Running: sbatch --dependency=afterok:$JOB6 ./sbatch/stats.sbatch \"$NAME\" \"$TAG\""
+JOB7=$(sbatch --dependency=afterok:$JOB6 ./sbatch/stats.sbatch "$NAME" "$TAG" | awk '{print $4}')
+echo "Submitted job 7 (Stats): $JOB7 (depends on $JOB6)"
 
 echo ""
 echo "All jobs submitted in sequence."
-echo "Dependency chain: $JOB1 → $JOB2 → $JOB3 → $JOB4 → $JOB5 → $JOB6 → $JOB7 → $JOB8"
+echo "Dependency chain: $JOB1 → $JOB2 → $JOB3 → $JOB4 → $JOB5 → $JOB6 → $JOB7"
 echo "Check status with: squeue -u \$USER"
 echo "Check dependencies with: squeue -u \$USER -o \"%.18i %.9P %.30j %.8u %.2t %.10M %.6D %R %E\""

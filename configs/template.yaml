@@ -3,8 +3,7 @@ experiments:
   # root: '/home/afatehi/gbm/experiments/'
   models: ['unet_3d',
            'unet_3d_me',
-           'unet_3d_ss',
-           'swin_unetr']
+           'unet_3d_ss']
   model_sizes: [
                  [tiny, 16, 32, 64],
                  [small, 32, 64, 128],
@@ -172,6 +171,8 @@ inference:
 
   morph:
     kernel_ave_size: 5
+    # Thickness values above this (nm) are considered unrealistic and clipped to 0 by `gbm.py stats --clipping`.
+    thickness_clip_max: 1400
 
   result_dir: ''
 

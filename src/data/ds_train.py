@@ -1,22 +1,26 @@
 # Python Imports
 import os
-import re
 import random
+import re
+
+import cv2
+import numpy as np
+import tifffile
 
 # Library Imports
 import torch
-import torch.multiprocessing as mp
-import numpy as np
-import tifffile
-import cv2
-from scipy.ndimage import zoom, gaussian_filter, rotate
 import torchvision.transforms.functional as TF
+from scipy.ndimage import gaussian_filter, rotate
 
 # Local Imports
-from src.data.ds_base import DatasetType, BaseDataset
+from src.data.ds_base import BaseDataset, DatasetType
 
 
 class GBMDataset(BaseDataset):
+    """Training/validation dataset. Supports offline augmentation (precomputed
+    on disk via ``_augmentation_offline``) and online per-batch augmentation
+    (rotate/blur/crop/channel_drop) configured by ``_augmentation_online``."""
+
     # pylint: disable=too-many-instance-attributes
 
     def __init__(self,
@@ -431,13 +435,13 @@ class GBMDataset(BaseDataset):
         x_patch_length = np.random.randint(30, 51)
         y_patch_length = np.random.randint(30, 51)
 
-        z_patch_start = np.random.randint(0, _channel.shape[0] - 7)
-        x_patch_start = np.random.randint(0, _channel.shape[1] - 51)
-        y_patch_start = np.random.randint(0, _channel.shape[2] - 51)
+        z_patch_start = np.random.randint(0, _channel.shape[0] - z_patch_length + 1)
+        x_patch_start = np.random.randint(0, _channel.shape[1] - x_patch_length + 1)
+        y_patch_start = np.random.randint(0, _channel.shape[2] - y_patch_length + 1)
 
-        _channel[z_patch_start:z_patch_length,
-                 x_patch_start:x_patch_length,
-                 y_patch_start:y_patch_length] = 0
+        _channel[z_patch_start:z_patch_start + z_patch_length,
+                 x_patch_start:x_patch_start + x_patch_length,
+                 y_patch_start:y_patch_start + y_patch_length] = 0
 
         return _channel
 

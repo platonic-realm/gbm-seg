@@ -8,7 +8,7 @@ from torch.profiler import ProfilerActivity
 # Local Imports
 
 
-class Profiler():
+class Profiler:
 
     def __init__(self,
                  _enabled: bool,

@@ -1,10 +1,11 @@
 # Python Imports
 from abc import ABC, abstractmethod
 
+import imageio
+
 # Library Imports
 import numpy as np
 import tifffile
-import imageio
 
 # Local Imports
 

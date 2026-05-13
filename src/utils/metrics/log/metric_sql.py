@@ -6,7 +6,7 @@ import sqlite3
 # Local Imports
 
 
-class MetricSQL():
+class MetricSQL:
 
     def __init__(self, _database_path: str):
         self.database_path = _database_path
@@ -39,9 +39,8 @@ class MetricSQL():
             cursor = con.cursor()
 
             insert_query = '''
-                INSERT INTO metrics (resume, epoch, step,
-                                     lseen, tag, name, value)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO metrics (epoch, step, lseen, tag, name, value)
+                VALUES (?, ?, ?, ?, ?, ?)
                            '''
 
             values = [(_epoch,

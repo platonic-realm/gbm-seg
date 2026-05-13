@@ -4,7 +4,20 @@ gbm-vv/
 snapshots/
 tags
 GEMINI.md
+.gemini/
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
+.opencode/
+opencode.json
 *.swo
 *.swp
 *.log
 **/__pycache__/
+
+# pytest / coverage artefacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/

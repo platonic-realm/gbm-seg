@@ -7,7 +7,7 @@ from torch import Tensor
 # Local Imports
 
 
-class Metrics():
+class Metrics:
     def __init__(self,
                  _number_of_classes: int,
                  _predictions: Tensor,
@@ -18,15 +18,14 @@ class Metrics():
         self.number_of_classes = _number_of_classes
         self.device = _predictions.device
 
-        # Calculating the confusion matrix
-        self.confusion_matrix: Tensor = torch.zeros(_number_of_classes,
-                                                    _number_of_classes,
-                                                    dtype=torch.int32,
-                                                    device=_predictions.device,
-                                                    requires_grad=False)
-        for i in range(self.number_of_classes):
-            self.confusion_matrix[:, i] = \
-                    self.calcualteConfusionMatrixForClassID(i)
+        # confusion_matrix[t, p] = #voxels with true class t and predicted class p
+        C = _number_of_classes
+        labels_flat = _labels.reshape(-1).long()
+        preds_flat = _predictions.reshape(-1).long()
+        indices = labels_flat * C + preds_flat
+        flat = torch.zeros(C * C, dtype=torch.int64, device=_predictions.device)
+        flat.scatter_add_(0, indices, torch.ones_like(indices, dtype=torch.int64))
+        self.confusion_matrix: Tensor = flat.view(C, C)
 
     def reportMetrics(self,
                       _metric_list,
@@ -42,96 +41,41 @@ class Metrics():
 
         return results
 
-    def calcualteConfusionMatrixForClassID(self,
-                                           _class_id: int) -> Tensor:
-
-        assert _class_id < self.number_of_classes, \
-                "Out of range index, class ids "\
-                "should be smaller than number of classes"
-
-        result = torch.zeros(self.number_of_classes,
-                             dtype=torch.int32,
-                             device=self.device)
-
-        # Copy the predictions tensor as next operation are destructive
-        # And also detach it from the computation graph to save computation
-        local_predictions = self.predictions.clone().detach()
-
-        # To calulate number of correct and wrong predictions of
-        # _truth_class_id, we need to first create a mask consists of
-        # indexs in the labels tensor with the value of _class_id.
-        mask = (self.labels == _class_id).float()
-
-        # Having a class_id == 0 will cause problem when we count
-        # number of predictions for each class, so change it here
-        local_predictions[local_predictions == 0] = self.number_of_classes
-
-        # Using mask to filter the predictions based on
-        # the ground truth for the class_id
-        local_predictions = local_predictions * mask
-
-        for i in range(self.number_of_classes):
-            # For the sake of readablity, I have just used
-            # an if instead of a branchless approch
-            # Plus: Python is slow anyway
-            if i == 0:
-                result[i] = \
-                    (local_predictions == self.number_of_classes).int().sum()
-            else:
-                result[i] = \
-                    (local_predictions == i).int().sum()
-
-        return result
-
     # TP
     def TruePositive(self, _class_id) -> int:
-        result_tensor = self.confusion_matrix[_class_id, _class_id]
-        return result_tensor
+        return self.confusion_matrix[_class_id, _class_id]
 
-    # AP = TP + FN
+    # AP = TP + FN — all voxels whose *true* class is _class_id
     def AllPostive(self, _class_id) -> int:
-        result_tensor = self.confusion_matrix[:, _class_id].sum()
-        return result_tensor
+        return self.confusion_matrix[_class_id, :].sum()
 
+    # FP = #voxels predicted as _class_id whose true class is not _class_id
     def FalsePositive(self, _class_id) -> int:
-        FP = torch.zeros(1, device=self.device)
-        for i in range(self.number_of_classes):
-            for j in range(self.number_of_classes):
-                if _class_id == i and _class_id != j:
-                    FP += self.confusion_matrix[i, j]
-        return FP
+        col_sum = self.confusion_matrix[:, _class_id].sum()
+        return col_sum - self.confusion_matrix[_class_id, _class_id]
 
-    # TN
+    # TN = #voxels neither truly _class_id nor predicted _class_id
     def TrueNegative(self, _class_id) -> int:
-        TN = torch.zeros(1, device=self.device)
-        for i in range(self.number_of_classes):
-            for j in range(self.number_of_classes):
-                if _class_id not in (i, j):
-                    TN += self.confusion_matrix[i, j]
-        return TN
+        total = self.confusion_matrix.sum()
+        row = self.confusion_matrix[_class_id, :].sum()
+        col = self.confusion_matrix[:, _class_id].sum()
+        tp = self.confusion_matrix[_class_id, _class_id]
+        return total - row - col + tp
 
-    # AN = TN + FP
+    # AN = TN + FP — all voxels whose *true* class is not _class_id
     def AllNegative(self, _class_id) -> int:
-        TN = torch.zeros(1, device=self.device)
-        FP = torch.zeros(1, device=self.device)
-        for i in range(self.number_of_classes):
-            for j in range(self.number_of_classes):
-                if _class_id not in (i, j):
-                    TN += self.confusion_matrix[i, j]
-                elif _class_id == i and _class_id != j:
-                    FP += self.confusion_matrix[i, j]
-        return TN + FP
+        return self.confusion_matrix.sum() - self.confusion_matrix[_class_id, :].sum()
 
     # FN
     def FalseNegative(self, _class_id: int) -> int:
         return self.AllPostive(_class_id) - self.TruePositive(_class_id)
 
-    # AP / AP + AN
+    # AP / (AP + AN)
     def Pervalence(self, _class_id: int) -> float:
         AP = self.AllPostive(_class_id)
         AN = self.AllNegative(_class_id)
 
-        return AP / AP + AN
+        return AP / (AP + AN)
 
     # TP + TN / AP + AN
     def Accuracy(self) -> float:

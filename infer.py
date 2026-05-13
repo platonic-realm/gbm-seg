@@ -3,10 +3,9 @@
 # Library Imports
 
 # Local Imports
-from src.utils.misc import configure_logger
-from src.utils import args
-from src.utils.misc import blender_render
 from src.train.factory import Factory
+from src.utils import args
+from src.utils.misc import configure_logger
 
 
 def main_infer(_configs):

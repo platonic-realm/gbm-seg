@@ -2,15 +2,13 @@
 import itertools
 import logging
 
-# Library Imports
-import torch
-import torch.nn.functional as F
-from torch import nn
-from torch import Tensor
-
 import imageio
 import numpy as np
 
+# Library Imports
+import torch
+import torch.nn.functional as F
+from torch import Tensor, nn
 from tqdm import tqdm
 
 # Local Imports
@@ -28,7 +26,7 @@ PSFAxial = 434  # 434nm
 def draw(_file_path, _input):
     _input = torch.squeeze(_input)
     _input = torch.squeeze(_input)
-    _input[_input > 0] == 255
+    _input[_input > 0] = 255
     _input = _input.cpu().numpy().astype(np.uint8)
     with imageio.get_writer(_file_path, mode='I') as writer:
         for index in range(_input.shape[0]):
@@ -93,6 +91,9 @@ displacement_vectors = torch.Tensor([[1.0, 0.5, 0.5],  # 1. Up
 
 
 class Morph(nn.Module):
+    """3D morphometric analysis: surface detection + per-voxel slope vectors +
+    distance map, returning thickness and PSF-corrected thickness arrays."""
+
     def __init__(self,
                  _device: str,
                  _calc_displayments: bool = True,

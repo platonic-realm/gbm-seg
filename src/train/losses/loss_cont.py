@@ -1,45 +1,18 @@
 # Library Imports
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 def continuity_loss_diff(logits):
-    """
-    Computes the mean absolute difference between all pairs of adjacent depth slices in the logits.
+    # logits shape: (B, C, D, H, W) — softmax over the class dim, diff along depth.
+    assert logits.dim() == 5, "Logits should be a 5D tensor (B, C, D, H, W)"
 
-    Args:
-        logits (torch.Tensor): The model output with shape (batch_size, depth, height, width, logits)
+    probs = torch.softmax(logits, dim=1)
 
-    Returns:
-        torch.Tensor: The continuity loss value.
-    """
-    # Ensure logits has the expected shape
-    assert logits.dim() == 5, "Logits should be a 5D tensor (batch_size, depth, height, width, logits)"
+    probs_current = probs[:, :, :-1, :, :]
+    probs_next = probs[:, :, 1:, :, :]
 
-    logits = torch.softmax(logits, dim=-1)
-
-    # Compute the difference between adjacent depth slices
-    logits_current = logits[:, :-1, :, :, :]  # All slices except the last one
-    logits_next = logits[:, 1:, :, :, :]      # All slices except the first one
-
-    # Compute the absolute differences
-    differences = torch.abs(logits_current - logits_next)
-
-    # logits_current = logits[:, :, :-1, :, :]  # All slices except the last one
-    # logits_next = logits[:, :, 1:, :, :]      # All slices except the first one
-
-    # differences_y = torch.abs(logits_current - logits_next)
-
-    # logits_current = logits[:, :, :, :-1, :]  # All slices except the last one
-    # logits_next = logits[:, :, :, 1:, :]      # All slices except the first one
-
-    # differences_z = torch.abs(logits_current - logits_next)  # Shape: (batch_size, depth-1, height, width, logits)
-
-    # Aggregate the differences
-    cont_loss = differences.mean() # + differences_z.mean() + differences_y.mean()
-
-    return cont_loss
+    return torch.abs(probs_current - probs_next).mean()
 
 
 class ContLoss(nn.Module):

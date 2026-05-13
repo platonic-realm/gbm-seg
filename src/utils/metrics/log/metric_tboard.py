@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 # Local Imports
 
 
-class MetricTensorboard():
+class MetricTensorboard:
 
     def __init__(self,
                  _tensorboard_path: str,

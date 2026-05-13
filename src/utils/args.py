@@ -2,10 +2,10 @@
 import os
 import sys
 from argparse import ArgumentParser
+
 import yaml
 
 # Library Imports
-
 # Local Imports
 from src.utils.misc import sanity_check
 
@@ -56,6 +56,10 @@ def parse_exper() -> None:
                               help='deletes the selected experiment')
     delete_parser.add_argument('name',
                                help='name of the experiment to delete')
+    delete_parser.add_argument('-f',
+                               '--force',
+                               action='store_true',
+                               help='confirm deletion (required, non-interactive)')
 
     # Define a subparser for the 'train' action
     train_parser = \
@@ -107,6 +111,11 @@ def parse_exper() -> None:
                               action='store',
                               default=False,
                               help='determines to interpolate or stack Z planes')
+
+    infer_parser.add_argument('-f',
+                              '--force',
+                              action='store_true',
+                              help='overwrite existing inference output (non-interactive)')
 
     # Define a subparser for the 'post processsing' action
     infer_parser = \

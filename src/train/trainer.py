@@ -3,20 +3,24 @@
 # Library Imports
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader
+
+from src.train.profiler import Profiler
+from src.train.snapper import Snapper
+from src.train.stepper import StepperInterface
 
 # Local Imports
 from src.utils.metrics.clfication import Metrics
-from src.train.stepper import StepperInterface
-from src.train.snapper import Snapper
-from src.train.profiler import Profiler
-from src.utils.visual.training import TrainVisualizer
-from src.utils.metrics.memory import GPURunningMetrics
 from src.utils.metrics.log.metric_logger import MetricLogger
+from src.utils.metrics.memory import GPURunningMetrics
+from src.utils.visual.training import TrainVisualizer
 
 
-class Unet3DTrainer():
+class Unet3DTrainer:
+    """Standard 3D U-Net trainer. Validation runs every ``report_freq`` steps
+    (not every epoch); ``ReduceLROnPlateau`` steps on validation Dice."""
+
     def __init__(self,
                  _model: nn.Module,
                  _loss_funtion,
@@ -55,7 +59,8 @@ class Unet3DTrainer():
         _model.to(self.device)
         self.model = _model
 
-    def train(self):
+    def train(self) -> None:
+        """Run training for ``self.epochs`` epochs."""
         for epoch in range(0, self.epochs + 1):
             self.trainEpoch(epoch)
 

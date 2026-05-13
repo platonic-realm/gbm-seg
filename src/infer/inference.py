@@ -1,26 +1,30 @@
 # Python Imports
 import os
 
+import imageio
+
 # Library Imports
 import numpy as np
-from numpy import array
-import torch
-from torch import nn
-from torch import Tensor
-from torch.utils.data import DataLoader
 import tifffile
-import imageio
-from tqdm import tqdm
-from skimage import measure, morphology
+import torch
+from numpy import array
 from scipy import ndimage
+from skimage import measure, morphology
+from torch import Tensor, nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 # Local Imports
 from src.train.snapper import Snapper
-
 from src.utils.misc import create_dirs_recursively
 
 
-class Inference():
+class Inference:
+    """Slides an inference DataLoader through the model, accumulating logits
+    into the model's CPU-side ``result_tensor`` at each patch's offsets, then
+    argmaxes once at the end to produce the final per-voxel class mask.
+    """
+
     def __init__(self,
                  _model: nn.Module,
                  _data_loader: DataLoader,
@@ -45,8 +49,8 @@ class Inference():
         self.model = _model
         self.model.eval()
 
-    def infer(self):
-
+    def infer(self) -> None:
+        """Run the full inference loop and write predictions to ``results_path``."""
         for data in tqdm(self.data_loader,
                          desc="Segmentation"):
 

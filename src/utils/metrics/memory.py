@@ -8,7 +8,7 @@ import torch
 import src.utils.misc as misc
 
 
-class CPURunningMetric():
+class CPURunningMetric:
     def __init__(self):
         self.value: float = 0
         self.counter: int = 0
@@ -25,7 +25,7 @@ class CPURunningMetric():
         return result
 
 
-class GPURunningMetrics():
+class GPURunningMetrics:
     def __init__(self,
                  _device,
                  _metrics):

@@ -12,7 +12,7 @@ from src.utils.misc import to_numpy
 from src.utils.visual.painter import GIFPainter3D, TIFPainter3D
 
 
-class TrainVisualizer():
+class TrainVisualizer:
 
     def __init__(self,
                  _enabled: bool,

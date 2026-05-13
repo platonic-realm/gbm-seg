@@ -1,13 +1,15 @@
 # Python Imports
-from enum import Enum
 from abc import ABC, abstractmethod
+from enum import Enum
+
+import numpy as np
 
 # Library Imports
 import torch
-from torch.utils.data import Dataset
+
 # from scipy.ndimage import zoom
 import torch.nn.functional as Fn
-import numpy as np
+from torch.utils.data import Dataset
 
 # Local Imports
 
@@ -19,6 +21,13 @@ class DatasetType(Enum):
 
 
 class BaseDataset(Dataset, ABC):
+    """Patch-tiling base for the 3D microscopy z-stacks.
+
+    Splits volumes into overlapping ``sample_dimension``-sized sub-volumes
+    advanced by ``pixel_per_step`` along each (Z, X, Y) axis. Channels: nephrin,
+    collagen-4, WGA (and optional 4th = labels for training data).
+    """
+
     def __init__(self,
                  _sample_dimension,
                  _pixel_per_step,

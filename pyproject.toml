@@ -1,0 +1,46 @@
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+exclude = [
+    "src/scripts",        # research/debug helpers, not part of the active pipeline
+    "experiments",        # generated experiment dirs
+    "**/__pycache__",
+]
+
+[tool.ruff.lint]
+# Start conservative: pyflakes (unused imports, undefined names, etc.) +
+# basic pycodestyle errors. Skip style-only checks for now — the underscore
+# parameter convention is project policy.
+select = [
+    "F",     # pyflakes
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "I",     # isort (import sorting)
+    "UP",    # pyupgrade (modernise syntax)
+    "B",     # flake8-bugbear (likely bugs)
+]
+ignore = [
+    "E501",  # line too long — we have a 100-char limit but won't force-wrap docstrings
+    "E741",  # ambiguous variable name 'l' — math notation in some places
+    "E241",  # multiple spaces after ':' — we hand-align some dicts for readability
+    "UP015", # `mode='r'` redundant in open() — not worth the churn
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401", "F811"]  # test fixtures and re-imports
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-q",
+    "--strict-markers",
+    "--tb=short",
+]
+filterwarnings = [
+    # third-party deprecations we don't care about
+    "ignore::DeprecationWarning:tifffile",
+    "ignore::DeprecationWarning:imageio",
+]

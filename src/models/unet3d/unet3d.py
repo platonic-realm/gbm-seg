@@ -3,12 +3,10 @@ import logging
 
 # Library Imports
 import torch
-from torch import Tensor
-from torch import nn
+from torch import Tensor, nn
 
 # Local Imports
-from src.models.unet3d.blocks import \
-        create_encoder_layers, create_decoder_layers
+from src.models.unet3d.blocks import create_decoder_layers, create_encoder_layers
 
 
 class Unet3D(nn.Module):

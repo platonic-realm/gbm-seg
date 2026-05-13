@@ -1,15 +1,26 @@
 # Python Imprts
 import logging
+import random
 
 # Library Imports
+import numpy as np
 import torch
 from torch.utils.data import random_split
 
+from src.train.factory import Factory
+
 # Local Imports
 from src.utils import args
-from src.utils.misc import configure_logger
-from src.utils.misc import summerize_configs
-from src.train.factory import Factory
+from src.utils.misc import configure_logger, summerize_configs
+
+SEED = 88233474
+
+
+def seed_everything(_seed: int):
+    random.seed(_seed)
+    np.random.seed(_seed)
+    torch.manual_seed(_seed)
+    torch.cuda.manual_seed_all(_seed)
 
 
 def main_train(_configs):
@@ -20,20 +31,19 @@ def main_train(_configs):
         torch.backends.cudnn.benchmark = True
         logging.info("Enabling cudnn benchmarking")
 
-    torch.manual_seed(88233474)
+    seed_everything(SEED)
+    split_generator = torch.Generator().manual_seed(SEED)
 
     factory = Factory(_configs)
 
     train_dataset = factory.createTrainDataset()
-    # analyze_dataset(train_dataset)
-    # Define the split ratio
     train_ratio = 0.95
-    # Calculate the lengths of train and validation sets
     train_size = int(train_ratio * len(train_dataset))
     val_size = len(train_dataset) - train_size
 
     train_dataset, valid_dataset = random_split(train_dataset,
-                                                [train_size, val_size])
+                                                [train_size, val_size],
+                                                generator=split_generator)
 
     valid_dataloader = factory.createValidDataLoader(valid_dataset)
     train_dataloader = factory.createTrainDataLoader(train_dataset)

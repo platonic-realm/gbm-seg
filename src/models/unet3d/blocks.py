@@ -1,11 +1,11 @@
 # Python Imports
-import logging
 import itertools
+import logging
 
 # Library Imports
 import torch
-from torch.nn import functional as Fn
 from torch import nn
+from torch.nn import functional as Fn
 
 # Local Imports
 

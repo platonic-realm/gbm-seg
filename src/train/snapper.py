@@ -1,18 +1,20 @@
 # Python Imports
+import glob
+import logging
 import os
 import threading
-import logging
-import glob
+from typing import Optional
 
 # Library Imports
 import torch
-from torch.nn import Module, DataParallel
+from torch.nn import DataParallel, Module
 
 # Local Imports
 from src.utils.misc import create_dirs_recursively
 
 
-class Snapper():
+class Snapper:
+    """Periodic snapshot save/load. Handles DataParallel-wrapped and bare models symmetrically on both ends."""
 
     def __init__(self, _snapshot_path: str):
         self.snapshot_path = _snapshot_path
@@ -24,7 +26,8 @@ class Snapper():
              _epoch: int,
              _step: int,
              _seen_label: int,
-             _async: bool = True):
+             _async: bool = True) -> None:
+        """Write a snapshot to ``<snapshot_path>/<epoch:03d>-<step:04d>.pt``."""
 
         if self.snapshot_path is None:
             return
@@ -54,10 +57,10 @@ class Snapper():
     def load(self,
              _model: Module,
              _device: str,
-             _path: str or None = None) -> (int, int):
+             _path: Optional[str] = None) -> Optional[tuple[int, int]]:
 
         if not os.path.exists(self.snapshot_path):
-            return
+            return None
 
         if _path is None:
             continue_path = os.path.join(self.snapshot_path, 'continue/')
@@ -66,25 +69,17 @@ class Snapper():
                                    reverse=True)
 
             if len(snapshot_list) <= 0:
-                return
+                return None
 
             _path = snapshot_list[0]
 
         snapshot = torch.load(_path,
-                              map_location='cpu')
+                              map_location='cpu',
+                              weights_only=True)
 
-        # Check if the state dict was created with data parallelism
         state_dict = snapshot['MODEL_STATE']
-        # if 'module' in list(state_dict.keys())[0]:
-        #     corrected_state_dict = {}
-        #     for k, v in state_dict.items():
-        #         name = k[7:]  # remove `module.`
-        #         corrected_state_dict[name] = v
-        #     _model.load_state_dict(corrected_state_dict)
-        # else:
-        #     _model.load_state_dict(state_dict)
-
-        _model.module.load_state_dict(state_dict)
+        target = _model.module if isinstance(_model, DataParallel) else _model
+        target.load_state_dict(state_dict)
 
         epoch = snapshot['EPOCHS']
         seen_labels = snapshot['SEEN_LABELS']
