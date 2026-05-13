@@ -48,12 +48,28 @@ experiments:
 
 trainer:
   model:
+    # name: dispatched through src/models/__init__.py:MODEL_REGISTRY.
+    #   'unet_3d'    — convolutional 3D U-Net (feature_maps + encoder/decoder kernels below).
+    #   'swin_unetr' — anisotropic Swin-UNETR variant; reads the swin_unetr sub-block.
+    # Both models are interface-compatible (same input/output shape, same DS hook).
     name: unet_3d
     feature_maps: [64, 128, 256, 512]
     encoder_kernel: [3, 3, 3]
     encoder_padding: 'same'
     decoder_kernel: [3, 3, 3]
     decoder_padding: 'same'
+
+    # SwinUNETR-specific hyperparameters. Only consulted when name=swin_unetr.
+    swin_unetr:
+      feature_size: 24             # base embed dim; channels double each stage
+      depths: [2, 2, 2, 2]         # transformer blocks per encoder stage
+      num_heads: [3, 6, 12, 24]    # attention heads per stage (paired with depths)
+      window_size_xy: 7            # XY window size; Z window = current stage's Z
+      mlp_ratio: 4.0
+      qkv_bias: true
+      drop_rate: 0.0
+      attn_drop_rate: 0.0
+      z_deduction_per_stage: 2     # matches Unet3D's pool kernel (3, 2, 2)
 
   epochs: 10
 

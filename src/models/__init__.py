@@ -21,17 +21,16 @@ implemented):
 
     'unet_3d_me'  — multi-encoder Unet3D variant
     'unet_3d_ss' — self-supervised Unet3D variant
-    'swin_unetr' — custom SwinUNETR for shallow Z-stacks (MONAI's version
-                   doesn't work here because of the shifted-window depth
-                   requirement; the user will write a custom variant)
 """
 
 from typing import Callable
 
+from src.models.swin_unetr import build as _build_swin_unetr
 from src.models.unet3d import build as _build_unet3d
 
 MODEL_REGISTRY: dict[str, Callable] = {
     'unet_3d': _build_unet3d,
+    'swin_unetr': _build_swin_unetr,
 }
 
 
