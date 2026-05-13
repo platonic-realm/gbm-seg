@@ -2,38 +2,7 @@ experiments:
   root: '/projects/ag-bozek/afatehi/gbm/experiments/'
   # root: '/home/afatehi/gbm/experiments/'
   models: ['unet_3d', 'swin_unetr']
-  model_sizes: [
-                 [tiny, 16, 32, 64],
-                 [small, 32, 64, 128],
-                 [medium, 64, 128, 256],
-                 [big, 64, 128, 256, 512],
-                 [huge, 128, 256, 512, 1024],
-               ]
-  optimizers: [[adam, lr, 0.0001]]
-  losses: [CrossEntropy, Dice, IoU, Uncert]
-  metrics: [
-            ['Loss', True],
-            ['Accuracy', False],
-            ['Pervalence', False],
-            ['BalancedAccuracy', False],
-            ['TruePositiveRate', True],
-            ['TrueNegativeRate', False],
-            ['FalsePositiveRate', False],
-            ['FalseNegativeRate', False],
-            ['PositivePredictiveValue', True],
-            ['NegativePredictiveValue', False],
-            ['FalseDiscoveryRate', False],
-            ['FalseOmissionRate', False],
-            ['PositiveLikelihoodRatio', False],
-            ['NegativeLikelihoodRatio', False],
-            ['Dice', True],
-            ['JaccardIndex', True]
-           ]
-  train_same_sample_size: True
-  train_same_batch_size: True
-  train_same_stride: False
-
-  log_levels: [INFO, DEBUG]
+  losses: [CrossEntropy, Dice, IoU]
 
   scale_lerning_rate_for_batch_size: True
 
@@ -179,7 +148,6 @@ trainer:
     path: ./visuals/
     gif: True
     tif: False
-    blender: True
 
   dp: True
   device: cuda

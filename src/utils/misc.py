@@ -194,9 +194,48 @@ def sanity_check(_configs: dict) -> dict:
     return _configs
 
 
+REMOVED_CONFIG_KEYS: list[str] = [
+    "experiments.model_sizes",
+    "experiments.optimizers",
+    "experiments.metrics",
+    "experiments.train_same_sample_size",
+    "experiments.train_same_batch_size",
+    "experiments.train_same_stride",
+    "logging.log_levels",
+    "trainer.tensorboard",
+    "trainer.sqlite",
+    "trainer.profiling",
+    "trainer.visualization.blender",
+]
+
+
+def _has_dotted_key(configs: dict, dotted: str) -> bool:
+    node = configs
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    return True
+
+
+def _check_removed_keys(configs: dict) -> None:
+    """Raise on stale config fields that no longer exist in the schema.
+
+    Old experiment YAMLs may carry keys whose code paths have been deleted
+    (tensorboard, sqlite, profiling, etc.). Letting them load silently risks
+    a future caller accidentally reading them again; surface them loudly.
+    """
+    found = [k for k in REMOVED_CONFIG_KEYS if _has_dotted_key(configs, k)]
+    if found:
+        raise ValueError(
+            "Config contains removed keys: " + ", ".join(found) +
+            ". Strip them or update from configs/template.yaml.")
+
+
 def read_configs(_config_path: str):
     with open(_config_path, encoding='UTF-8') as config_file:
         configs = yaml.safe_load(config_file)
+    _check_removed_keys(configs)
     return sanity_check(configs)
 
 

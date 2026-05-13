@@ -416,8 +416,9 @@ class Factory:
         return result
 
     def createMorphModule(self):
+        kernel_size = self.configs['inference']['morph']['kernel_ave_size']
         morph = Morph(_device=self.configs['trainer']['device'],
-                      _ave_kernel_size=5)
+                      _ave_kernel_size=kernel_size)
         return morph
 
     def createPSPer(self):
