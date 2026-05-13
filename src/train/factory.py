@@ -3,7 +3,6 @@ import logging
 import os
 import random
 import re
-from pathlib import Path
 
 # Library Imports
 import numpy as np
@@ -25,16 +24,12 @@ from src.train.losses.loss_cont import ContLoss
 from src.train.losses.loss_dice import DiceLoss
 from src.train.losses.loss_ds import DeepSupervisionLoss
 from src.train.losses.loss_iou import IoULoss
-from src.train.profiler import Profiler
 from src.train.snapper import Snapper
 
 # Local Imports
 from src.train.stepper import StepperInterface, StepperMixedPrecision, StepperSimple
 from src.train.trainer import Unet3DTrainer
 from src.utils.metrics.log.metric_logger import MetricLogger
-from src.utils.metrics.log.metric_sql import MetricSQL
-from src.utils.metrics.log.metric_tboard import MetricTensorboard
-from src.utils.misc import blind_test
 from src.utils.visual.painter import GIFPainter3D, TIFPainter3D
 from src.utils.visual.training import TrainVisualizer
 
@@ -216,7 +211,6 @@ class Factory:
                       _loss_function,
                       _stepper: StepperInterface,
                       _snapper: Snapper,
-                      _profiler: Profiler,
                       _visualizer: TrainVisualizer,
                       _metric_logger: MetricLogger,
                       _lr_scheduler: ReduceLROnPlateau,
@@ -239,7 +233,6 @@ class Factory:
                                 _loss_function,
                                 _stepper,
                                 _snapper,
-                                _profiler,
                                 _visualizer,
                                 _metric_logger,
                                 _lr_scheduler,
@@ -347,44 +340,6 @@ class Factory:
 
         return validation_loader
 
-    def createProfiler(self):
-
-        save_path = os.path.join(self.root_path,
-                                 self.result_path,
-                                 self.configs['trainer']['profiling']['path'])
-
-        enabled = self.configs['trainer']['profiling']['enabled']
-
-        scheduler_wait = self.configs['trainer']['profiling']['scheduler']['wait']
-        scheduler_warmup = self.configs['trainer']['profiling']['scheduler']['warmup']
-        scheduler_active = self.configs['trainer']['profiling']['scheduler']['active']
-        scheduler_repeat = self.configs['trainer']['profiling']['scheduler']['repeat']
-
-        profile_memory = self.configs['trainer']['profiling']['profile_memory']
-        record_shapes = self.configs['trainer']['profiling']['record_shapes']
-        with_flops = self.configs['trainer']['profiling']['with_flops']
-        with_stack = self.configs['trainer']['profiling']['with_stack']
-
-        save_tensorboard = self.configs['trainer']['profiling']['save']['tensorboard']
-        save_text = self.configs['trainer']['profiling']['save']['text']
-        save_std = self.configs['trainer']['profiling']['save']['print']
-
-        profiler = Profiler(enabled,
-                            save_path,
-                            scheduler_wait,
-                            scheduler_warmup,
-                            scheduler_active,
-                            scheduler_repeat,
-                            profile_memory,
-                            record_shapes,
-                            with_flops,
-                            with_stack,
-                            save_tensorboard,
-                            save_text,
-                            save_std)
-
-        return profiler
-
     def createVisualizer(self):
 
         enabled = self.configs['trainer']['visualization']['enabled']
@@ -407,42 +362,7 @@ class Factory:
 
         return visualizer
 
-    def createMetricLogger(self,
-                           _model: nn.Module,
-                           _valid_dataloader: DataLoader,
-                           _loss_function,
-                           _no_of_classes: int):
-
-        device = self.configs['trainer']['device']
-
-        sqlite_enabled = self.configs['trainer']['sqlite']
-        database_path = os.path.join(self.root_path,
-                                     'report.db')
-
-        metric_sql = MetricSQL(database_path) if sqlite_enabled else None
-
-        tboard_enabled = self.configs['trainer']['tensorboard']['enabled']
-        tboard_seen_label: bool = self.configs['trainer']['tensorboard']['label_seen']
-
-        tensorboard_path = Path(os.path.join(self.root_path,
-                                self.result_path,
-                                self.configs['trainer']['tensorboard']['path']))
-
-        metric_tboard = None
-
-        if tboard_enabled:
-            metrics_list = self.configs['trainer']['metrics']
-            zero_metrics = blind_test(_model,
-                                      _valid_dataloader,
-                                      _loss_function,
-                                      device,
-                                      _no_of_classes,
-                                      metrics_list)
-
-            metric_tboard = MetricTensorboard(tensorboard_path,
-                                              zero_metrics,
-                                              tboard_seen_label)
-
+    def createMetricLogger(self):
         # E2: optional W&B backend. The wandb run itself is initialised in
         # train.py:maybe_init_wandb so the run config + name are visible from
         # the start; this just creates the per-step log dispatcher.
@@ -457,9 +377,7 @@ class Factory:
                     "trainer.wandb.enabled=True but wandb is not installed; "
                     "skipping W&B logging. `pip install wandb` to enable.")
 
-        metric_logger = MetricLogger(metric_sql, metric_tboard, metric_wandb)
-
-        return metric_logger
+        return MetricLogger(metric_wandb)
 
     def createInferenceDataLoaders(self) -> list:
 

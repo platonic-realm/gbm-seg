@@ -6,7 +6,6 @@ from torch import nn
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
-from src.train.profiler import Profiler
 from src.train.snapper import Snapper
 from src.train.stepper import StepperInterface
 
@@ -26,7 +25,6 @@ class Unet3DTrainer:
                  _loss_funtion,
                  _stepper: StepperInterface,
                  _snapper: Snapper,
-                 _profiler: Profiler,
                  _visualizer: TrainVisualizer,
                  _metric_logger: MetricLogger,
                  _lr_scheduler: ReduceLROnPlateau,
@@ -41,7 +39,6 @@ class Unet3DTrainer:
         self.loss_function = _loss_funtion
         self.stepper = _stepper
         self.snapper = _snapper
-        self.profiler = _profiler
         self.visualizer = _visualizer
         self.metric_logger = _metric_logger
         self.scheduler = _lr_scheduler
@@ -66,8 +63,6 @@ class Unet3DTrainer:
 
     def trainEpoch(self, _epoch: int):
 
-        self.profiler.start()
-
         train_running_metrics = GPURunningMetrics(self.device,
                                                   self.metric_list)
 
@@ -80,8 +75,6 @@ class Unet3DTrainer:
             self.training_loader.dataset.setIsValid(False)
             results = self.trainStep(_epoch, index, data)
             train_running_metrics.add(results)
-
-            self.profiler.step()
 
             if self.stepper.getSteps() % self.freq == 0:
                 self.metric_logger.log(_epoch,
@@ -124,8 +117,6 @@ class Unet3DTrainer:
                                        self.stepper.getSeenLabels(),
                                        'valid',
                                        metrics)
-
-        self.profiler.stop()
 
     def trainStep(self,
                   _epoch_id: int,

@@ -181,30 +181,6 @@ trainer:
     tif: False
     blender: True
 
-  profiling:
-    enabled: False
-    path: ./profiling/
-    save:
-      tensorboard: True
-      text: False
-      print: False
-    profile_memory: True
-    record_shapes: True
-    with_flops: True
-    with_stack: False
-    scheduler:
-      wait: 10
-      warmup: 10
-      active: 4
-      repeat: 4
-
-  tensorboard:
-    enabled: True
-    label_seen: False
-    path: ./tensorboard/
-
-  sqlite: False
-
   dp: True
   device: cuda
   mixed_precision: True

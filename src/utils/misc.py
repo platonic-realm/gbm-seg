@@ -205,10 +205,6 @@ def sanity_check(_configs: dict) -> dict:
         assert _configs['trainer']['visualization']['path'] is not None, \
             "Please provide path to store visualization files"
 
-    if _configs['trainer']['tensorboard']['enabled']:
-        assert _configs['trainer']['tensorboard']['path'] is not None, \
-            "Please provide path for tensorboard logs"
-
     if torch.cuda.device_count() == 0:
         _configs['trainer']['device'] = 'cpu'
         _configs['trainer']['mixed_precision'] = False

@@ -92,7 +92,7 @@ def test_metric_logger_forwards_to_wandb_when_provided(fake_wandb):
     from src.utils.metrics.log.metric_wandb import MetricWandb
 
     wb = MetricWandb()
-    logger = MetricLogger(None, None, wb)
+    logger = MetricLogger(wb)
     logger.log(_epoch=1, _step=10, _seen_labels=80, _tag='train',
                _metrics={'Loss': 0.1})
 
@@ -103,7 +103,7 @@ def test_metric_logger_works_without_wandb_backend():
     """Backwards compat: MetricLogger constructed without _metric_wandb."""
     from src.utils.metrics.log.metric_logger import MetricLogger
 
-    logger = MetricLogger(None, None)
+    logger = MetricLogger()
     # Should not raise.
     logger.log(_epoch=0, _step=1, _seen_labels=8, _tag='train',
                _metrics={'Loss': 0.5})

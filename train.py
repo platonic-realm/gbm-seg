@@ -124,17 +124,12 @@ def main_train(_configs, _fold: int = 0):
     snapper = factory.createSnapper()
 
     visualizer = factory.createVisualizer()
-    profiler = factory.createProfiler()
-    metric_logger = factory.createMetricLogger(model,
-                                               valid_dataloader,
-                                               loss_function,
-                                               train_dataset.getNumberOfClasses())
+    metric_logger = factory.createMetricLogger()
 
     trainer = factory.createTrainer(model,
                                     loss_function,
                                     stepper,
                                     snapper,
-                                    profiler,
                                     visualizer,
                                     metric_logger,
                                     lr_scheduler,
