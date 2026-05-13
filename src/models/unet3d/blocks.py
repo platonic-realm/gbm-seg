@@ -117,12 +117,6 @@ class DecoderLayer(nn.Module):
         self.scale_factor = _scale_factor
         self.upsampling = _upsampling
 
-#        self.upsampling_layer = nn.ConvTranspose3d(_x_channels,
-#                                                   _x_channels,
-#                                                   kernel_size=_kernel_size,
-#                                                   stride=_scale_factor,
-#                                                   padding=_padding)
-#
         self.convolution_1 = ConvLayer(_input_channels,
                                        _input_channels,
                                        _kernel_size,
@@ -148,7 +142,6 @@ class DecoderLayer(nn.Module):
 
                 _x = torch.cat((_encoder_features, _x), dim=1)
             else:
-                # _x = self.upsampling_layer(_x)
                 _x = Fn.interpolate(_x,
                                     size=(_x.shape[2]*self.scale_factor[0],
                                           _x.shape[3]*self.scale_factor[1],

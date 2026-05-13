@@ -16,12 +16,8 @@ import tifffile
 import torch
 import yaml
 from scipy.ndimage import zoom
-from torch import nn
-from torch.utils.data import DataLoader
 
 # Local Imports
-from src.utils.metrics.clfication import Metrics
-from src.utils.metrics.memory import GPURunningMetrics
 
 
 def basic_logger() -> None:
@@ -178,25 +174,6 @@ def to_numpy(_gpu_tensor):
     return _gpu_tensor
 
 
-def expand_as_one_hot(_input, _c, _ignore_index=None):
-    """Convert NxSPATIAL label image to NxCxSPATIAL one-hot."""
-    assert _input.dim() == 4
-
-    _input = _input.unsqueeze(1)
-    shape = list(_input.size())
-    shape[1] = _c
-
-    if _ignore_index is not None:
-        mask = _input.expand(shape) == _ignore_index
-        _input = _input.clone()
-        _input[_input == _ignore_index] = 0
-        result = torch.zeros(shape).to(_input.device).scatter_(1, _input, 1)
-        result[mask] = _ignore_index
-        return result
-
-    return torch.zeros(shape).to(_input.device).scatter_(1, _input, 1)
-
-
 def sanity_check(_configs: dict) -> dict:
     assert _configs['trainer']['train_ds']['path'] is not None, \
         "Please provide path to the training dataset"
@@ -215,34 +192,6 @@ def sanity_check(_configs: dict) -> dict:
         _configs['trainer']['nvtx_patching'] = False
 
     return _configs
-
-
-def blind_test(_model: nn.Module,
-               _dataloader: DataLoader,
-               _loss,
-               _device: str,
-               _no_of_classes: int,
-               _metric_list: list):
-
-    running_metrics = GPURunningMetrics(_device, _metric_list)
-    _model.to(_device)
-
-    counter = 0
-    for _, data in enumerate(_dataloader):
-        counter += 1
-        if counter > 20:
-            break
-
-        sample = data['sample'].to(_device)
-        labels = data['labels'].to(_device).long()
-
-        with torch.no_grad():
-            logits, results = _model(sample)
-            metrics = Metrics(_no_of_classes, results, labels)
-            loss = _loss(logits, labels)
-            running_metrics.add(metrics.reportMetrics(_metric_list, loss))
-
-    return running_metrics.calculate()
 
 
 def read_configs(_config_path: str):

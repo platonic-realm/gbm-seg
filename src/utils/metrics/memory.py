@@ -1,28 +1,8 @@
-# Python Imports
-import math
-
 # Library Imports
 import torch
 
 # Local Imports
 import src.utils.misc as misc
-
-
-class CPURunningMetric:
-    def __init__(self):
-        self.value: float = 0
-        self.counter: int = 0
-
-    def add(self, _value: any) -> None:
-        if not math.isnan(_value):
-            self.value += float(_value)
-            self.counter += 1
-
-    def calcualte(self) -> float:
-        result: float = self.value / self.counter
-        self.value = 0.0
-        self.counter = 0
-        return result
 
 
 class GPURunningMetrics:

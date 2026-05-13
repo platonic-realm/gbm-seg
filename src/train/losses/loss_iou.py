@@ -6,10 +6,8 @@ import torch.nn.functional as Fn
 from torch import nn
 
 
-class _AbstractIoULoss(nn.Module):
-    """
-    Base class for different implementations of Dice loss.
-    """
+class IoULoss(nn.Module):
+    """IoU-based segmentation loss. Expects logits in (N, C, D, H, W) layout."""
 
     def __init__(self, _weights=None, _normalization='softmax'):
         super().__init__()
@@ -23,23 +21,11 @@ class _AbstractIoULoss(nn.Module):
         else:
             self.normalization = lambda x: x
 
-    def iou(self, _input, _target, _weight):
-        raise NotImplementedError
-
     def forward(self, _input, _target):
-        # get probabilities from logits
         _input = self.normalization(_input)
-
-        # compute per channel Dice coefficient
-        per_channel_iou = self.iou(_input, _target, _weight=self.weight)
-
-        # average Dice score across all channels/classes
+        per_channel_iou = compute_per_channel_iou(_input, _target,
+                                                  _weight=self.weight)
         return 1. - torch.mean(per_channel_iou)
-
-
-class IoULoss(_AbstractIoULoss):
-    def iou(self, _input, _target, _weight):
-        return compute_per_channel_iou(_input, _target, _weight=self.weight)
 
 
 def flatten(_tensor):
