@@ -28,7 +28,6 @@ from skimage.transform import resize
 from src.utils.metrics.memory import GPURunningMetrics
 from src.utils.metrics.clfication import Metrics
 
-
 def basic_logger() -> None:
     log_format = "%(asctime)s [%(levelname)s] %(message)s"
     logging.basicConfig(level='INFO',
@@ -52,7 +51,7 @@ def configure_logger(_configs: dict, _log_to_file: bool = True) -> None:
         handlers.append(logging.StreamHandler(sys.stdout))
 
     log_format = "%(asctime)s [%(levelname)s] %(message)s"
-
+    logging.getLogger("pudb").setLevel(logging.INFO)
     logging.basicConfig(level=LOG_LEVEL,
                         format=log_format,
                         handlers=handlers)
@@ -314,25 +313,23 @@ def morph_analysis(_sample_path: str,
 
     logging.info("Executing morphometric analysis for %s",
                  str(sample))
-    input_path = sample / "prediction_psp.npy"
-    distance_path = sample / "distance_result.npy"
-    fd_path = sample / "fd_result.npy"
+    input_path = sample / "prediction_psp.npz"
+    distance_path = sample / "distance_result.npz"
+    psf_path = sample / "psf_result.npz"
+    # fd_path = sample / "fd_result.npy"
 
-    result = np.load(input_path)
+    result = np.load(input_path)['arr']
 
-    distance_result, fd_result = _morph(torch.from_numpy(result).float())
+    distance_result, psf_result, _ = _morph(torch.from_numpy(result).float())
 
     distance_result = distance_result.detach().cpu().numpy()
-    fd_result = fd_result.detach().cpu().numpy()
+    psf_result = psf_result.detach().cpu().numpy()
 
-    with open(distance_path, 'wb') as distance_file:
-        np.save(distance_file, distance_result)
+    np.savez_compressed(distance_path, arr=distance_result)
 
-    with open(fd_path, 'wb') as fd_file:
-        np.save(fd_file, fd_result)
+    np.savez_compressed(psf_path, arr=psf_result)
 
 def blender_visualization(_distance_results: array,
-                          _fd_results: array,
                           _output_path: str):
 
     create_dirs_recursively(os.path.join(_output_path, "dummy"))
@@ -351,31 +348,31 @@ def blender_visualization(_distance_results: array,
     _distance_results = np.pad(_distance_results, pad_width, mode="constant", constant_values=0)
     verts, faces, normals, values = measure.marching_cubes(volume=_distance_results,
                                                            level=0.1,
-                                                           step_size=1.1,
+                                                           # step_size=1.1,
                                                            allow_degenerate=False)
 
-    np.save(os.path.join(_output_path, "verts_distance.npy"), verts)
-    np.save(os.path.join(_output_path, "faces_distance.npy"), faces)
-    np.save(os.path.join(_output_path, "values_distance.npy"), values)
+    np.savez_compressed(os.path.join(_output_path, "verts_distance.npz"), arr=verts)
+    np.savez_compressed(os.path.join(_output_path, "faces_distance.npz"), arr=faces)
+    np.savez_compressed(os.path.join(_output_path, "values_distance.npz"), arr=values)
 
-    mean = np.mean(_fd_results[_fd_results != 0])
-    first_layer = _fd_results[0]
-    first_layer[first_layer != 0] = mean/2
-    _fd_results[0] = first_layer
+    # mean = np.mean(_psf_results[_psf_results != 0])
+    # first_layer = _psf_results[0]
+    # first_layer[first_layer != 0] = mean/2
+    # _psf_results[0] = first_layer
 
-    last_layer = _fd_results[_fd_results.shape[0]-1]
-    last_layer[last_layer != 0] = mean/2
-    _fd_results[_fd_results.shape[0]-1] = last_layer
+    # last_layer = _psf_results[_psf_results.shape[0]-1]
+    # last_layer[last_layer != 0] = mean/2
+    # _psf_results[_psf_results.shape[0]-1] = last_layer
 
-    _fd_results = np.pad(_fd_results, pad_width, mode="constant", constant_values=0)
-    verts, faces, normals, values = measure.marching_cubes(volume=_fd_results,
-                                                           level=0.1,
-                                                           step_size=1.1,
-                                                           allow_degenerate=False)
+    # _psf_results = np.pad(_psf_results, pad_width, mode="constant", constant_values=0)
+    # verts, faces, normals, values = measure.marching_cubes(volume=_psf_results,
+    #                                                        level=0.1,
+    #                                                        step_size=1.1,
+    #                                                        allow_degenerate=False)
 
-    np.save(os.path.join(_output_path, "verts_bumpiness.npy"), verts)
-    np.save(os.path.join(_output_path, "faces_bumpiness.npy"), faces)
-    np.save(os.path.join(_output_path, "values_bumpiness.npy"), values)
+    # np.save(os.path.join(_output_path, "verts_bumpiness.npy"), verts)
+    # np.save(os.path.join(_output_path, "faces_bumpiness.npy"), faces)
+    # np.save(os.path.join(_output_path, "values_distance.npy"), values)
 
 def replace_outliers_iqr(arr, k=1.5, lower_p=5, upper_p=95, lower_p_zero_iqr=2, upper_p_zero_iqr=98):
     original_size = arr.size
@@ -417,10 +414,9 @@ def remove_outliers_iqr(arr, k=1.5):
 def blender_prepare(_sample_dir: str) -> None:
     sample = Path(_sample_dir)
 
-    distance_result = np.load(sample / "distance_result.npy")
-    fd_result = np.load(sample / "fd_result.npy")
+    distance_result = np.load(sample / "distance_result.npz")['arr']
+    # psf_result = np.load(sample / "psf_result.npy")
     blender_visualization(_distance_results=distance_result,
-                          _fd_results=fd_result,
                           _output_path=sample / "blender/")
 
 
@@ -758,12 +754,12 @@ def generate_comparative_box_plot(_stats_dir: Path):
     """
     Generates a comparative box plot from pre-calculated summary statistics.
     """
-    summary_file = _stats_dir / "summary_statistics.npy"
+    summary_file = _stats_dir / "summary_statistics.npz"
     if not summary_file.exists():
         logging.error("Summary statistics file not found: %s", summary_file)
         return
 
-    summary_data = np.load(summary_file, allow_pickle=True)
+    summary_data = np.load(summary_file, allow_pickle=True)['arr']
 
     fig = go.Figure()
 
@@ -855,12 +851,13 @@ def calculate_stats(_inference_result_path: Path,
         sample_hist_dir.mkdir(exist_ok=True)
         logging.debug("Created sample histogram directory: %s", sample_hist_dir)
 
-        distance_file = sample_dir / "distance_result.npy"
+        distance_file = sample_dir / "psf_result.npz"
 
         if distance_file.exists():
             logging.debug("Processing thickness file: %s", distance_file)
             try:
-                data = np.load(distance_file)
+                data = np.load(distance_file)['arr']
+                # data[data == 13] = 0
 
                 if _clipping:
                     max_clipping_value = 1400
@@ -907,7 +904,7 @@ def calculate_stats(_inference_result_path: Path,
 
                 # Remove zero values
                 data_no_zeros = data[data != 0]
-                after_zero_removal = data_no_zeros.count_nonzero
+                after_zero_removal = np.count_nonzero(data_no_zeros)
                 logging.debug("Removed %d zero values, %d values remaining",
                               original_size - after_zero_removal, after_zero_removal)
 
@@ -986,8 +983,8 @@ def calculate_stats(_inference_result_path: Path,
 
         summary_array = np.array(records, dtype=dtype)
 
-        summary_file = _stats_dir / "summary_statistics.npy"
-        np.save(summary_file, summary_array)
+        summary_file = _stats_dir / "summary_statistics.npz"
+        np.savez_compressed(summary_file, arr=summary_array)
         logging.info("Saved summary statistics to %s", summary_file)
 
     # Save aggregated raw data points (before outlier removal)
@@ -997,8 +994,8 @@ def calculate_stats(_inference_result_path: Path,
             "Aggregated %d raw thickness values from %d samples (before outlier removal)",
             len(aggregated_thickness_raw), len(all_thickness_data_before_outliers)
         )
-        raw_thickness_file = _stats_dir / "aggregated_thickness_data.npy"
-        np.save(raw_thickness_file, aggregated_thickness_raw)
+        raw_thickness_file = _stats_dir / "aggregated_thickness_data.npz"
+        np.savez_compressed(raw_thickness_file, arr=aggregated_thickness_raw)
         logging.info("Saved aggregated raw thickness data to %s", raw_thickness_file)
 
     # Generate the fast comparative box plot from the summary file
@@ -1114,21 +1111,21 @@ def blender_render(_inference_dir: str) -> None:
                                                                             item)) and item not in ['.', '..']]
     commands = []
     for directory in directories:
-        verts_path = os.path.join(_inference_dir, directory, "blender", "verts_distance.npy")
-        faces_path = os.path.join(_inference_dir, directory, "blender", "faces_distance.npy")
-        values_path = os.path.join(_inference_dir, directory, "blender", "values_distance.npy")
+        verts_path = os.path.join(_inference_dir, directory, "blender", "verts_distance.npz")
+        faces_path = os.path.join(_inference_dir, directory, "blender", "faces_distance.npz")
+        values_path = os.path.join(_inference_dir, directory, "blender", "values_distance.npz")
         result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_distance.blend")
         result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_distance.mp4")
         commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
         gpu_index = (gpu_index + 1) % num_gpus
 
-        verts_path = os.path.join(_inference_dir, directory, "blender", "verts_bumpiness.npy")
-        faces_path = os.path.join(_inference_dir, directory, "blender", "faces_bumpiness.npy")
-        values_path = os.path.join(_inference_dir, directory, "blender", "values_bumpiness.npy")
-        result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.blend")
-        result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.mp4")
-        commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
-        gpu_index = (gpu_index + 1) % num_gpus
+        # verts_path = os.path.join(_inference_dir, directory, "blender", "verts_bumpiness.npy")
+        # faces_path = os.path.join(_inference_dir, directory, "blender", "faces_bumpiness.npy")
+        # values_path = os.path.join(_inference_dir, directory, "blender", "values_bumpiness.npy")
+        # result_blend_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.blend")
+        # result_anim_path = os.path.join(_inference_dir, directory, "blender", "result_bumpiness.mp4")
+        # commands.append(f"export CUDA_VISIBLE_DEVICES={gpu_index}; blender --background --python src/scripts/blender_render.py -- res/blender_template.blend {shlex.quote(verts_path)} {shlex.quote(faces_path)} {shlex.quote(values_path)} {shlex.quote(result_blend_path)} {shlex.quote(result_anim_path)}")
+        # gpu_index = (gpu_index + 1) % num_gpus
 
     compute_limit = num_gpus * gpu_capacity
     for i in range(int(len(commands)/compute_limit) + 1):
@@ -1166,7 +1163,7 @@ def export_results(_inference_result_path: Path,
         shutil.copy(dir / "blender/result_bumpiness.blend", bumpiness_blend)
         shutil.copy(dir / "blender/result_bumpiness.mp4", bumpiness_mp4)
 
-        labels = np.load(dir / "prediction_psp.npy")
+        labels = np.load(dir / "prediction_psp.npz")['arr']
         labels[labels != 0] = 128
 
         with tifffile.TiffFile(dir / "prediction.tif") as tif:
@@ -1196,38 +1193,3 @@ def export_results(_inference_result_path: Path,
                          imagej=True,
                          metadata={'axes': 'ZCYX', 'fps': 10.0},
                          compression='lzw')
-
-def analyze_dataset(_dataset):
-    def draw(voxels, path, name):
-        # Plot histogram
-        import matplotlib.pyplot as plt
-        plt.figure(figsize=(10, 6))
-        plt.hist(voxels.flatten(), bins=256, edgecolor='black')
-        plt.title(f'Histogram of {name} Intensities')
-        plt.xlabel('Voxel Intensity')
-        plt.ylabel(f'Frequency ({name})')
-        plt.savefig(path / f"{name}.png")
-        plt.close()
-
-        import imageio
-        with imageio.get_writer(path / f"{name}.gif") as writer:
-            for index in range(voxels.shape[0]):
-                writer.append_data(voxels[index])
-
-    def histogram(_data, _label, _path):
-        nephrin = _data[0].cpu().detach().numpy()
-        wga = _data[1].cpu().detach().numpy()
-        col4 = _data[2].cpu().detach().numpy()
-        label = _label.cpu().detach().numpy()
-        draw(nephrin, _path, "nephrin")
-        draw(wga, _path, "wga")
-        draw(col4, _path, "col4")
-        draw(label, _path, "label")
-
-    root_path = Path("/data/afatehi/") / "gbm/dataset_analysis/"
-    root_path.mkdir(parents=True, exist_ok=True)
-    for idx, data in enumerate(_dataset):
-        print(f"Item {idx}:")
-        path = root_path / f"{idx:04d}"
-        path.mkdir(parents=True, exist_ok=True)
-        histogram(data['sample'], data['labels'], path)

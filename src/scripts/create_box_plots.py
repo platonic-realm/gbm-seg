@@ -50,10 +50,10 @@ def find_stats_directories(root_path):
 
 def load_aggregated_data(stats_dir):
     """Load aggregated thickness data from a stats directory."""
-    aggregated_file = stats_dir / "aggregated_thickness_data.npy"
+    aggregated_file = stats_dir / "aggregated_thickness_data.npz"
     if aggregated_file.exists():
         try:
-            data = np.load(aggregated_file)
+            data = np.load(aggregated_file)['arr']
             data = data[~np.isnan(data)]  # Remove any NaN values
             if len(data) > 0:
                 group_name = stats_dir.name.replace('_stats', '')

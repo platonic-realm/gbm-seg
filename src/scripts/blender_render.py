@@ -14,9 +14,9 @@ output_blend_path = args[args.index('--') + 5]
 output_anim_path = args[args.index('--') + 6]
 
 
-verts = np.load(verts_path)
-faces = np.load(faces_path)
-values = np.load(values_path)
+verts = np.load(verts_path)['arr']
+faces = np.load(faces_path)['arr']
+values = np.load(values_path)['arr']
 edges = []
 
 # Load the template Blender file

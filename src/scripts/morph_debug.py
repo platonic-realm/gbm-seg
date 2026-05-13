@@ -27,5 +27,4 @@ if __name__ == "__main__":
     for i in range(result.shape[2]):
         print(f"Mean of Y={i}: {result[:, :, i].mean()}")
 
-    with open("/data/afatehi/gbm/result.npy", 'wb') as f:
-        np.save(f, result.detach().cpu().numpy())
+    np.savez_compressed("/data/afatehi/gbm/result.npz", arr=result.detach().cpu().numpy())

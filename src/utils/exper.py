@@ -103,13 +103,13 @@ def render_results(_name: str,
 
 def clipping_high_values(sample_path):
     logging.info(f"Starting aggressive analysis for sample: {sample_path}")
-    thickness_map_path = os.path.join(sample_path, 'distance_result.npy')
+    thickness_map_path = os.path.join(sample_path, 'distance_result.npz')
 
     if not os.path.exists(thickness_map_path):
         raise FileNotFoundError(f"Thickness map not found: {thickness_map_path}")
 
     logging.info(f"Loading thickness map from: {thickness_map_path}")
-    thickness_map = np.load(thickness_map_path)
+    thickness_map = np.load(thickness_map_path)['arr']
 
     original_non_zero_voxels = np.count_nonzero(thickness_map)
 
@@ -123,9 +123,9 @@ def clipping_high_values(sample_path):
     else:
         logging.info("No non-zero voxels to alter.")
 
-    save_path = os.path.join(sample_path, 'distance_aggressive_removed.npy')
+    save_path = os.path.join(sample_path, 'distance_aggressive_removed.npz')
     logging.info(f"Saving aggressively removed thickness map to: {save_path}")
-    np.save(save_path, thickness_map)
+    np.savez_compressed(save_path, arr=thickness_map)
     logging.info("Aggressive analysis completed.")
 
 
@@ -270,6 +270,8 @@ def infer_experiment(_name: str,
         else:
             return
     create_dirs_recursively(os.path.join(inference_result_path, 'dummy'))
+
+    configs['root_path'] = _root_path
 
     configs['inference']['snapshot_path'] =\
         os.path.join(_root_path,

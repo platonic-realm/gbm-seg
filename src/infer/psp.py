@@ -35,8 +35,8 @@ class PSP():
 
         logging.info("Generating post processsing tasks")
         for sample in sample_dirs:
-            input_path = sample / "prediction.npy"
-            output_path = sample / "prediction_psp.npy"
+            input_path = sample / "prediction.npz"
+            output_path = sample / "prediction_psp.npz"
 
             tasks.append((input_path,
                           output_path))
@@ -57,7 +57,7 @@ class PSP():
         PID = os.getpid()
         logging.info("Process %d: started!", PID)
 
-        prediction = np.load(_input_path)
+        prediction = np.load(_input_path)['arr']
         logging.info("Process %d: prediction numpy array loaded", PID)
 
         labels, labels_num = ndimage.label(prediction)
@@ -102,7 +102,7 @@ class PSP():
         max_raduis = math.sqrt((space_width/2)**2 + (space_height/2)**2)
         max_raduis = int(max_raduis)
 
-        np.save(_output_path, prediction)
+        np.savez_compressed(_output_path, arr=prediction)
         logging.info("Process %d: processed prediction numpy array saved", PID)
 
         gif_path = _output_path.parent / "prediction_psp.gif"

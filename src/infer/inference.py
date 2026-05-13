@@ -98,9 +98,9 @@ class Inference():
                                                                step_size=1.1,
                                                                allow_degenerate=False)
 
-        np.save(os.path.join(_output_path, "verts_distance.npy"), verts)
-        np.save(os.path.join(_output_path, "faces_distance.npy"), faces)
-        np.save(os.path.join(_output_path, "values_distance.npy"), values)
+        np.savez_compressed(os.path.join(_output_path, "verts_distance.npz"), arr=verts)
+        np.savez_compressed(os.path.join(_output_path, "faces_distance.npz"), arr=faces)
+        np.savez_compressed(os.path.join(_output_path, "values_distance.npz"), arr=values)
 
         mean = np.mean(_fd_results[_fd_results != 0])
         first_layer = _fd_results[0]
@@ -117,9 +117,9 @@ class Inference():
                                                                step_size=1.1,
                                                                allow_degenerate=False)
 
-        np.save(os.path.join(_output_path, "verts_bumpiness.npy"), verts)
-        np.save(os.path.join(_output_path, "faces_bumpiness.npy"), faces)
-        np.save(os.path.join(_output_path, "values_bumpiness.npy"), values)
+        np.savez_compressed(os.path.join(_output_path, "verts_bumpiness.npz"), arr=verts)
+        np.savez_compressed(os.path.join(_output_path, "faces_bumpiness.npz"), arr=faces)
+        np.savez_compressed(os.path.join(_output_path, "values_bumpiness.npz"), arr=values)
 
     def save_result(self,
                     _nephrin: array,
@@ -130,8 +130,8 @@ class Inference():
                     _tiff_tags: dict,
                     _multiplier: int = 120):
 
-        np.save(os.path.join(_output_path, "prediction.npy"),
-                _prediction)
+        np.savez_compressed(os.path.join(_output_path, "prediction.npz"),
+                arr=_prediction)
 
         prediction_tif_path = os.path.join(_output_path, "prediction.tif")
         prediction_gif_path = os.path.join(_output_path, "prediction.gif")
@@ -164,22 +164,33 @@ class Inference():
 
         for i in range(prediction.shape[0]):
 
-            kernel = morphology.rectangle(self.psp_kernel_size, self.psp_kernel_size)
-            eroded_image = morphology.erosion(prediction[i, :, :], kernel)
+            kernel = morphology.rectangle(self.psp_kernel_size,
+                                          self.psp_kernel_size)
+            eroded_image = morphology.erosion(prediction[i, :, :],
+                                              kernel)
             prediction[i, :, :] = eroded_image
 
             sample = prediction[i, :, :]
-            labels = measure.label(sample, connectivity=1)
+            labels = measure.label(sample,
+                                   connectivity=1)
             # count pixels in each connected component
-            unique_labels, label_counts = np.unique(labels, return_counts=True)
+            unique_labels, label_counts = np.unique(labels,
+                                                    return_counts=True)
             # remove small connected components
-            # print(f"mean: {int(np.mean(label_counts))}, std: {int(np.std(label_counts))}, max: {int(np.max(label_counts))}, min: {int(np.min(label_counts))}")
-            for label, count in zip(unique_labels, label_counts):
+            # print(f"mean: {int(np.mean(label_counts))},\
+            #       std: {int(np.std(label_counts))},\
+            #       max: {int(np.max(label_counts))},\
+            #       min: {int(np.min(label_counts))}")
+
+            for label, count in zip(unique_labels,
+                                    label_counts):
                 if count < self.psp_obj_min_size and label != 0:
                     prediction[i, :, :][labels == label] = 0
 
-            kernel = morphology.rectangle(self.psp_kernel_size, self.psp_kernel_size)
-            dilated_image = morphology.dilation(prediction[i, :, :], kernel)
+            kernel = morphology.rectangle(self.psp_kernel_size,
+                                          self.psp_kernel_size)
+            dilated_image = morphology.dilation(prediction[i, :, :],
+                                                kernel)
             prediction[i, :, :] = dilated_image
 
         labels, labels_num = ndimage.label(prediction)

@@ -365,8 +365,7 @@ def morph():
     distance_tesnor[distance_tesnor.isinf()] = 0
 
     draw("distance.gif", distance_tesnor)
-    with open("result.npy", 'wb') as f:
-        np.save(f, distance_tesnor.detach().cpu().numpy())
+    np.savez_compressed("result.npz", arr=distance_tesnor.detach().cpu().numpy())
 
 
 if __name__ == '__main__':

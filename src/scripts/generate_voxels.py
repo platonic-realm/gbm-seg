@@ -101,4 +101,4 @@ def cube_cylinder():
 
 if __name__ == "__main__":
     cube = circle_circle()
-    np.save("/data/afatehi/gbm/cube.npy", cube)
+    np.savez_compressed("/data/afatehi/gbm/cube.npz", arr=cube)

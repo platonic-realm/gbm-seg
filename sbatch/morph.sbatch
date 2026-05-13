@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=gbm_morph
-#SBATCH --output=/home/afatehi/gbm_log/morph.log
-#SBATCH --error=/home/afatehi/gbm_log/morph.log
+#SBATCH --output=/home/afatehi/logs/gbm/morph.log
+#SBATCH --error=/home/afatehi/logs/gbm/morph.log
+#SBATCH --partition=train   # Adjust partition based on available resources
 # (No GPU request here so the parent job does not get a GPU)
 
 # Check if this is the parent job (no SLURM_ARRAY_TASK_ID defined)
@@ -41,13 +42,13 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
     DIR_NAMES_STR=${DIR_NAMES_STR%|}  # Remove trailing separator
 
     # Create log directory and subdirectory for child job logs if they don't exist
-    mkdir -p /home/afatehi/gbm_log/morph
+    mkdir -p /home/afatehi/logs/gbm/morph
 
     # Submit a job array with DIR_NAMES properly passed and individual log files
     sbatch -p train -c 8 --mem=64G --gres=gpu:1 --time=7-00:00:00 \
         --array=1-${N} \
-        --output=/home/afatehi/gbm_log/morph/job_%A_%a.log \
-        --error=/home/afatehi/gbm_log/morph/job_%A_%a.log \
+        --output=/home/afatehi/logs/gbm/morph/job_%A_%a.log \
+        --error=/home/afatehi/logs/gbm/morph/job_%A_%a.log \
         --export=ALL,DIR_NAMES="$DIR_NAMES_STR" "$0" "$@"
 
     exit

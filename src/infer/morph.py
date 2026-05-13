@@ -396,7 +396,7 @@ class Morph(nn.Module):
             bumpiness_tensor[surface_mask == 0] = 0
             bumpiness_tensor = bumpiness_tensor.squeeze()
 
-            return corrected_thickness, bumpiness_tensor
+            return distance_tesnor, corrected_thickness, bumpiness_tensor
 
     def calculate_patched_std(self,
                               _slope: Tensor,

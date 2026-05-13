@@ -22,7 +22,7 @@ if __name__ == '__main__':
                                                            step_size=1.1,
                                                            allow_degenerate=False)
 
-    np.save("verts.npy", verts)
-    np.save("faces.npy", faces)
-    np.save("values.npy", values)
-    np.save("normals.npy", normals)
+    np.savez_compressed("verts.npz", arr=verts)
+    np.savez_compressed("faces.npz", arr=faces)
+    np.savez_compressed("values.npz", arr=values)
+    np.savez_compressed("normals.npz", arr=normals)

@@ -40,8 +40,8 @@ experiments:
 
   scale_lerning_rate_for_batch_size: True
 
-  default_data_path: '/projects/ag-bozek/afatehi/gbm/data/ds_human/'
-  # default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
+  # default_data_path: '/projects/ag-bozek/afatehi/gbm/data/ds_human/'
+  default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
   default_batch_size: 8
 
   # The training samples will resize to match this size

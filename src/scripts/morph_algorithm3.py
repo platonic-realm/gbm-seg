@@ -442,8 +442,7 @@ def morph():
     distance_tesnor[surface_mask <= 0] = 0
 
     # draw("distance.gif", distance_tesnor)
-    with open("/data/afatehi/gbm/result.npy", 'wb') as f:
-        np.save(f, distance_tesnor.detach().cpu().numpy())
+    np.savez_compressed("/data/afatehi/gbm/result.npz", arr=distance_tesnor.detach().cpu().numpy())
 
 
 if __name__ == '__main__':
