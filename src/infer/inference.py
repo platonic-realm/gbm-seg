@@ -72,6 +72,12 @@ class Inference:
             with torch.no_grad():
                 logits, _ = self.model(sample)
 
+            # C1.2: when the model was trained with deep supervision, it
+            # returns a list ``[final_logits, aux_logits, ...]``. Inference
+            # uses only the final-resolution head.
+            if isinstance(logits, (list, tuple)):
+                logits = logits[0]
+
             self.accumulator.add_batch(logits, offsets)
 
         output_dir = os.path.join(self.results_path,

@@ -79,6 +79,18 @@ trainer:
   # Defaults approximate the prior learned-weight initialisation equilibrium.
   cont_alpha: 0.7
   cont_beta: 0.3
+
+  # Deep supervision (C1.2): when enabled, the Unet3D model attaches
+  # `levels` auxiliary 1x1x1 conv heads at decoder mid-levels (deepest
+  # first). The loss is computed at each level against a downsampled
+  # copy of the labels and summed with geometrically-decaying weights.
+  # Disabled by default; enable for an ablation arm. If `weights` is
+  # omitted, defaults to a normalised 0.5^k schedule.
+  deep_supervision:
+    enabled: False
+    levels: 2
+    # weights: [0.571, 0.286, 0.143]   # explicit override (normalised)
+
   report_freq: 100
 
   metrics: [

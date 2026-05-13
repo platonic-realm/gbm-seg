@@ -21,6 +21,7 @@ from src.infer.psp import PSP
 from src.models import build_model
 from src.train.losses.loss_cont import ContLoss
 from src.train.losses.loss_dice import DiceLoss
+from src.train.losses.loss_ds import DeepSupervisionLoss
 from src.train.losses.loss_iou import IoULoss
 from src.train.profiler import Profiler
 from src.train.snapper import Snapper
@@ -84,16 +85,27 @@ class Factory:
         loss_name: str = self.configs['trainer']['loss']
         if loss_name == 'Dice':
             loss = DiceLoss(_weights=weights)
-        if loss_name == 'IoU':
+        elif loss_name == 'IoU':
             loss = IoULoss(_weights=weights)
-        if loss_name == 'CrossEntropy':
+        elif loss_name == 'CrossEntropy':
             loss = nn.CrossEntropyLoss(weight=weights)
-        if loss_name == 'Cont':
+        elif loss_name == 'Cont':
             cont_alpha = self.configs['trainer'].get('cont_alpha', 0.7)
             cont_beta = self.configs['trainer'].get('cont_beta', 0.3)
             loss = ContLoss(nn.CrossEntropyLoss(weight=weights),
                             _alpha=cont_alpha, _beta=cont_beta)
-            loss = loss.to(device)
+        else:
+            raise NotImplementedError(f"Unknown loss: {loss_name!r}")
+
+        loss = loss.to(device) if isinstance(loss, nn.Module) else loss
+
+        # C1.2: wrap with deep supervision if the model is producing
+        # multi-resolution logits. The wrapper degrades transparently when
+        # the model returns a single tensor, so wrapping is safe regardless.
+        ds_cfg = self.configs['trainer'].get('deep_supervision', {})
+        if ds_cfg.get('enabled', False):
+            ds_weights = ds_cfg.get('weights')  # optional explicit list
+            loss = DeepSupervisionLoss(loss, weights=ds_weights)
 
         return loss
 
