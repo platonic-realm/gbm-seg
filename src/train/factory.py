@@ -18,7 +18,7 @@ from src.data.ds_train import GBMDataset
 from src.infer.inference import Inference
 from src.infer.morph import Morph
 from src.infer.psp import PSP
-from src.models.unet3d.unet3d import Unet3D
+from src.models import build_model
 from src.train.losses.loss_cont import ContLoss
 from src.train.losses.loss_dice import DiceLoss
 from src.train.losses.loss_iou import IoULoss
@@ -61,20 +61,16 @@ class Factory:
                     _no_of_classes: int) -> nn.Module:
         """Build the segmentation model from ``configs.trainer.model``.
 
-        A3 refactor: the model is now stateless w.r.t. inference. Inference-time
-        sliding-window accumulation lives in :class:`src.infer.stitching.StitchAccumulator`
-        and is configured at ``Inference`` construction time.
+        B1.2 refactor: dispatch through :mod:`src.models` registry so the
+        factory is decoupled from any single model class. Each registered
+        model's ``build`` callable handles its own config-to-constructor
+        translation. See ``src/models/__init__.py``.
         """
-
-        sample_dimension = self.configs['trainer']['train_ds']['sample_dimension'].copy()
-
-        model = Unet3D(self.configs['trainer']['model']['name'],
-                       _no_of_channles,
-                       _no_of_classes,
-                       _encoder_kernel_size=self.configs['trainer']['model']['encoder_kernel'],
-                       _decoder_kernel_size=self.configs['trainer']['model']['decoder_kernel'],
-                       _feature_maps=self.configs['trainer']['model']['feature_maps'],
-                       _sample_dimension=sample_dimension)
+        model = build_model(
+            self.configs['trainer']['model']['name'],
+            self.configs,
+            _no_of_channles,
+            _no_of_classes)
 
         if self.configs['trainer']['dp']:
             model = DP(model)
@@ -151,25 +147,25 @@ class Factory:
 
         _snapper.load(_model, device)
 
-        if self.configs['trainer']['model']['name'] == 'unet_3d':
-            trainer = Unet3DTrainer(_model,
-                                    _loss_function,
-                                    _stepper,
-                                    _snapper,
-                                    _profiler,
-                                    _visualizer,
-                                    _metric_logger,
-                                    _lr_scheduler,
-                                    _training_loader,
-                                    _validation_loader,
-                                    _no_of_classes,
-                                    metrics_list,
-                                    device,
-                                    report_freq,
-                                    epochs)
-        else:
-            raise NotImplementedError(
-                f"Unknown model: {self.configs['trainer']['model']['name']}")
+        # B1.2 refactor: the trainer is model-agnostic — any model that
+        # satisfies the post-A3 interface (forward(x) -> (logits, outputs))
+        # can be trained by Unet3DTrainer. The name reflects the original
+        # use case; the class is effectively generic now.
+        trainer = Unet3DTrainer(_model,
+                                _loss_function,
+                                _stepper,
+                                _snapper,
+                                _profiler,
+                                _visualizer,
+                                _metric_logger,
+                                _lr_scheduler,
+                                _training_loader,
+                                _validation_loader,
+                                _no_of_classes,
+                                metrics_list,
+                                device,
+                                report_freq,
+                                epochs)
 
         return trainer
 
