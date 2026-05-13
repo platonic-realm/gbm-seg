@@ -106,9 +106,14 @@ class Unet3DTrainer:
 
                 metrics = valid_running_metrics.calculate()
 
-                # The scheduler changes the lr based on the provided metric
+                # C1.1: the scheduler is now config-selectable.
+                # ReduceLROnPlateau is metric-driven; PolynomialLR (and any
+                # future epoch-driven scheduler) takes no argument.
                 if _epoch > 0:
-                    self.scheduler.step(metrics['Dice'])
+                    if isinstance(self.scheduler, ReduceLROnPlateau):
+                        self.scheduler.step(metrics['Dice'])
+                    else:
+                        self.scheduler.step()
 
                 self.metric_logger.log(_epoch,
                                        self.stepper.getSteps(),

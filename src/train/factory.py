@@ -95,19 +95,67 @@ class Factory:
         return loss
 
     def createOptimizer(self, _model: nn.Module, _loss):
-        optimizer_name: str = self.configs['trainer']['optim']['name']
-        if optimizer_name == 'adam':
-            lr: float = self.configs['trainer']['optim']['lr']
-            if isinstance(_loss, nn.Module):
-                parameters = list(_model.parameters()) + list(_loss.parameters())
-            else:
-                parameters = _model.parameters()
-            optimizer = torch.optim.Adam(parameters,
-                                         lr=lr)
-        return optimizer
+        """Build the optimiser from ``configs.trainer.optim``.
+
+        C1.1: supports ``adam`` (existing) and ``sgd`` (nnU-Net default —
+        momentum=0.99, often with poly-decay scheduler). Each branch reads
+        its own keyword arguments from the same ``optim`` sub-dict; unknown
+        keys are ignored.
+        """
+        optim_cfg = self.configs['trainer']['optim']
+        name = optim_cfg['name']
+        lr = optim_cfg['lr']
+
+        if isinstance(_loss, nn.Module):
+            parameters = list(_model.parameters()) + list(_loss.parameters())
+        else:
+            parameters = _model.parameters()
+
+        if name == 'adam':
+            return torch.optim.Adam(parameters, lr=lr)
+        if name == 'sgd':
+            momentum = optim_cfg.get('momentum', 0.99)
+            weight_decay = optim_cfg.get('weight_decay', 0.0)
+            nesterov = optim_cfg.get('nesterov', False)
+            return torch.optim.SGD(parameters, lr=lr,
+                                   momentum=momentum,
+                                   weight_decay=weight_decay,
+                                   nesterov=nesterov)
+        raise NotImplementedError(
+            f"Unknown optimiser: {name!r}. Supported: 'adam', 'sgd'.")
 
     def createScheduler(self, _optimizer):
-        return ReduceLROnPlateau(_optimizer, mode='max')
+        """Build the LR scheduler from ``configs.trainer.scheduler``.
+
+        C1.1: supports ``reduce_on_plateau`` (default, existing) and
+        ``poly_decay`` (nnU-Net's ``(1 - t/T)^power``). The trainer
+        dispatches its ``.step()`` call accordingly — see
+        :class:`Unet3DTrainer.trainEpoch`.
+
+        For backwards compatibility, if ``trainer.scheduler`` is absent the
+        scheduler defaults to ``reduce_on_plateau`` with the prior
+        (mode=max) behaviour.
+        """
+        sched_cfg = self.configs['trainer'].get('scheduler', {})
+        name = sched_cfg.get('name', 'reduce_on_plateau')
+
+        if name == 'reduce_on_plateau':
+            mode = sched_cfg.get('mode', 'max')
+            factor = sched_cfg.get('factor', 0.1)
+            patience = sched_cfg.get('patience', 10)
+            return ReduceLROnPlateau(_optimizer, mode=mode,
+                                     factor=factor, patience=patience)
+        if name == 'poly_decay':
+            # nnU-Net: lr_t = lr_0 * (1 - t/T) ** power. `total_iters`
+            # is in scheduler-step units (here: per validation cycle).
+            total_iters = sched_cfg.get('total_iters',
+                                        self.configs['trainer']['epochs'])
+            power = sched_cfg.get('power', 0.9)
+            return torch.optim.lr_scheduler.PolynomialLR(
+                _optimizer, total_iters=total_iters, power=power)
+        raise NotImplementedError(
+            f"Unknown scheduler: {name!r}. Supported: "
+            "'reduce_on_plateau', 'poly_decay'.")
 
     def createStepper(self,
                       _model: nn.Module,
