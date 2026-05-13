@@ -20,6 +20,7 @@ from src.infer.inference import Inference
 from src.infer.morph import Morph
 from src.infer.psp import PSP
 from src.models import build_model
+from src.train.losses.loss_compound import CompoundLoss
 from src.train.losses.loss_cont import ContLoss
 from src.train.losses.loss_dice import DiceLoss
 from src.train.losses.loss_ds import DeepSupervisionLoss
@@ -79,24 +80,43 @@ class Factory:
 
         return model
 
+    def _build_single_loss(self, name: str, weights, params: dict = None):
+        """Construct one of the registered single-loss classes by name.
+
+        Sub-losses inside ``CompoundLoss`` come through here too, so adding
+        a new single-loss class means a one-line addition both here and in
+        the recognised name list — no factory branching beyond.
+        """
+        params = params or {}
+        if name == 'Dice':
+            return DiceLoss(_weights=weights)
+        if name == 'IoU':
+            return IoULoss(_weights=weights)
+        if name == 'CrossEntropy':
+            return nn.CrossEntropyLoss(weight=weights)
+        if name == 'Cont':
+            cont_alpha = params.get('cont_alpha',
+                                    self.configs['trainer'].get('cont_alpha', 0.7))
+            cont_beta = params.get('cont_beta',
+                                   self.configs['trainer'].get('cont_beta', 0.3))
+            return ContLoss(nn.CrossEntropyLoss(weight=weights),
+                            _alpha=cont_alpha, _beta=cont_beta)
+        raise NotImplementedError(f"Unknown loss: {name!r}")
+
     def createLoss(self):
         device = self.configs['trainer']['device']
         weights = torch.tensor(self.configs['trainer']['loss_weights']).to(device)
 
         loss_name: str = self.configs['trainer']['loss']
-        if loss_name == 'Dice':
-            loss = DiceLoss(_weights=weights)
-        elif loss_name == 'IoU':
-            loss = IoULoss(_weights=weights)
-        elif loss_name == 'CrossEntropy':
-            loss = nn.CrossEntropyLoss(weight=weights)
-        elif loss_name == 'Cont':
-            cont_alpha = self.configs['trainer'].get('cont_alpha', 0.7)
-            cont_beta = self.configs['trainer'].get('cont_beta', 0.3)
-            loss = ContLoss(nn.CrossEntropyLoss(weight=weights),
-                            _alpha=cont_alpha, _beta=cont_beta)
+        if loss_name == 'Compound':
+            components = []
+            for entry in self.configs['trainer']['compound_loss']:
+                sub_loss = self._build_single_loss(
+                    entry['name'], weights, entry.get('params', {}))
+                components.append((sub_loss, float(entry.get('weight', 1.0))))
+            loss = CompoundLoss(components)
         else:
-            raise NotImplementedError(f"Unknown loss: {loss_name!r}")
+            loss = self._build_single_loss(loss_name, weights)
 
         loss = loss.to(device) if isinstance(loss, nn.Module) else loss
 

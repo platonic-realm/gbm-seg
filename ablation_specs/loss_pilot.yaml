@@ -7,31 +7,41 @@
 study: loss_pilot
 base_experiment: my_baseline    # an existing experiment with configs.yaml + ds_train + fold_assignments.yaml
 
+# Maps to the catalog's A2 ablation:
+#   (a) dice       = Dice only
+#   (b) dice_ce    = Dice + CrossEntropy (compound)
+#   (c) dice_cont  = Dice + Cont (CE+continuity); equivalent to current ContLoss + Dice
+#   (d) dice_ce_continuity_fixed = Dice + CE + Cont(alpha=0, beta=1) — TV-on-softmax continuity, fixed weight
+#   (e) tv_hard_mask = NOT IMPLEMENTED YET (needs a TV-on-argmaxed-mask loss class)
 cells:
   - name: dice
     overrides:
       trainer.loss: Dice
 
-  - name: ce
+  - name: dice_ce
     overrides:
-      trainer.loss: CrossEntropy
+      trainer.loss: Compound
+      trainer.compound_loss:
+        - {name: Dice, weight: 1.0}
+        - {name: CrossEntropy, weight: 1.0}
 
-  - name: cont_default
+  - name: dice_cont
     overrides:
-      trainer.loss: Cont
-      trainer.cont_alpha: 0.7
-      trainer.cont_beta: 0.3
+      trainer.loss: Compound
+      trainer.compound_loss:
+        - {name: Dice, weight: 1.0}
+        - {name: Cont, weight: 1.0,
+           params: {cont_alpha: 0.7, cont_beta: 0.3}}
 
-  - name: cont_ce_only
+  - name: dice_ce_continuity_fixed
     overrides:
-      trainer.loss: Cont
-      trainer.cont_alpha: 1.0
-      trainer.cont_beta: 0.0      # disables continuity term; CE only
-
-  - name: cont_balanced
-    overrides:
-      trainer.loss: Cont
-      trainer.cont_alpha: 0.5
-      trainer.cont_beta: 0.5
+      trainer.loss: Compound
+      trainer.compound_loss:
+        - {name: Dice, weight: 1.0}
+        - {name: CrossEntropy, weight: 1.0}
+        # alpha=0 turns off the CE-component inside Cont so the only contribution
+        # is the depth-adjacency continuity term, weighted independently here.
+        - {name: Cont, weight: 0.3,
+           params: {cont_alpha: 0.0, cont_beta: 1.0}}
 
 folds: [0]
