@@ -2,6 +2,13 @@
 
 import os
 
+# Must be set before any CUDA op (i.e., before `import torch` anywhere in the
+# import chain). cuBLAS reads this once at first CUDA init; setting it later
+# is a no-op. Required for bit-exact reproducibility under
+# torch.use_deterministic_algorithms(True). See PyTorch docs:
+# https://pytorch.org/docs/stable/generated/torch.use_deterministic_algorithms.html
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
 from pudb import set_trace
 
 from src.utils import args as args_module

@@ -1,6 +1,10 @@
 # Python Imprts
 import logging
+import os
 import random
+
+# Must be set before `import torch` (cuBLAS reads it once at first CUDA init).
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 # Library Imports
 import numpy as np
@@ -21,18 +25,28 @@ def seed_everything(_seed: int):
     np.random.seed(_seed)
     torch.manual_seed(_seed)
     torch.cuda.manual_seed_all(_seed)
+    # Force deterministic CUDA / cuDNN kernels. Small speed regression
+    # (~5-10%) in exchange for bit-exact reproducibility across runs.
+    # `warn_only=True` so ops without a deterministic implementation log
+    # a warning rather than raise — flip to False for strict mode.
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def main_train(_configs):
     if _configs['logging']['log_summary']:
         summerize_configs(_configs)
 
-    if _configs['trainer']['cudnn_benchmark']:
-        torch.backends.cudnn.benchmark = True
-        logging.info("Enabling cudnn benchmarking")
-
     seed_everything(SEED)
     split_generator = torch.Generator().manual_seed(SEED)
+
+    if _configs['trainer']['cudnn_benchmark']:
+        # Benchmark mode picks the fastest cuDNN kernel based on input shapes,
+        # which is non-deterministic. seed_everything() above enabled
+        # deterministic algorithms; honouring benchmark here would silently
+        # break that guarantee. Warn and skip.
+        logging.warning(
+            "trainer.cudnn_benchmark=True is incompatible with deterministic "
+            "algorithms; skipping cuDNN benchmarking.")
 
     factory = Factory(_configs)
 
