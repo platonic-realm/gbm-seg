@@ -1,4 +1,5 @@
 # Python Imports
+import logging
 import os
 import random
 import re
@@ -422,7 +423,21 @@ class Factory:
                                               zero_metrics,
                                               tboard_seen_label)
 
-        metric_logger = MetricLogger(metric_sql, metric_tboard)
+        # E2: optional W&B backend. The wandb run itself is initialised in
+        # train.py:maybe_init_wandb so the run config + name are visible from
+        # the start; this just creates the per-step log dispatcher.
+        wandb_cfg = self.configs['trainer'].get('wandb', {})
+        metric_wandb = None
+        if wandb_cfg.get('enabled', False):
+            try:
+                from src.utils.metrics.log.metric_wandb import MetricWandb
+                metric_wandb = MetricWandb()
+            except ImportError:
+                logging.warning(
+                    "trainer.wandb.enabled=True but wandb is not installed; "
+                    "skipping W&B logging. `pip install wandb` to enable.")
+
+        metric_logger = MetricLogger(metric_sql, metric_tboard, metric_wandb)
 
         return metric_logger
 

@@ -90,6 +90,20 @@ class Snapper:
             save_path = os.path.join(self.snapshot_path, f"{stem}.pt")
             torch.save(snapshot, save_path)
 
+            # E2: upload the snapshot as an artifact when a W&B run is active.
+            # Silently skipped when wandb is not installed or no run is in
+            # progress, so this is a free improvement when W&B is enabled.
+            try:
+                import wandb
+                if wandb.run is not None:
+                    wandb.save(save_path,
+                               base_path=os.path.dirname(save_path),
+                               policy='live')
+            except ImportError:
+                pass
+            except Exception as exc:  # pragma: no cover — networked side-effect
+                logging.warning("W&B snapshot upload failed: %s", exc)
+
             # Sibling model card with snapshot provenance. Tries to derive the
             # experiment name from the snapshot_path layout
             # (<root>/<exp>/results-train/snapshots/), falls back to None.

@@ -80,6 +80,17 @@ trainer:
   cont_alpha: 0.7
   cont_beta: 0.3
 
+  # Weights & Biases experiment tracking (E2). Disabled by default;
+  # enable per-run for cross-experiment comparison. The full configs
+  # dict is logged as wandb.config so every ablation axis is filterable.
+  # Requires `pip install wandb` and a `wandb login` (or WANDB_API_KEY env
+  # var); silently skipped with a warning if wandb is absent.
+  wandb:
+    enabled: False
+    project: gbm-seg
+    entity: null        # null → uses the default entity for the API key
+    run_name: null      # null → wandb auto-generates a name
+
   # Deep supervision (C1.2): when enabled, the Unet3D model attaches
   # `levels` auxiliary 1x1x1 conv heads at decoder mid-levels (deepest
   # first). The loss is computed at each level against a downsampled

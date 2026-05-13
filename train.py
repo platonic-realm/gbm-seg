@@ -32,6 +32,42 @@ def seed_everything(_seed: int):
     torch.use_deterministic_algorithms(True, warn_only=True)
 
 
+def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
+    """Initialise a W&B run when ``configs.trainer.wandb.enabled`` is true.
+
+    The full ``configs`` dict is logged as ``wandb.config`` so every axis
+    of the eventual A2 ablation (model.name × loss × inference.stitching
+    × optim.name × fold) is filterable on the W&B UI.
+
+    Returns True iff a run was successfully initialised; False otherwise
+    (wandb missing, disabled, or init failed). Failure is logged but
+    does not abort training.
+    """
+    wandb_cfg = _configs['trainer'].get('wandb', {})
+    if not wandb_cfg.get('enabled', False):
+        return False
+    try:
+        import wandb
+    except ImportError:
+        logging.warning(
+            "trainer.wandb.enabled=True but wandb is not installed; "
+            "skipping W&B logging. `pip install wandb` to enable.")
+        return False
+
+    run_config = {**_configs, 'fold': int(_fold)}
+    try:
+        wandb.init(
+            project=wandb_cfg.get('project', 'gbm-seg'),
+            entity=wandb_cfg.get('entity'),
+            name=wandb_cfg.get('run_name'),
+            config=run_config,
+        )
+        return True
+    except Exception as exc:  # pragma: no cover — wandb init is networked
+        logging.warning("W&B init failed (%s); continuing without it.", exc)
+        return False
+
+
 def main_train(_configs, _fold: int = 0):
     """Run one training fold.
 
@@ -53,6 +89,8 @@ def main_train(_configs, _fold: int = 0):
         logging.warning(
             "trainer.cudnn_benchmark=True is incompatible with deterministic "
             "algorithms; skipping cuDNN benchmarking.")
+
+    wandb_active = maybe_init_wandb(_configs, _fold=_fold)
 
     factory = Factory(_configs)
 
@@ -105,6 +143,15 @@ def main_train(_configs, _fold: int = 0):
                                     train_dataset.getNumberOfClasses())
 
     trainer.train()
+
+    # E2: cleanly close the W&B run so the final UI state reflects the
+    # completed training. Safe no-op when W&B was not active.
+    if wandb_active:
+        try:
+            import wandb
+            wandb.finish()
+        except ImportError:
+            pass
 
 
 if __name__ == '__main__':
