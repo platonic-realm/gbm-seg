@@ -1,9 +1,7 @@
 experiments:
   root: '/projects/ag-bozek/afatehi/gbm/experiments/'
   # root: '/home/afatehi/gbm/experiments/'
-  models: ['unet_3d',
-           'unet_3d_me',
-           'unet_3d_ss']
+  models: ['unet_3d', 'swin_unetr']
   model_sizes: [
                  [tiny, 16, 32, 64],
                  [small, 32, 64, 128],

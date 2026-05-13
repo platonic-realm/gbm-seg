@@ -14,13 +14,6 @@ and is responsible for translating its own slice of ``configs.trainer.model.*``
 into constructor arguments. Add a new model by writing its module and
 registering it below — the rest of the codebase (factory, trainer, inferer)
 needs no changes.
-
-Future entries (placeholders for the user's planned variants — none of these
-exist as code yet; do **not** add them to `MODEL_REGISTRY` until they're
-implemented):
-
-    'unet_3d_me'  — multi-encoder Unet3D variant
-    'unet_3d_ss' — self-supervised Unet3D variant
 """
 
 from typing import Callable

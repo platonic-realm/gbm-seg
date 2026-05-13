@@ -41,7 +41,7 @@ Existing usage is intact until explicit removal. New modules / tests / config fi
 
 ### Architectural intent: ablation-friendly
 
-The codebase should make it trivial to swap *model × loss × stitching × optimiser × fold* via config. Each axis has its own registry-style dispatch (see post-Phase-6 architecture). Future model additions (custom SwinUNETR for shallow Z-stacks; multi-encoder / self-supervised variants) plug in by writing a `build()` callable and registering it. No factory changes required.
+The codebase should make it trivial to swap *model × loss × stitching × optimiser × fold* via config. Each axis has its own registry-style dispatch (see post-Phase-6 architecture). Two models are registered today (`unet_3d` and `swin_unetr`); additional models plug in by writing a `build()` callable and registering it. No factory changes required.
 
 MONAI's `SwinUNETR` is not used — its shifted-window mechanism needs Z-patches deeper than the window size, and `sample_dimension[0]=12` is too thin. A custom Swin variant will go in `src/models/swin_unetr/` when written.
 
