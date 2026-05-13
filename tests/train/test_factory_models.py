@@ -17,17 +17,23 @@ from src.models.unet3d.unet3d import Unet3D
 
 
 def _minimal_configs():
-    """A configs dict with the minimum keys needed by the unet_3d build()."""
+    """A configs dict with the minimum keys needed by the unet_3d build().
+
+    Uses sample_dim=[12, 16, 16] so the Z-deduct pooling has enough headroom
+    (Z trajectory: 12 → 10 → 8 for 3-stage encoder). The 2-stage Z=4 case is
+    degenerate — the output Z stops at the bottleneck Z because the single
+    decoder layer doesn't upsample.
+    """
     return {
         'trainer': {
             'model': {
                 'name': 'unet_3d',
                 'encoder_kernel': [3, 3, 3],
                 'decoder_kernel': [3, 3, 3],
-                'feature_maps': [4, 8],
+                'feature_maps': [4, 8, 16],
             },
             'train_ds': {
-                'sample_dimension': [4, 16, 16],
+                'sample_dimension': [12, 16, 16],
             },
         },
     }
@@ -51,10 +57,10 @@ def test_build_model_forward_pass_works():
     """Sanity: the registry-built model can do a forward pass and matches
     the post-A3 interface (returns logits, outputs)."""
     model = build_model('unet_3d', _minimal_configs(), 3, 2)
-    x = torch.randn(1, 3, 4, 16, 16)
+    x = torch.randn(1, 3, 12, 16, 16)
     logits, outputs = model(x)
-    assert logits.shape == (1, 2, 4, 16, 16)
-    assert outputs.shape == (1, 4, 16, 16)
+    assert logits.shape == (1, 2, 12, 16, 16)
+    assert outputs.shape == (1, 12, 16, 16)
 
 
 def test_registry_extension_point(monkeypatch):

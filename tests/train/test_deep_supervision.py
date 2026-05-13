@@ -18,7 +18,10 @@ from src.train.losses.loss_ds import DeepSupervisionLoss, default_ds_weights
 
 
 def _build_unet(ds: bool, ds_levels: int = 2,
-                feature_maps=(8, 16, 32, 64), sample_dim=(4, 16, 16)):
+                feature_maps=(8, 16, 32, 64), sample_dim=(12, 16, 16)):
+    # Z=12 supports 4-stage encoder with default deduct=2 (12 → 10 → 8 → 6).
+    # 2-stage variants for the capped-DS test use Z=12 too (just don't deduct
+    # past zero).
     return Unet3D(
         _name='unet_3d',
         _input_channels=3,
@@ -49,16 +52,16 @@ def test_default_ds_weights_geometric_decay():
 
 def test_unet3d_no_ds_returns_single_tensor():
     model = _build_unet(ds=False)
-    x = torch.randn(1, 3, 4, 16, 16)
+    x = torch.randn(1, 3, 12, 16, 16)
     logits, outputs = model(x)
     assert isinstance(logits, torch.Tensor)
-    assert logits.shape == (1, 2, 4, 16, 16)
-    assert outputs.shape == (1, 4, 16, 16)
+    assert logits.shape == (1, 2, 12, 16, 16)
+    assert outputs.shape == (1, 12, 16, 16)
 
 
 def test_unet3d_with_ds_returns_list():
     model = _build_unet(ds=True, ds_levels=2)
-    x = torch.randn(1, 3, 4, 16, 16)
+    x = torch.randn(1, 3, 12, 16, 16)
     logits, outputs = model(x)
     assert isinstance(logits, list)
     assert len(logits) == 3, "expected [final, aux_0, aux_1]"
@@ -66,10 +69,10 @@ def test_unet3d_with_ds_returns_list():
 
 def test_unet3d_with_ds_aux_logits_have_decreasing_spatial_resolution():
     model = _build_unet(ds=True, ds_levels=2)
-    x = torch.randn(1, 3, 4, 16, 16)
+    x = torch.randn(1, 3, 12, 16, 16)
     logits, _ = model(x)
     # Final head at full resolution
-    assert logits[0].shape == (1, 2, 4, 16, 16)
+    assert logits[0].shape == (1, 2, 12, 16, 16)
     # Aux heads at progressively smaller XY (Z preserved by (1,2,2) pooling).
     # Decoder 0 output: X/4, Y/4 = 4, 4. Decoder 1 output: X/2, Y/2 = 8, 8.
     for k in range(1, len(logits)):
@@ -86,7 +89,7 @@ def test_unet3d_with_ds_argmax_matches_final_head():
     torch.manual_seed(0)
     model = _build_unet(ds=True, ds_levels=2)
     model.eval()
-    x = torch.randn(1, 3, 4, 16, 16)
+    x = torch.randn(1, 3, 12, 16, 16)
     with torch.no_grad():
         logits, outputs = model(x)
     expected = torch.argmax(torch.softmax(logits[0], dim=1), dim=1)
@@ -96,7 +99,10 @@ def test_unet3d_with_ds_argmax_matches_final_head():
 def test_unet3d_ds_levels_capped_by_decoder_depth():
     """Asking for more DS levels than the decoder can support is silently capped."""
     # 3 feature_maps → 2 decoder layers → max_ds_levels = 1.
-    model = _build_unet(ds=True, ds_levels=99, feature_maps=(8, 16, 32))
+    # sample_dim=(12, 16, 16) is deep enough for 3-stage encoder with deduct=2
+    # (Z trajectory: 12 → 10 → 8).
+    model = _build_unet(ds=True, ds_levels=99,
+                        feature_maps=(8, 16, 32), sample_dim=(12, 16, 16))
     assert model.ds_levels == 1
 
 
