@@ -67,6 +67,13 @@ def parse_exper() -> None:
                               help='start/continue training')
     train_parser.add_argument('name',
                               help='name of the experiment.')
+    train_parser.add_argument('--fold',
+                              type=int,
+                              default=0,
+                              help='which CV fold to train (0..k-1). The fold '
+                                   'partition lives in '
+                                   '<experiment>/fold_assignments.yaml — k=5 '
+                                   'by default per gbm.py create.')
 
     # Define a subparser for the 'infer' action
     infer_parser = \

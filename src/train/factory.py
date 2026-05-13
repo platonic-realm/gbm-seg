@@ -232,10 +232,15 @@ class Factory:
 
         return trainer
 
-    def createTrainDataset(self) -> BaseDataset:
+    def createTrainDataset(self, file_filter=None) -> BaseDataset:
+        """Build the *training* dataset (augmentation on).
 
+        A1: ``file_filter`` (a list of TIFF basenames) restricts the
+        dataset to the per-fold training subset. When None, every TIFF
+        in ``train_ds.path`` is used (legacy behaviour, used only by
+        old experiments that lack fold_assignments.yaml).
+        """
         root_path = self.configs['root_path']
-
         training_ds_dir: str = os.path.join(root_path,
                                             self.configs['trainer']['train_ds']['path'])
         training_sample_dimension: list = self.configs['trainer']['train_ds']['sample_dimension']
@@ -256,9 +261,40 @@ class Factory:
                 _ignore_stride_mismatch=self.configs['trainer']['train_ds']['ignore_stride_mismatch'],
                 _augmentation_offline=training_augmentation_offline,
                 _augmentation_online=training_augmentation_online,
-                _augmentation_workers=self.configs['trainer']['train_ds']['augmentation']['workers'])
+                _augmentation_workers=self.configs['trainer']['train_ds']['augmentation']['workers'],
+                _is_valid=False,
+                _file_filter=file_filter)
 
         return training_dataset
+
+    def createValidDataset(self, file_filter=None) -> BaseDataset:
+        """Build the *validation* dataset (augmentation off, is_valid=True).
+
+        A1: shares the ds_train directory with the training dataset, but
+        is restricted to the per-fold validation subset via ``file_filter``
+        and runs without augmentation. Patches are sampled the same way as
+        training (same sample_dimension + pixel_stride).
+        """
+        root_path = self.configs['root_path']
+        training_ds_dir: str = os.path.join(root_path,
+                                            self.configs['trainer']['train_ds']['path'])
+        training_sample_dimension: list = self.configs['trainer']['train_ds']['sample_dimension']
+        # Validation uses a coarser stride (matches the pre-A1 config field
+        # `valid_ds.pixel_stride`) — denser stride is for training only.
+        validation_pixel_stride: list = self.configs['trainer']['valid_ds']['pixel_stride']
+
+        validation_dataset = GBMDataset(
+                _source_directory=training_ds_dir,
+                _sample_dimension=training_sample_dimension,
+                _pixel_per_step=validation_pixel_stride,
+                _ignore_stride_mismatch=self.configs['trainer']['valid_ds']['ignore_stride_mismatch'],
+                _augmentation_offline=None,
+                _augmentation_online=None,
+                _augmentation_workers=0,
+                _is_valid=True,
+                _file_filter=file_filter)
+
+        return validation_dataset
 
     def createTrainDataLoader(self, _training_dataset: BaseDataset) -> DataLoader:
 

@@ -73,7 +73,11 @@ class Unet3DTrainer:
 
         for index, data in enumerate(self.training_loader):
 
-            self.training_loader.dataset.dataset.setIsValid(False)
+            # A1: training_loader.dataset is now a plain GBMDataset (no
+            # Subset wrapper since we no longer use random_split). The dataset
+            # was built with _is_valid=False so the call is redundant but
+            # kept for safety against external state mutation.
+            self.training_loader.dataset.setIsValid(False)
             results = self.trainStep(_epoch, index, data)
             train_running_metrics.add(results)
 
@@ -95,7 +99,7 @@ class Unet3DTrainer:
                 valid_running_metrics = GPURunningMetrics(self.device,
                                                           self.metric_list)
 
-                self.validation_loader.dataset.dataset.setIsValid(True)
+                self.validation_loader.dataset.setIsValid(True)
                 for index, data in enumerate(self.validation_loader):
 
                     results = self.validStep(_epoch_id=_epoch,

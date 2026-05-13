@@ -11,6 +11,7 @@ import numpy as np
 import yaml
 
 from infer import main_infer
+from src.data.folds import assign_folds, write_assignments
 from src.infer.blender_io import blender_prepare, blender_render, export_results
 from src.infer.stats import calculate_stats
 
@@ -349,13 +350,14 @@ def infer_experiment(_name: str,
 
 
 def train_experiment(_name: str,
-                     _root_path: str):
+                     _root_path: str,
+                     _fold: int = 0):
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
         raise FileNotFoundError(message)
     configs_path = os.path.join(_root_path, _name, 'configs.yaml')
     configs = read_configs(configs_path)
-    main_train(configs)
+    main_train(configs, _fold=_fold)
 
 
 def delete_experiment(_name: str,
@@ -419,6 +421,19 @@ def create_new_experiment(_name: str,
         f.write(output.decode().strip())
 
     _persist_git_provenance(destination_path, _source_path)
+
+    # A1: generate fold_assignments.yaml from the just-copied training TIFFs
+    # so subject-wise CV is available out of the box.
+    train_files = sorted(p.name for p in Path(new_ds_train_path).glob('*.tif*'))
+    if train_files:
+        fold_assignments = assign_folds(train_files)
+        path = write_assignments(destination_path, fold_assignments)
+        logging.info("Wrote %d-fold assignments to %s", len(fold_assignments), path)
+    else:
+        logging.warning(
+            "ds_train/ contains no TIFFs; skipping fold assignment. "
+            "Training will fail until ds_train/ is populated and "
+            "`gbm.py create` is re-run for this experiment.")
 
     logging.warning("Don't forget to edit the configurations")
 

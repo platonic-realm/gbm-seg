@@ -38,7 +38,8 @@ def _do_list(args, configs):
 def _do_train(args, configs):
     configure_logger(configs, _log_to_file=True)
     exper.train_experiment(_name=args.name,
-                           _root_path=configs['experiments']['root'])
+                           _root_path=configs['experiments']['root'],
+                           _fold=args.fold)
 
 
 def _do_delete(args, configs):

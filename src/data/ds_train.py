@@ -34,7 +34,8 @@ class GBMDataset(BaseDataset):
                  _augmentation_offline=None,
                  _augmentation_online=None,
                  _augmentation_workers=8,
-                 _is_valid=False):
+                 _is_valid=False,
+                 _file_filter=None):
 
         super().__init__(_sample_dimension,
                          _pixel_per_step,
@@ -57,6 +58,17 @@ class GBMDataset(BaseDataset):
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
                                         _x),
                                         directory_content))
+
+        # A1: when a file filter is supplied (per-fold subject-wise split),
+        # keep only the named files. Loud failure if the filter selects
+        # nothing — silently empty datasets cause confusing downstream errors.
+        if _file_filter is not None:
+            allowed = set(_file_filter)
+            directory_content = [f for f in directory_content if f in allowed]
+            if not directory_content:
+                raise ValueError(
+                    f"_file_filter selected no files from {self.source_directory}; "
+                    f"filter was {sorted(allowed)}")
 
         self._prepare_images(directory_content)
 

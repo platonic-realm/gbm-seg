@@ -9,8 +9,8 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 # Library Imports
 import numpy as np
 import torch
-from torch.utils.data import random_split
 
+from src.data.folds import read_assignments
 from src.train.factory import Factory
 
 # Local Imports
@@ -32,12 +32,18 @@ def seed_everything(_seed: int):
     torch.use_deterministic_algorithms(True, warn_only=True)
 
 
-def main_train(_configs):
+def main_train(_configs, _fold: int = 0):
+    """Run one training fold.
+
+    A1: training and validation are partitioned subject-wise by
+    ``<experiment>/fold_assignments.yaml``. ``_fold`` (0..k-1) selects
+    which fold to train. The held-out test cohort (``ds_test/``) is
+    untouched.
+    """
     if _configs['logging']['log_summary']:
         summerize_configs(_configs)
 
     seed_everything(SEED)
-    split_generator = torch.Generator().manual_seed(SEED)
 
     if _configs['trainer']['cudnn_benchmark']:
         # Benchmark mode picks the fastest cuDNN kernel based on input shapes,
@@ -50,20 +56,28 @@ def main_train(_configs):
 
     factory = Factory(_configs)
 
-    train_dataset = factory.createTrainDataset()
-    train_ratio = 0.95
-    train_size = int(train_ratio * len(train_dataset))
-    val_size = len(train_dataset) - train_size
+    # A1: subject-wise stratified 5-fold CV. Resolve which TIFFs belong to
+    # the chosen fold's train and validation sets.
+    fold_assignments = read_assignments(_configs['root_path'])
+    if not 0 <= _fold < len(fold_assignments):
+        raise ValueError(
+            f"--fold {_fold} out of range; experiment has "
+            f"{len(fold_assignments)} folds.")
+    fold = fold_assignments[_fold]
+    logging.info(
+        "Fold %d: %d training subjects, %d validation subjects "
+        "(validation groups: %s).",
+        _fold, len(fold['train']), len(fold['valid']),
+        fold.get('groups_in_valid', '?'))
 
-    train_dataset, valid_dataset = random_split(train_dataset,
-                                                [train_size, val_size],
-                                                generator=split_generator)
+    train_dataset = factory.createTrainDataset(file_filter=fold['train'])
+    valid_dataset = factory.createValidDataset(file_filter=fold['valid'])
 
     valid_dataloader = factory.createValidDataLoader(valid_dataset)
     train_dataloader = factory.createTrainDataLoader(train_dataset)
 
-    model = factory.createModel(train_dataset.dataset.getNumberOfChannels(),
-                                train_dataset.dataset.getNumberOfClasses())
+    model = factory.createModel(train_dataset.getNumberOfChannels(),
+                                train_dataset.getNumberOfClasses())
     loss_function = factory.createLoss()
     optimizer = factory.createOptimizer(model, loss_function)
     lr_scheduler = factory.createScheduler(optimizer)
@@ -76,7 +90,7 @@ def main_train(_configs):
     metric_logger = factory.createMetricLogger(model,
                                                valid_dataloader,
                                                loss_function,
-                                               train_dataset.dataset.getNumberOfClasses())
+                                               train_dataset.getNumberOfClasses())
 
     trainer = factory.createTrainer(model,
                                     loss_function,
@@ -88,7 +102,7 @@ def main_train(_configs):
                                     lr_scheduler,
                                     train_dataloader,
                                     valid_dataloader,
-                                    train_dataset.dataset.getNumberOfClasses())
+                                    train_dataset.getNumberOfClasses())
 
     trainer.train()
 
