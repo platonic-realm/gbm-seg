@@ -21,3 +21,4 @@ opencode.json
 .coverage.*
 htmlcov/
 .pytest_cache/
+wandb/
