@@ -53,7 +53,9 @@ def test_metric_wandb_log_namespaces_metrics_by_tag(fake_wandb):
         'train/Dice': 0.8,
         'epoch': 3,
     }
-    assert kwargs == {'step': 42}
+    # Don't pass step= explicitly: wandb's auto-step indexes the charts.
+    # And don't put `step` in the payload — it'd add a redundant chart.
+    assert kwargs == {}
 
 
 def test_metric_wandb_log_warns_with_no_active_run(fake_wandb, caplog):

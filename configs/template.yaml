@@ -9,7 +9,7 @@ experiments:
   # default_data_path: '/projects/ag-bozek/afatehi/gbm/data/ds_human/'
   # default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
   default_data_path: '/projects/ag-bozek/afatehi/gbm/dataset/ds_mouse/'
-  default_batch_size: 8
+  default_batch_size: 20
 
   # The training samples will resize to match this size
   default_voxel_size: [0.050, 0.050, 0.300]
@@ -112,9 +112,13 @@ trainer:
 
   train_ds:
     path: ./data/gbm_train_ds/
-    batch_size: 8
+    batch_size: 8  # overridden at gbm.py create from experiments.default_batch_size
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 64, 64] # Z, X, Y
+    # Pixel strides chosen for regularization: with the Z×6 stacking each
+    # original-label voxel already appears in many patches at stride [1,64,64].
+    # Bigger strides → less redundant exposure per training step → slower
+    # overfit on the dataset's high intrinsic redundancy.
+    pixel_stride: [4, 192, 192] # Z, X, Y
     pin_memory: True
     shuffle: True
     ignore_stride_mismatch: True

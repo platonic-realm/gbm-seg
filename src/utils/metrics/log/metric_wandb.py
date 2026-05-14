@@ -34,7 +34,14 @@ class MetricWandb:
         payload = {f"{_tag}/{name}": _to_python_scalar(value)
                    for name, value in _metrics.items()}
         payload['epoch'] = int(_epoch)
-        self.wandb.log(payload, step=int(_step))
+        # Don't pass `step=int(_step)` to wandb.log: wandb 0.26's auto-step
+        # counter (incremented by system-metric snapshots over a long run)
+        # silently drops explicit step values that fall behind it, which
+        # cost us a debugging round. wandb's internal `_step` axis indexes
+        # the charts; `epoch` lives in the payload for grouping/filtering.
+        # The training-step number is intentionally NOT in the payload —
+        # plotting it would create a redundant linear-over-_step chart.
+        self.wandb.log(payload)
 
 
 def _to_python_scalar(value):
