@@ -47,6 +47,19 @@ class InferenceDataset(BaseDataset):
         self.check_image_shape_compatibility(self.image_shape,
                                              self.file_name)
 
+        # See ds_train.py for the same guard: a TIFF smaller than the patch
+        # sample produces negative step counts and silent out-of-bounds slicing.
+        if (self.image_shape[0] < self.sample_dimension[0]
+                or self.image_shape[2] < self.sample_dimension[1]
+                or self.image_shape[3] < self.sample_dimension[2]):
+            raise ValueError(
+                f"File '{self.file_name}' is smaller than sample_dimension on "
+                f"at least one axis: image (Z,H,W) = "
+                f"({self.image_shape[0]}, {self.image_shape[2]}, {self.image_shape[3]}) "
+                f"vs sample_dimension (Z,X,Y) = "
+                f"{tuple(self.sample_dimension)}. Either drop the file from "
+                f"ds_test/ or shrink sample_dimension.")
+
         self.no_of_classes = _no_of_classes
 
         self.nephrin = self.image[:, 0, :, :]

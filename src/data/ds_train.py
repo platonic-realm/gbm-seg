@@ -293,6 +293,22 @@ class GBMDataset(BaseDataset):
 
             # Image's dimentionality order is like (Z, C, Y, X)
             # Sample dimentionality order is like (Z, X, Y)
+            # Guard against TIFFs smaller than the patch sample on any axis.
+            # The pre-fix code silently produced negative step counts via
+            # floor-division (e.g. (102-256)//64+1 = -3), which scrambled
+            # ``cumulative_sum`` and let ``__getitem__`` slice out-of-bounds,
+            # surfacing later as a cryptic collate-time shape mismatch.
+            if (image_shape[0] < self.sample_dimension[0]
+                    or image_shape[2] < self.sample_dimension[1]
+                    or image_shape[3] < self.sample_dimension[2]):
+                raise ValueError(
+                    f"File '{file_name}' is smaller than sample_dimension on "
+                    f"at least one axis: image (Z,H,W) = "
+                    f"({image_shape[0]}, {image_shape[2]}, {image_shape[3]}) "
+                    f"vs sample_dimension (Z,X,Y) = "
+                    f"{tuple(self.sample_dimension)}. Either drop the file "
+                    f"from ds_train/, pad it, or shrink sample_dimension.")
+
             steps_per_z = int((image_shape[0] - self.sample_dimension[0]) //
                               self.pixel_per_step_z) + 1
             steps_per_y = int((image_shape[2] - self.sample_dimension[2]) //

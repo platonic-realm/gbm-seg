@@ -65,37 +65,40 @@ class PSP:
         logging.info("Process %d: prediction numpy array loaded", PID)
 
         labels, labels_num = ndimage.label(prediction)
-        # count pixels in each connected component
-        logging.info("Process %d: removing 3D objects smaller than %d", PID, self.min_3d_size)
-        for label_index in range(labels_num):
-            voxel_count = np.sum(labels == label_index)
-            logging.debug("Processing label no: %d with %d voxels",
-                          label_index, voxel_count)
-            if voxel_count < self.min_3d_size:
-                prediction[labels == label_index] = 0
+        # Count voxels per label in a single linear pass via bincount, then
+        # zero out every voxel whose label's count is below min_3d_size.
+        # The pre-fix code did `np.sum(labels == k)` once per label — O(N×V)
+        # — which pegged CPU for an hour on 60M+-voxel volumes.
+        logging.info("Process %d: removing 3D objects smaller than %d "
+                     "(labels=%d)", PID, self.min_3d_size, labels_num)
+        if labels_num > 0:
+            counts = np.bincount(labels.ravel())
+            small_labels = np.where(counts < self.min_3d_size)[0]
+            # Label 0 is background — it's always "small" in this sense but
+            # already zero. Subtract a fast `labels == 0` test to avoid an
+            # unnecessary isin pass on the background mask.
+            small_labels = small_labels[small_labels != 0]
+            if small_labels.size:
+                prediction[np.isin(labels, small_labels)] = 0
 
         logging.info("Process %d: 3D post processing finished", PID)
 
         logging.info("Process %d: removing 2D objects smaller than %d", PID, self.min_2d_size)
+        kernel = morphology.rectangle(self.kernel_size, self.kernel_size)
         for i in range(prediction.shape[0]):
-
-            kernel = morphology.rectangle(self.kernel_size, self.kernel_size)
-            eroded_image = morphology.erosion(prediction[i, :, :], kernel)
-            prediction[i, :, :] = eroded_image
+            prediction[i, :, :] = morphology.erosion(prediction[i, :, :], kernel)
 
             sample = prediction[i, :, :]
-            labels = measure.label(sample, connectivity=1)
-            # count pixels in each connected component
-            unique_labels, label_counts = np.unique(labels, return_counts=True)
-            # remove small connected components
-            # print(f"mean: {int(np.mean(label_counts))}, std: {int(np.std(label_counts))}, max: {int(np.max(label_counts))}, min: {int(np.min(label_counts))}")
-            for label, count in zip(unique_labels, label_counts):
-                if count < self.min_2d_size and label != 0:
-                    prediction[i, :, :][labels == label] = 0
+            slice_labels = measure.label(sample, connectivity=1)
+            # Same vectorisation as the 3D pass.
+            unique_labels, label_counts = np.unique(slice_labels,
+                                                    return_counts=True)
+            small = unique_labels[(label_counts < self.min_2d_size)
+                                  & (unique_labels != 0)]
+            if small.size:
+                prediction[i][np.isin(slice_labels, small)] = 0
 
-            kernel = morphology.rectangle(self.kernel_size, self.kernel_size)
-            dilated_image = morphology.dilation(prediction[i, :, :], kernel)
-            prediction[i, :, :] = dilated_image
+            prediction[i, :, :] = morphology.dilation(prediction[i, :, :], kernel)
 
         logging.info("Process %d: 2D post processing finished", PID)
 
