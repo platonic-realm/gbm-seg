@@ -76,6 +76,18 @@ def main_train(_configs, _fold: int = 0):
     which fold to train. The held-out test cohort (``ds_test/``) is
     untouched.
     """
+    # Namespace per-fold outputs so 5-fold CV trains five independent models
+    # without overwriting each other. Snapper.load() would otherwise pick up
+    # fold N-1's latest snapshot at fold N's start. Visualization output and
+    # log files get the same treatment so artefacts stay separable.
+    fold_tag = f"fold_{_fold}"
+    _configs['trainer']['snapshot_path'] = os.path.join(
+        _configs['trainer']['snapshot_path'].rstrip('/'), fold_tag)
+    _configs['trainer']['visualization']['path'] = os.path.join(
+        _configs['trainer']['visualization']['path'].rstrip('/'), fold_tag)
+    _configs['logging']['log_file'] = _configs['logging']['log_file'].replace(
+        '.log', f'.{fold_tag}.log')
+
     if _configs['logging']['log_summary']:
         summerize_configs(_configs)
 
