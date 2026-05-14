@@ -1,0 +1,39 @@
+# Inference-axis stitching ablation.
+#
+# Pre-req: a trained experiment (e.g. `full_train` after 5-fold CV).
+# Pick a snapshot (best-validation Dice from one fold, or the aggregated
+# best across folds), then run inference 4 ways and compare downstream
+# via `gbm.py psp / morph / stats` per cell.
+#
+# Submit:
+#   python gbm.py infer-ablate ablation_specs/stitch_pilot_infer.yaml \
+#       --sbatch sbatch/infer_cell.sbatch | sh
+#
+# Each cell writes to <exp>/results-infer/stitch_pilot__<cell>/. Then:
+#   for cell in gaussian hann sum_logits flat_softmax; do
+#     python gbm.py psp full_train -it stitch_pilot__${cell} -mc 8
+#     python gbm.py morph full_train -it stitch_pilot__${cell} -sn '<some test tiff>'
+#     python gbm.py stats full_train -it stitch_pilot__${cell} --clipping
+#   done
+
+study: stitch_pilot
+base_experiment: full_train
+snapshot: 000-0500.pt          # replace with the actual best-Dice snapshot
+
+# Common inference args applied to every cell (cells only override the
+# stitching axis below).
+batch_size: 32
+sample_dimension: '12, 256, 256'
+stride: '1, 128, 128'
+scale_factor: 6
+interpolation: true
+
+cells:
+  - name: gaussian
+    overrides: {stitching: gaussian}
+  - name: hann
+    overrides: {stitching: hann}
+  - name: sum_logits
+    overrides: {stitching: sum_logits}
+  - name: flat_softmax
+    overrides: {stitching: flat_softmax}

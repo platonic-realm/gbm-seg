@@ -280,7 +280,9 @@ def infer_experiment(_name: str,
                      _stride: list,
                      _scale: int,
                      _interpolate: bool,
-                     _force: bool = False):
+                     _force: bool = False,
+                     _stitching: str = None,
+                     _output_name: str = None):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
@@ -292,8 +294,14 @@ def infer_experiment(_name: str,
     inference_root_path = os.path.join(_root_path, _name, 'results-infer')
     create_dirs_recursively(os.path.join(inference_root_path, 'dummy'))
 
-    inference_tag =\
-        f"{_snapshot}_{''.join(_sample_dimension)}_{''.join(_stride)}_{_scale}"
+    # `--output-name` overrides the auto-derived tag so inference-axis
+    # ablation cells (same snapshot + sample_dim + stride + scale, different
+    # stitching mode) end up in distinct directories.
+    if _output_name is not None:
+        inference_tag = _output_name
+    else:
+        inference_tag = (f"{_snapshot}_{''.join(_sample_dimension)}_"
+                         f"{''.join(_stride)}_{_scale}")
 
     _sample_dimension = [int(item) for item in _sample_dimension]
     _stride = [int(item) for item in _stride]
@@ -340,6 +348,9 @@ def infer_experiment(_name: str,
 
     configs['inference']['inference_ds']['workers'] =\
         configs['trainer']['train_ds']['workers']
+
+    if _stitching is not None:
+        configs['inference']['stitching'] = _stitching
 
     inference_configs = configs['inference']
 

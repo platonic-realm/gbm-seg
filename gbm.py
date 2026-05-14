@@ -71,7 +71,9 @@ def _do_infer(args, configs):
                            _stride=stride,
                            _scale=args.scale_factor,
                            _interpolate=args.interpolation,
-                           _force=args.force)
+                           _force=args.force,
+                           _stitching=args.stitching,
+                           _output_name=args.output_name)
 
 
 def _do_psp(args, configs):
@@ -136,6 +138,22 @@ def _do_ablate(args, configs):
         print(cmd)
 
 
+def _do_infer_ablate(args, configs):
+    basic_logger()
+    from src.ablation.infer_spec import emit_infer_commands, parse_infer_spec
+
+    spec = parse_infer_spec(args.spec_path)
+    commands = emit_infer_commands(spec, sbatch_wrapper=args.sbatch_wrapper)
+    print(f"# {len(commands)} inference cells from study '{spec.study}' "
+          f"on {spec.base_experiment} / snapshot {spec.snapshot}")
+    print("# Each cell writes to <exp>/results-infer/"
+          f"{spec.study}__<cell>/. Run psp/morph/stats per cell with "
+          "`gbm.py psp <exp> -it {spec.study}__<cell> ...`")
+    print("# Submit the following:")
+    for cmd in commands:
+        print(cmd)
+
+
 # Aligned by hand for readability; suppress pycodestyle's "multiple spaces after ':'".
 HANDLERS = {
     'create':       _do_create,
@@ -151,6 +169,7 @@ HANDLERS = {
     'export':       _do_export,
     'stats':        _do_stats,
     'ablate':       _do_ablate,
+    'infer-ablate': _do_infer_ablate,
 }
 
 

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 # Library Imports
@@ -14,7 +15,6 @@ import yaml
 from torch.nn import DataParallel, Module
 
 # Local Imports
-from src.utils.misc import create_dirs_recursively
 
 
 def _git_sha(cwd: str = None) -> Optional[str]:
@@ -64,7 +64,13 @@ class Snapper:
     def __init__(self, _snapshot_path: str):
         self.snapshot_path = _snapshot_path
         if self.snapshot_path is not None:
-            create_dirs_recursively(self.snapshot_path)
+            # ``create_dirs_recursively`` creates the *parent* of a file path
+            # (it does ``os.path.dirname`` first). That breaks when
+            # ``snapshot_path`` ends without a trailing slash and IS the
+            # target directory itself — e.g. the per-fold path
+            # ``.../snapshots/fold_3`` set by train.main_train. Make the
+            # directory directly here so both layouts work.
+            Path(self.snapshot_path).mkdir(parents=True, exist_ok=True)
 
     def save(self,
              _model: Module,

@@ -154,6 +154,46 @@ def parse_exper() -> None:
                               action='store_true',
                               help='overwrite existing inference output (non-interactive)')
 
+    infer_parser.add_argument('--stitching',
+                              action='store',
+                              default=None,
+                              choices=['gaussian', 'hann',
+                                       'flat_softmax', 'sum_logits'],
+                              help='override inference.stitching for this run. '
+                                   'When omitted, the experiment yaml\'s value '
+                                   'is used. Useful for inference-axis ablation.')
+
+    infer_parser.add_argument('--output-name',
+                              action='store',
+                              default=None,
+                              help='override the auto-generated inference tag '
+                                   '(<snapshot>_<sample_dim>_<stride>_<scale>) '
+                                   'with a custom directory name under '
+                                   '<exp>/results-infer/. Required when two '
+                                   'inference runs share all CLI params but '
+                                   'differ on a non-CLI knob like --stitching.')
+
+    # Define a subparser for the 'infer-ablate' action — inference-axis
+    # ablation. Reads an inference spec YAML and emits one `gbm.py infer`
+    # command per cell (optionally sbatch-wrapped).
+    infer_abl_parser = \
+        subparsers.add_parser('infer-ablate',
+                              help='materialise an inference-axis ablation '
+                                   'study from a YAML spec; emits one '
+                                   '`gbm.py infer` command per cell.')
+    infer_abl_parser.add_argument('spec_path',
+                                  help='path to the inference ablation spec '
+                                       'YAML (e.g. ablation_specs/'
+                                       'stitch_pilot_infer.yaml)')
+    infer_abl_parser.add_argument('--sbatch',
+                                  dest='sbatch_wrapper',
+                                  default=None,
+                                  help='if set, emit '
+                                       '`sbatch <wrapper> '
+                                       '<base_exp> <snapshot> <tag> '
+                                       '<stitching>` commands instead of '
+                                       'plain `python gbm.py infer ...`')
+
     # Define a subparser for the 'post processsing' action
     infer_parser = \
         subparsers.add_parser('psp',

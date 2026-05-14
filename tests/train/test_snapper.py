@@ -80,3 +80,24 @@ def test_load_missing_snapshot_returns_none(tmp_snapshot_dir):
     # No file exists; load() should be a no-op returning None.
     result = snapper.load(_TinyModel(), _device='cpu')
     assert result is None
+
+
+def test_init_creates_snapshot_path_directory(tmp_path):
+    """The per-fold path used by train.main_train looks like
+    `.../results-train/snapshots/fold_3` (no trailing slash and not yet
+    existing). Snapper must create the directory itself, not just its
+    parent — pre-fix that caused a `Parent directory ... does not exist`
+    error on the first save."""
+    target = tmp_path / "results-train" / "snapshots" / "fold_3"
+    # Parent doesn't exist yet either.
+    assert not target.exists()
+    assert not target.parent.exists()
+
+    snapper = Snapper(str(target))
+    assert target.is_dir(), f"Snapper should have created {target}"
+
+    # Saving into it must succeed (no FileNotFoundError on the zipfile open).
+    src = _TinyModel()
+    snapper.save(src, _epoch=0, _step=1, _seen_label=8, _async=False)
+    saved = target / "000-0001.pt"
+    assert saved.exists()
