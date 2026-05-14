@@ -1,7 +1,7 @@
 """Per-snapshot model-card regression. Locks in §E4.
 
 When `Snapper.save` writes a `.pt` snapshot, it must also write a
-sibling `.yaml` capturing snapshot-time provenance: epoch/step/seen_labels,
+sibling `.yaml` capturing snapshot-time provenance: epoch/step,
 torch + CUDA versions, python version, torch.initial_seed(), git SHA
 (best-effort), gpu name, creation timestamp.
 
@@ -26,7 +26,7 @@ class _TinyModel(nn.Module):
 
 def test_save_writes_yaml_sibling(tmp_snapshot_dir):
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(_TinyModel(), _epoch=2, _step=42, _seen_label=168, _async=False)
+    snapper.save(_TinyModel(), _epoch=2, _step=42, _async=False)
 
     pt = os.path.join(tmp_snapshot_dir, "002-0042.pt")
     yml = os.path.join(tmp_snapshot_dir, "002-0042.yaml")
@@ -36,7 +36,7 @@ def test_save_writes_yaml_sibling(tmp_snapshot_dir):
 
 def test_model_card_records_expected_fields(tmp_snapshot_dir):
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(_TinyModel(), _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(_TinyModel(), _epoch=0, _step=1, _async=False)
 
     with open(os.path.join(tmp_snapshot_dir, "000-0001.yaml"), encoding="UTF-8") as f:
         card = yaml.safe_load(f)
@@ -45,7 +45,7 @@ def test_model_card_records_expected_fields(tmp_snapshot_dir):
     assert card['snapshot_filename'] == "000-0001.pt"
     assert card['epoch'] == 0
     assert card['step'] == 1
-    assert card['seen_labels'] == 8
+    assert 'seen_labels' not in card  # concept removed
 
     # Provenance: timestamp, library versions, python version. We only assert
     # presence (not exact values), since they depend on the runtime.
@@ -67,7 +67,7 @@ def test_model_card_records_iso_timestamp(tmp_snapshot_dir):
     from datetime import datetime
 
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(_TinyModel(), _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(_TinyModel(), _epoch=0, _step=1, _async=False)
 
     with open(os.path.join(tmp_snapshot_dir, "000-0001.yaml"), encoding="UTF-8") as f:
         card = yaml.safe_load(f)
@@ -80,9 +80,9 @@ def test_load_still_works_after_card_writing(tmp_snapshot_dir):
     """The card-writing path must not break the basic save/load roundtrip."""
     src = _TinyModel()
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(src, _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(src, _epoch=0, _step=1, _async=False)
 
     dst = _TinyModel()
     result = snapper.load(dst, _device='cpu',
                           _path=os.path.join(tmp_snapshot_dir, "000-0001.pt"))
-    assert result == (0, 8)  # (epoch, seen_labels)
+    assert result == 0  # epoch only

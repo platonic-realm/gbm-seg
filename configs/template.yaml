@@ -95,7 +95,7 @@ trainer:
     levels: 2
     # weights: [0.571, 0.286, 0.143]   # explicit override (normalised)
 
-  report_freq: 100
+  report_freq: 500
 
   metrics: [
             'Loss',
@@ -150,7 +150,12 @@ trainer:
     path: ./data/gbm_valid_ds/
     batch_size: 8
     sample_dimension: [12, 256, 256] # Z, X, Y
-    pixel_stride: [1, 128, 128] # Z, X, Y
+    # Z stride matches `experiments.default_z_scale` so each z_start anchors
+    # a distinct real-label set (validation metrics are masked to original
+    # Z positions anyway — see Unet3DTrainer._select_real_z). XY stride
+    # equals sample_dim so XY tiles cover the volume once with no overlap.
+    # Trades ~24× validation-time speedup for slightly less spatial coverage.
+    pixel_stride: [6, 256, 256] # Z, X, Y
     pin_memory: True
     shuffle: False
     ignore_stride_mismatch: True

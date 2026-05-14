@@ -107,15 +107,13 @@ class Unet3DTrainer:
             if self.stepper.getSteps() % self.freq == 0:
                 self.metric_logger.log(_epoch,
                                        self.stepper.getSteps(),
-                                       self.stepper.getSeenLabels(),
                                        'train',
                                        train_running_metrics.calculate())
 
                 # Save the snapshot
                 self.snapper.save(self.model,
                                   _epoch,
-                                  self.stepper.getSteps(),
-                                  self.stepper.getSeenLabels())
+                                  self.stepper.getSteps())
 
                 valid_running_metrics = GPURunningMetrics(self.device,
                                                           self.metric_list)
@@ -142,7 +140,6 @@ class Unet3DTrainer:
 
                 self.metric_logger.log(_epoch,
                                        self.stepper.getSteps(),
-                                       self.stepper.getSeenLabels(),
                                        'valid',
                                        metrics)
 

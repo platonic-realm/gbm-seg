@@ -23,7 +23,7 @@ class MetricWandb:
         import wandb  # lazy
         self.wandb = wandb
 
-    def log(self, _epoch: int, _step: int, _seen_labels, _tag: str,
+    def log(self, _epoch: int, _step: int, _tag: str,
             _metrics: dict) -> None:
         if self.wandb.run is None:
             # No active run; surface as a warning rather than crash so a
@@ -34,7 +34,6 @@ class MetricWandb:
         payload = {f"{_tag}/{name}": _to_python_scalar(value)
                    for name, value in _metrics.items()}
         payload['epoch'] = int(_epoch)
-        payload['seen_labels'] = int(_seen_labels)
         self.wandb.log(payload, step=int(_step))
 
 

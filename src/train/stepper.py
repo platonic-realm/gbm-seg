@@ -27,10 +27,6 @@ class StepperInterface(ABC):
     def getSteps(self) -> int:
         pass
 
-    @abstractmethod
-    def getSeenLabels(self) -> int:
-        pass
-
 
 class StepperSimple(StepperInterface):
 
@@ -43,7 +39,6 @@ class StepperSimple(StepperInterface):
         self.loss_function = loss_function
 
         self.steps = 0
-        self.seen_labels = 0
 
     def step(self,
              sample: Tensor,
@@ -57,15 +52,11 @@ class StepperSimple(StepperInterface):
         self.optimizer.step()
 
         self.steps += 1
-        self.seen_labels += sample.shape[0]
 
         return logits, results, loss
 
     def getSteps(self) -> int:
         return self.steps
-
-    def getSeenLabels(self) -> int:
-        return self.seen_labels
 
 
 class StepperMixedPrecision(StepperInterface):
@@ -82,7 +73,6 @@ class StepperMixedPrecision(StepperInterface):
         self.scaler = torch.amp.GradScaler('cuda')
 
         self.steps = 0
-        self.seen_labels = 0
 
     def step(self,
              sample: Tensor,
@@ -98,12 +88,8 @@ class StepperMixedPrecision(StepperInterface):
         self.scaler.update()
 
         self.steps += 1
-        self.seen_labels += sample.shape[0]
 
         return logits, results, loss
 
     def getSteps(self) -> int:
         return self.steps
-
-    def getSeenLabels(self) -> int:
-        return self.seen_labels

@@ -34,7 +34,7 @@ def _state_dicts_equal(a, b):
 def test_save_load_no_dp(tmp_snapshot_dir):
     src = _TinyModel()
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(src, _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(src, _epoch=0, _step=1, _async=False)
 
     saved_path = os.path.join(tmp_snapshot_dir, "000-0001.pt")
     assert os.path.exists(saved_path)
@@ -54,7 +54,7 @@ def test_save_dp_load_into_non_dp(tmp_snapshot_dir):
     src = _TinyModel()
     src_dp = DataParallel(src)
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(src_dp, _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(src_dp, _epoch=0, _step=1, _async=False)
 
     dst = _TinyModel()
     snapper.load(dst, _device='cpu',
@@ -66,7 +66,7 @@ def test_save_non_dp_load_into_dp(tmp_snapshot_dir):
     """The other direction: bare → DP."""
     src = _TinyModel()
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(src, _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(src, _epoch=0, _step=1, _async=False)
 
     dst = _TinyModel()
     dst_dp = DataParallel(dst)
@@ -98,6 +98,6 @@ def test_init_creates_snapshot_path_directory(tmp_path):
 
     # Saving into it must succeed (no FileNotFoundError on the zipfile open).
     src = _TinyModel()
-    snapper.save(src, _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(src, _epoch=0, _step=1, _async=False)
     saved = target / "000-0001.pt"
     assert saved.exists()

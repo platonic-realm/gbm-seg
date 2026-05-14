@@ -43,7 +43,7 @@ def test_metric_wandb_log_namespaces_metrics_by_tag(fake_wandb):
 
     from src.utils.metrics.log.metric_wandb import MetricWandb
     backend = MetricWandb()
-    backend.log(_epoch=3, _step=42, _seen_labels=336,
+    backend.log(_epoch=3, _step=42,
                 _tag='train', _metrics={'Loss': 0.5, 'Dice': 0.8})
 
     fake_wandb.log.assert_called_once()
@@ -52,7 +52,6 @@ def test_metric_wandb_log_namespaces_metrics_by_tag(fake_wandb):
         'train/Loss': 0.5,
         'train/Dice': 0.8,
         'epoch': 3,
-        'seen_labels': 336,
     }
     assert kwargs == {'step': 42}
 
@@ -62,7 +61,7 @@ def test_metric_wandb_log_warns_with_no_active_run(fake_wandb, caplog):
 
     from src.utils.metrics.log.metric_wandb import MetricWandb
     backend = MetricWandb()
-    backend.log(_epoch=0, _step=1, _seen_labels=8,
+    backend.log(_epoch=0, _step=1,
                 _tag='train', _metrics={'Loss': 0.5})
 
     assert not fake_wandb.log.called
@@ -74,7 +73,7 @@ def test_metric_wandb_log_coerces_torch_tensors(fake_wandb):
 
     from src.utils.metrics.log.metric_wandb import MetricWandb
     backend = MetricWandb()
-    backend.log(_epoch=0, _step=1, _seen_labels=8,
+    backend.log(_epoch=0, _step=1,
                 _tag='valid', _metrics={'Dice': torch.tensor(0.42)})
 
     payload = fake_wandb.log.call_args[0][0]
@@ -93,8 +92,7 @@ def test_metric_logger_forwards_to_wandb_when_provided(fake_wandb):
 
     wb = MetricWandb()
     logger = MetricLogger(wb)
-    logger.log(_epoch=1, _step=10, _seen_labels=80, _tag='train',
-               _metrics={'Loss': 0.1})
+    logger.log(_epoch=1, _step=10, _tag='train', _metrics={'Loss': 0.1})
 
     assert fake_wandb.log.called
 
@@ -105,8 +103,7 @@ def test_metric_logger_works_without_wandb_backend():
 
     logger = MetricLogger()
     # Should not raise.
-    logger.log(_epoch=0, _step=1, _seen_labels=8, _tag='train',
-               _metrics={'Loss': 0.5})
+    logger.log(_epoch=0, _step=1, _tag='train', _metrics={'Loss': 0.5})
 
 
 # --- Snapper artifact upload ----------------------------------------------
@@ -122,7 +119,7 @@ def test_snapper_save_uploads_artifact_when_wandb_run_active(fake_wandb, tmp_sna
 
     from src.train.snapper import Snapper
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(_TinyModel(), _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(_TinyModel(), _epoch=0, _step=1, _async=False)
 
     assert fake_wandb.save.called
     save_path = fake_wandb.save.call_args[0][0]
@@ -134,7 +131,7 @@ def test_snapper_save_skips_upload_when_no_active_run(fake_wandb, tmp_snapshot_d
 
     from src.train.snapper import Snapper
     snapper = Snapper(tmp_snapshot_dir)
-    snapper.save(_TinyModel(), _epoch=0, _step=1, _seen_label=8, _async=False)
+    snapper.save(_TinyModel(), _epoch=0, _step=1, _async=False)
 
     assert not fake_wandb.save.called
 

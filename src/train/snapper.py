@@ -29,7 +29,7 @@ def _git_sha(cwd: str = None) -> Optional[str]:
         return None
 
 
-def _build_model_card(epoch: int, step: int, seen_labels: int,
+def _build_model_card(epoch: int, step: int,
                       snapshot_filename: str, experiment_name: Optional[str]) -> dict:
     """Snapshot-time provenance: who/what/when/how this .pt was produced."""
     gpu_name = None
@@ -46,7 +46,6 @@ def _build_model_card(epoch: int, step: int, seen_labels: int,
         'experiment_name': experiment_name,
         'epoch': int(epoch),
         'step': int(step),
-        'seen_labels': int(seen_labels),
         'created_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'torch_version': str(torch.__version__),
         'cuda_version': str(torch.version.cuda) if torch.version.cuda else None,
@@ -76,7 +75,6 @@ class Snapper:
              _model: Module,
              _epoch: int,
              _step: int,
-             _seen_label: int,
              _async: bool = True) -> None:
         """Write a snapshot to ``<snapshot_path>/<epoch:03d>-<step:04d>.pt``."""
 
@@ -85,7 +83,6 @@ class Snapper:
         snapshot = {}
         snapshot['EPOCHS'] = _epoch
         snapshot['STEP'] = _step
-        snapshot['SEEN_LABELS'] = _seen_label
         if isinstance(_model, DataParallel):
             snapshot['MODEL_STATE'] = _model.module.state_dict()
         else:
@@ -121,7 +118,7 @@ class Snapper:
                 experiment_name = None
 
             card = _build_model_card(
-                epoch=_epoch, step=_step, seen_labels=_seen_label,
+                epoch=_epoch, step=_step,
                 snapshot_filename=f"{stem}.pt",
                 experiment_name=experiment_name)
             card_path = os.path.join(self.snapshot_path, f"{stem}.yaml")
@@ -143,7 +140,7 @@ class Snapper:
     def load(self,
              _model: Module,
              _device: str,
-             _path: Optional[str] = None) -> Optional[tuple[int, int]]:
+             _path: Optional[str] = None) -> Optional[int]:
 
         if not os.path.exists(self.snapshot_path):
             return None
@@ -167,7 +164,7 @@ class Snapper:
         target = _model.module if isinstance(_model, DataParallel) else _model
         target.load_state_dict(state_dict)
 
-        epoch = snapshot['EPOCHS']
-        seen_labels = snapshot['SEEN_LABELS']
-
-        return epoch, seen_labels
+        # Old snapshots also carry a 'SEEN_LABELS' field; the key is ignored
+        # silently (load_state_dict only consumes 'MODEL_STATE') so this is
+        # forward/backward compatible.
+        return snapshot['EPOCHS']
