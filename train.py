@@ -57,6 +57,14 @@ def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
             "skipping W&B logging. `pip install wandb` to enable.")
         return False
 
+    # Default the W&B `group` to the experiment-directory name so single-fold
+    # sbatch invocations end up under the same dashboard group the all-folds
+    # orchestrator uses. Without this, each per-fold sbatch run gets a
+    # whimsical wandb-auto name like "avid-energy-3" with no shared group.
+    exp_name = Path(_configs.get('root_path', '.') or '.').name or 'experiment'
+    if not wandb_cfg.get('group'):
+        wandb_cfg['group'] = exp_name
+
     run_config = {**_configs, 'fold': int(_fold)}
     explicit_name = wandb_cfg.get('run_name')
 
@@ -71,7 +79,7 @@ def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
 
     # Auto-suffix per-fold so multi-fold CV runs don't collide visually.
     auto_name = explicit_name
-    if explicit_name is None and wandb_cfg.get('group'):
+    if explicit_name is None:
         auto_name = (f"{wandb_cfg['group']}-fold-{int(_fold)}"
                      f"{compile_suffix}")
     try:

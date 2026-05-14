@@ -81,8 +81,8 @@ trainer:
   wandb:
     enabled: False
     project: gbm-seg
-    entity: null        # null → uses the default entity for the API key
-    run_name: null      # null → wandb auto-generates a name
+    entity: gbm-project  # personal entity is admin-disabled; use team handle
+    run_name: null       # null → wandb auto-generates a name
 
   # Deep supervision (C1.2): when enabled, the Unet3D model attaches
   # `levels` auxiliary 1x1x1 conv heads at decoder mid-levels (deepest
@@ -169,10 +169,12 @@ trainer:
   mixed_precision: True
   cudnn_benchmark: False
 
-  # JIT-compile the model via torch.compile() before DataParallel wrap.
-  # Adds ~1-2 min one-time compile cost per fold but ~20-40% throughput on
-  # 3D convs. Set to False if you hit Inductor crashes on a new GPU / driver.
-  compile: True
+  # JIT-compile the model via torch.compile(). Currently disabled because
+  # torch.compile + DataParallel is broken in both wrap orders (DP scatters
+  # bypass the OptimizedModule attribute proxy → AttributeError on the
+  # encoder_layers attribute during the first forward). Re-enable only
+  # after the deferred DDP migration (G1); torch.compile + DDP works.
+  compile: False
 
 inference:
   number_class: 2

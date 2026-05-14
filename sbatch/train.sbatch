@@ -4,9 +4,9 @@
 #SBATCH --error=/home/afatehi/logs/gbm/train_%x_%A_fold%a.log
 #SBATCH --time=2-00:00:00
 #SBATCH --partition=train
-#SBATCH --gres=gpu:A100:4
-#SBATCH --mem=500G
-#SBATCH --cpus-per-task=64
+#SBATCH --gres=gpu:4
+#SBATCH --mem=300G
+#SBATCH --cpus-per-task=32
 
 # Args: $1 = experiment name, $2 = fold index (0..k-1)
 EXP_NAME="$1"

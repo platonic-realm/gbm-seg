@@ -70,14 +70,25 @@ class Factory:
             _no_of_channles,
             _no_of_classes)
 
-        # JIT-compile (Inductor) when the config enables it. Compile *before*
-        # the DataParallel wrap so each replica is the compiled module rather
-        # than the DP shell. Falls back to the eager model with a clear log
-        # if compile fails (driver mismatch / unsupported op) — training
-        # shouldn't abort over a JIT failure.
+        # JIT-compile (Inductor) when the config enables it. ORDER MATTERS:
+        # `DP(torch.compile(model))` raises `AttributeError: '<ModelClass>'
+        # object has no attribute 'encoder_layers'` on the first forward
+        # because DataParallel's replica scattering bypasses the OptimizedModule
+        # attribute proxy. The supported workaround is to DP-wrap first and
+        # then compile the inner `.module`, so each replica clones from the
+        # compiled inner module rather than from the OptimizedModule shell.
+        # (Official advice is to migrate to DDP for compiled training; that's
+        # the deferred G1 work.) Falls back to eager with a clear log on
+        # any Inductor failure.
+        if self.configs['trainer']['dp']:
+            model = DP(model)
+
         if self.configs['trainer'].get('compile', False):
             try:
-                model = torch.compile(model)
+                if isinstance(model, DP):
+                    model.module = torch.compile(model.module)
+                else:
+                    model = torch.compile(model)
                 logging.info("torch.compile() applied to model "
                              "'%s' (mode=default).",
                              self.configs['trainer']['model']['name'])
@@ -85,9 +96,6 @@ class Factory:
                 logging.warning(
                     "torch.compile() failed (%s); continuing in eager mode.",
                     exc)
-
-        if self.configs['trainer']['dp']:
-            model = DP(model)
 
         return model
 

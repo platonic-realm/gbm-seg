@@ -1,0 +1,125 @@
+{
+  "os":  "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+  "python":  "CPython 3.9.16",
+  "startedAt":  "2026-05-14T10:27:25.624469Z",
+  "args":  [
+    "train",
+    "full_train",
+    "--fold",
+    "0"
+  ],
+  "program":  "/home/afatehi/.vix/projects/gbm-seg/gbm.py",
+  "codePath":  "gbm.py",
+  "codePathLocal":  "gbm.py",
+  "git":  {
+    "remote":  "https://github.com/platonic-realm/gbm-segmentation",
+    "commit":  "dc1f0db13c7c7821b8e50540abd3503a064b4fe6"
+  },
+  "email":  "fatehi.arash@gmail.com",
+  "root":  "/home/afatehi/.vix/projects/gbm-seg",
+  "host":  "lyn-gpu-10",
+  "executable":  "/home/afatehi/.penvs/venv-gbm/bin/python",
+  "cpu_count":  32,
+  "cpu_count_logical":  32,
+  "gpu":  "Tesla V100-SXM2-32GB",
+  "gpu_count":  4,
+  "disk":  {
+    "/":  {
+      "total":  "233974419456",
+      "used":  "139178225664"
+    }
+  },
+  "memory":  {
+    "total":  "608024145920"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "Tesla V100-SXM2-32GB",
+      "memoryTotal":  "34359738368",
+      "cudaCores":  5120,
+      "architecture":  "Volta",
+      "uuid":  "GPU-9e04c45b-45f0-34ea-1a0c-748ef5d919fb"
+    },
+    {
+      "name":  "Tesla V100-SXM2-32GB",
+      "memoryTotal":  "34359738368",
+      "cudaCores":  5120,
+      "architecture":  "Volta",
+      "uuid":  "GPU-83ea854a-62e4-b061-c5c5-75130362a1a6"
+    },
+    {
+      "name":  "Tesla V100-SXM2-32GB",
+      "memoryTotal":  "34359738368",
+      "cudaCores":  5120,
+      "architecture":  "Volta",
+      "uuid":  "GPU-68083870-4be7-2cc6-5b11-12a1308bd86e"
+    },
+    {
+      "name":  "Tesla V100-SXM2-32GB",
+      "memoryTotal":  "34359738368",
+      "cudaCores":  5120,
+      "architecture":  "Volta",
+      "uuid":  "GPU-afc071cc-9ea9-7c78-ee59-988eae38a35f"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "slurm":  {
+    "cluster_name":  "(null)",
+    "conf":  "/etc/slurm/slurm.conf",
+    "cpu_bind":  "quiet,mask_cpu:0x0000FFFF0000FFFF",
+    "cpu_bind_list":  "0x0000FFFF0000FFFF",
+    "cpu_bind_type":  "mask_cpu:",
+    "cpu_bind_verbose":  "quiet",
+    "cpus_on_node":  "32",
+    "cpus_per_task":  "32",
+    "distribution":  "cyclic",
+    "gpus_on_node":  "4",
+    "gtids":  "0",
+    "job_cpus_per_node":  "32",
+    "job_end_time":  "1778927237",
+    "job_gid":  "666",
+    "job_gpus":  "0,1,2,3",
+    "job_group":  "uniuser",
+    "job_id":  "41672",
+    "job_name":  "gbm_full_train_f0",
+    "job_nodelist":  "lyn-gpu-10",
+    "job_num_nodes":  "1",
+    "job_partition":  "train",
+    "job_qos":  "normal",
+    "job_start_time":  "1778754437",
+    "job_uid":  "396154",
+    "job_user":  "afatehi",
+    "jobid":  "41672",
+    "launch_node_ipaddr":  "134.95.10.244",
+    "localid":  "0",
+    "mem_per_node":  "307200",
+    "nnodes":  "1",
+    "nodeid":  "0",
+    "nodelist":  "lyn-gpu-10",
+    "nprocs":  "1",
+    "ntasks":  "1",
+    "prio_process":  "-1",
+    "procid":  "0",
+    "pty_port":  "37685",
+    "pty_win_col":  "142",
+    "pty_win_row":  "36",
+    "srun_comm_host":  "134.95.10.244",
+    "srun_comm_port":  "35679",
+    "step_gpus":  "0,1,2,3",
+    "step_id":  "0",
+    "step_launcher_port":  "35679",
+    "step_nodelist":  "lyn-gpu-01",
+    "step_num_nodes":  "1",
+    "step_num_tasks":  "1",
+    "step_tasks_per_node":  "1",
+    "stepid":  "0",
+    "submit_dir":  "/home/afatehi/.vix/projects/gbm-seg",
+    "submit_host":  "lyn-gpu-01",
+    "task_pid":  "701430",
+    "tasks_per_node":  "1",
+    "topology_addr":  "lyn-gpu-10",
+    "topology_addr_pattern":  "node",
+    "tres_per_task":  "cpu:32"
+  },
+  "writerId":  "ofvbwlnu14oosew0xhlpo292c79imf6o"
+}
