@@ -215,9 +215,13 @@ class GBMDataset(BaseDataset):
 
         sample = torch.cat((nephrin, collagen4, wga), dim=0)
 
+        # Surface the patch's z_start so the validation step can mask metrics
+        # to real-label slices only (positions where labels are originals, not
+        # stacked copies of the previous slice). See Unet3DTrainer.validStep.
         return {
             'sample': sample,
             'labels': labels,
+            'z_start': int(z_start),
         }
 
     def get_sample_per_image(self, _image_id):

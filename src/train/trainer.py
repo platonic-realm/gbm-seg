@@ -35,7 +35,8 @@ class Unet3DTrainer:
                  _metric_list: list,
                  _device: str,
                  _freq: int,
-                 _epochs: int):
+                 _epochs: int,
+                 _valid_label_stride: int = 1):
 
         self.loss_function = _loss_funtion
         self.stepper = _stepper
@@ -53,6 +54,13 @@ class Unet3DTrainer:
         self.device = _device
         self.freq = _freq
         self.epochs = _epochs
+
+        # >1 means the dataset has labels replicated every N slices along Z
+        # (e.g. label stacking after Z-interpolation). Validation metrics
+        # are then computed only on the "real" slices — those whose
+        # (z_start + offset) % N == 0. Loss is unchanged (the model still
+        # trains against the full stacked label).
+        self.valid_label_stride = int(_valid_label_stride)
 
         _model.to(self.device)
         self.model = _model
@@ -174,6 +182,9 @@ class Unet3DTrainer:
 
         sample = _data['sample'].to(self.device)
         labels = _data['labels'].to(self.device).long()
+        z_start = _data.get('z_start')
+        if z_start is not None:
+            z_start = z_start.to(self.device)
 
         with torch.no_grad():
 
@@ -185,10 +196,46 @@ class Unet3DTrainer:
                                  _epoch_id=_epoch_id,
                                  _batch_id=_batch_id)
 
-            metrics = Metrics(self.no_of_classes,
-                              results,
-                              labels)
-
+            # Loss against the full patch — the model is supervised at every
+            # Z slice (including stacked copies), so the training signal must
+            # see them too. Only the metric counting changes.
             loss = self.loss_function(logits, labels)
 
+            metric_pred, metric_target = self._select_real_z(
+                results, labels, z_start)
+            metrics = Metrics(self.no_of_classes,
+                              metric_pred,
+                              metric_target)
+
             return metrics.reportMetrics(self.metric_list, loss)
+
+    def _select_real_z(self, _predictions, _labels, _z_start):
+        """Restrict prediction/label tensors to real-label Z slices.
+
+        When ``valid_label_stride <= 1`` or ``_z_start`` is missing, returns
+        the inputs unchanged. Otherwise builds a (B, Z) boolean mask where
+        ``(z_start[b] + offset) % stride == 0`` and flattens prediction +
+        label voxels to only the real slices, in (n_real_slices, H, W)
+        layout — ``Metrics`` flattens further internally, so shape after
+        masking only needs to be consistent between the two tensors.
+        """
+        if self.valid_label_stride <= 1 or _z_start is None:
+            return _predictions, _labels
+
+        # Predictions are argmax outputs (B, Z, H, W); labels match.
+        B, Z = _labels.shape[0], _labels.shape[-3]
+        z_idx = torch.arange(Z, device=_labels.device)
+        # (B, Z) — True where the original-grid Z position is a real label.
+        masks = ((_z_start.view(B, 1) + z_idx.view(1, Z))
+                 % self.valid_label_stride == 0)
+
+        if not masks.any():
+            # Degenerate case (shouldn't happen for stride <= Z): fall back
+            # to the unmasked tensors so we still report *something*.
+            return _predictions, _labels
+
+        H, W = _labels.shape[-2], _labels.shape[-1]
+        flat_mask = masks.flatten()
+        pred_flat = _predictions.reshape(B * Z, H, W)
+        label_flat = _labels.reshape(B * Z, H, W)
+        return pred_flat[flat_mask], label_flat[flat_mask]

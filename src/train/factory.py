@@ -223,6 +223,17 @@ class Factory:
         report_freq = self.configs['trainer']['report_freq']
         epochs = self.configs['trainer']['epochs']
 
+        # When the dataset stacks labels along Z (replicated every N slices
+        # after Z-interpolation), validation metrics should be measured only
+        # at the original-label positions. Pull the stride from the existing
+        # `train_ds.augmentation.methods_online.scale` field — that's where
+        # the user already declares the Z scale factor for the training
+        # input. Default 1 = every slice is a real label.
+        train_aug = (self.configs['trainer']['train_ds']
+                     .get('augmentation', {}) or {})
+        methods_online = train_aug.get('methods_online', {}) or {}
+        valid_label_stride = int(methods_online.get('scale', 1) or 1)
+
         _snapper.load(_model, device)
 
         # B1.2 refactor: the trainer is model-agnostic — any model that
@@ -242,7 +253,8 @@ class Factory:
                                 metrics_list,
                                 device,
                                 report_freq,
-                                epochs)
+                                epochs,
+                                valid_label_stride)
 
         return trainer
 
