@@ -223,3 +223,75 @@ def test_resize_and_copy_z_scale_pipeline(tmp_path):
     expected = np.repeat(
         np.array([0.0, 255.0, 0.0, 255.0], dtype=np.float32), 3)
     np.testing.assert_array_equal(label_z, expected)
+
+
+def test_create_new_experiment_z_upsamples_only_ds_train(tmp_path):
+    """Regression: ds_test must NOT be Z-upsampled at create time —
+    inference does that on-the-fly via InferenceDataset.scale. The pre-fix
+    create called resize_and_copy on ds_test with _z_scale_factor=6,
+    double-upsampling when the user later ran gbm.py infer with scale=6.
+    """
+    from src.utils.exper import create_new_experiment
+
+    src_root = tmp_path / "src_dataset"
+    (src_root / "ds_train").mkdir(parents=True)
+    (src_root / "ds_test").mkdir(parents=True)
+
+    arr = np.zeros((4, 4, 32, 32), dtype=np.float32)
+    arr[:, :3] = 100.0
+    arr[:, 3] = 0.0
+    # Filenames must match SAMPLE_GROUP_PREFIXES so assign_folds doesn't
+    # bail. Five distinct train files cover the k=5 fold requirement.
+    train_names = [
+        "NCW.AUY381.fake1.tiff",
+        "NCW.AUY380.fake2.tiff",
+        "NCW.BDP669.fake3.tiff",
+        "NCW.BDP672.fake4.tiff",
+        "NCW.CKM104.fake5.tiff",
+    ]
+    for name in train_names:
+        tifffile.imwrite(src_root / "ds_train" / name, arr,
+                         shape=arr.shape, imagej=True, resolution=(20.0, 20.0))
+    tifffile.imwrite(src_root / "ds_test" / "NCW.CKM105.test.tiff", arr,
+                     shape=arr.shape, imagej=True, resolution=(20.0, 20.0))
+
+    exp_root = tmp_path / "experiments"
+    exp_root.mkdir()
+
+    # `create_new_experiment` writes git_sha / pip freeze / a real source
+    # snapshot — point it at a temp _source_path with just the configs/
+    # template so it can finish without exploding.
+    src_code = tmp_path / "source"
+    (src_code / "configs").mkdir(parents=True)
+    # Minimal template with the fields `create_new_experiment` reads.
+    (src_code / "configs" / "template.yaml").write_text(
+        "experiments:\n  root: ./\n  default_data_path: ./\n  "
+        "default_batch_size: 8\n  default_voxel_size: [0.05, 0.05, 0.3]\n  "
+        "scale_lerning_rate_for_batch_size: True\n"
+        "trainer:\n  train_ds: {path: '', batch_size: 8, augmentation: {}}\n"
+        "  valid_ds: {path: '', batch_size: 8}\n  optim: {lr: 0.0001}\n"
+        "inference:\n  inference_ds: {path: '', batch_size: 8}\n"
+        "root_path: ./\n")
+    # The function reads from cwd-relative ./configs/template.yaml, so run
+    # from src_code.
+    import os as _os
+    cwd_before = _os.getcwd()
+    try:
+        _os.chdir(src_code)
+        create_new_experiment(
+            _name="mini", _root_path=str(exp_root), _source_path=str(src_code),
+            _dataset_path=str(src_root), _batch_size=8,
+            _voxel_size=[0.05, 0.05, 0.3], _z_scale_factor=6)
+    finally:
+        _os.chdir(cwd_before)
+
+    train_out = tifffile.imread(
+        exp_root / "mini" / "datasets" / "ds_train" / "NCW.AUY381.fake1.tiff")
+    test_out = tifffile.imread(
+        exp_root / "mini" / "datasets" / "ds_test" / "NCW.CKM105.test.tiff")
+
+    # Train: Z went 4 → 24 (× z_scale=6). Test: Z stays at 4 (untouched).
+    assert train_out.shape[0] == 24, (
+        f"ds_train must be Z-upsampled (got {train_out.shape})")
+    assert test_out.shape[0] == 4, (
+        f"ds_test must stay at native Z (got {test_out.shape})")

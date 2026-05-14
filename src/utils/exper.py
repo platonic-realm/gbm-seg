@@ -420,10 +420,13 @@ def create_new_experiment(_name: str,
 
     new_ds_test_path = os.path.join(new_dataset_path, 'ds_test')
     create_dirs_recursively(os.path.join(new_ds_test_path, 'dummy'))
+    # Test data stays at native Z resolution; `gbm.py infer` performs the
+    # Z upsampling on-the-fly via InferenceDataset when --interpolation true.
+    # Pre-upsampling here would double the inflation factor (and also fight
+    # with inference.inference_ds.scale_factor=6).
     resize_and_copy(os.path.join(_dataset_path, 'ds_test'),
                     new_ds_test_path,
-                    _voxel_size,
-                    _z_scale_factor=_z_scale_factor)
+                    _voxel_size)
 
     logging.info("Saving the requirements file to '%s'",
                  destination_path)
