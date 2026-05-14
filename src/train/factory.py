@@ -9,8 +9,10 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn.parallel import DataParallel as DP
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from src.data.ds_base import BaseDataset
 from src.data.ds_infer import InferenceDataset
@@ -19,6 +21,13 @@ from src.infer.inference import Inference
 from src.infer.morph import Morph
 from src.infer.psp import PSP
 from src.models import build_model
+from src.train.distributed import (
+    ddp_requested,
+    get_local_rank,
+    get_rank,
+    get_world_size,
+    is_distributed,
+)
 from src.train.losses.loss_compound import CompoundLoss
 from src.train.losses.loss_cont import ContLoss
 from src.train.losses.loss_dice import DiceLoss
@@ -70,16 +79,50 @@ class Factory:
             _no_of_channles,
             _no_of_classes)
 
+        # DDP path takes precedence over DP when both flags are set.
+        # Required launcher env: `torchrun --nproc-per-node=N gbm.py train …`
+        # (see sbatch/train_ddp.sbatch). DDP supports torch.compile,
+        # channels_last_3d, and cudnn.benchmark — all gated by config.
+        use_ddp = ddp_requested(self.configs) and is_distributed()
+        if use_ddp:
+            local_rank = get_local_rank()
+            device = torch.device(f'cuda:{local_rank}')
+            model = model.to(device)
+
+            if self.configs['trainer'].get('channels_last_3d', False):
+                try:
+                    model = model.to(memory_format=torch.channels_last_3d)
+                    logging.info("rank=%d: channels_last_3d enabled",
+                                 get_rank())
+                except Exception as exc:
+                    logging.warning(
+                        "rank=%d: channels_last_3d failed (%s); "
+                        "continuing with default memory layout.",
+                        get_rank(), exc)
+
+            # compile-then-DDP-wrap is the documented working order
+            # (unlike DP, where the wrap-then-compile dance is required).
+            if self.configs['trainer'].get('compile', False):
+                try:
+                    model = torch.compile(model)
+                    logging.info("rank=%d: torch.compile applied (DDP path)",
+                                 get_rank())
+                except Exception as exc:
+                    logging.warning(
+                        "rank=%d: torch.compile failed (%s); eager mode.",
+                        get_rank(), exc)
+
+            model = DDP(model, device_ids=[local_rank],
+                        find_unused_parameters=False)
+            return model
+
+        # DP path (unchanged — the 3D U-Net runs continue to use this).
         # JIT-compile (Inductor) when the config enables it. ORDER MATTERS:
         # `DP(torch.compile(model))` raises `AttributeError: '<ModelClass>'
         # object has no attribute 'encoder_layers'` on the first forward
         # because DataParallel's replica scattering bypasses the OptimizedModule
         # attribute proxy. The supported workaround is to DP-wrap first and
-        # then compile the inner `.module`, so each replica clones from the
-        # compiled inner module rather than from the OptimizedModule shell.
-        # (Official advice is to migrate to DDP for compiled training; that's
-        # the deferred G1 work.) Falls back to eager with a clear log on
-        # any Inductor failure.
+        # then compile the inner `.module`. DDP doesn't have this problem.
         if self.configs['trainer']['dp']:
             model = DP(model)
 
@@ -349,28 +392,62 @@ class Factory:
         training_batch_size: int = self.configs['trainer']['train_ds']['batch_size']
         training_shuffle: bool = self.configs['trainer']['train_ds']['shuffle']
         training_pin_memory: bool = self.configs['trainer']['train_ds']['pin_memory']
+        num_workers = self.configs['trainer']['train_ds']['workers']
 
-        training_loader = DataLoader(_training_dataset,
-                                     batch_size=training_batch_size,
-                                     shuffle=training_shuffle,
-                                     pin_memory=training_pin_memory,
-                                     num_workers=self.configs['trainer']['train_ds']['workers'],
-                                     worker_init_fn=_worker_init_fn)
+        # Under DDP each rank sees a disjoint shard of the dataset; the
+        # DistributedSampler enforces the partition and handles per-epoch
+        # shuffling. Loader's own `shuffle=` must be False when a sampler
+        # is supplied. Single-process (or DP) path keeps the original
+        # behaviour.
+        sampler = None
+        if is_distributed():
+            sampler = DistributedSampler(
+                _training_dataset,
+                num_replicas=get_world_size(),
+                rank=get_rank(),
+                shuffle=training_shuffle,
+                drop_last=False)
+            training_shuffle = False
+
+        training_loader = DataLoader(
+            _training_dataset,
+            batch_size=training_batch_size,
+            shuffle=training_shuffle,
+            sampler=sampler,
+            pin_memory=training_pin_memory,
+            num_workers=num_workers,
+            persistent_workers=(num_workers > 0),
+            worker_init_fn=_worker_init_fn)
 
         return training_loader
 
     def createValidDataLoader(self, _validation_dataset) -> DataLoader:
 
         validation_batch_size: int = self.configs['trainer']['train_ds']['batch_size']
-        validation_shuffle: bool = self.configs['trainer']['train_ds']['shuffle']
+        validation_shuffle: bool = False  # never shuffle the validation set
         validation_pin_memory: bool = self.configs['trainer']['train_ds']['pin_memory']
+        num_workers = self.configs['trainer']['train_ds']['workers']
 
-        validation_loader = DataLoader(_validation_dataset,
-                                       batch_size=validation_batch_size,
-                                       shuffle=validation_shuffle,
-                                       pin_memory=validation_pin_memory,
-                                       num_workers=self.configs['trainer']['train_ds']['workers'],
-                                       worker_init_fn=_worker_init_fn)
+        # Under DDP each rank validates a disjoint shard. Set shuffle=False
+        # on the sampler so the partition is stable across epochs.
+        sampler = None
+        if is_distributed():
+            sampler = DistributedSampler(
+                _validation_dataset,
+                num_replicas=get_world_size(),
+                rank=get_rank(),
+                shuffle=False,
+                drop_last=False)
+
+        validation_loader = DataLoader(
+            _validation_dataset,
+            batch_size=validation_batch_size,
+            shuffle=validation_shuffle,
+            sampler=sampler,
+            pin_memory=validation_pin_memory,
+            num_workers=num_workers,
+            persistent_workers=(num_workers > 0),
+            worker_init_fn=_worker_init_fn)
 
         return validation_loader
 

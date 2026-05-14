@@ -14,6 +14,14 @@ import torch
 import yaml
 
 from src.data.folds import read_assignments
+from src.train.distributed import (
+    cleanup_ddp,
+    ddp_launchable,
+    ddp_requested,
+    init_ddp,
+    is_distributed,
+    is_main_process,
+)
 from src.train.factory import Factory
 
 # Local Imports
@@ -48,6 +56,11 @@ def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
     """
     wandb_cfg = _configs['trainer'].get('wandb', {})
     if not wandb_cfg.get('enabled', False):
+        return False
+    # Only rank-0 opens a W&B run under DDP. The other ranks would
+    # otherwise create 4 separate runs with the same name and overwrite
+    # each other's history.
+    if not is_main_process():
         return False
     try:
         import wandb
@@ -124,19 +137,38 @@ def main_train(_configs, _fold: int = 0):
     _configs['logging']['log_file'] = _configs['logging']['log_file'].replace(
         '.log', f'.{fold_tag}.log')
 
-    if _configs['logging']['log_summary']:
+    if _configs['logging']['log_summary'] and is_main_process():
         summerize_configs(_configs)
+
+    # DDP bring-up. No-ops in single-process mode; required *before* model
+    # construction so each rank pins its own cuda:LOCAL_RANK device.
+    if ddp_requested(_configs) and not ddp_launchable():
+        raise RuntimeError(
+            "trainer.ddp=True requires the torchrun env vars "
+            "(LOCAL_RANK/RANK/WORLD_SIZE). Submit via "
+            "`sbatch/train_ddp.sbatch` (which wraps `torchrun "
+            "--nproc-per-node=N gbm.py train …`).")
+    init_ddp(_configs)
 
     seed_everything(SEED)
 
     if _configs['trainer']['cudnn_benchmark']:
-        # Benchmark mode picks the fastest cuDNN kernel based on input shapes,
-        # which is non-deterministic. seed_everything() above enabled
-        # deterministic algorithms; honouring benchmark here would silently
-        # break that guarantee. Warn and skip.
-        logging.warning(
-            "trainer.cudnn_benchmark=True is incompatible with deterministic "
-            "algorithms; skipping cuDNN benchmarking.")
+        # Benchmark mode picks the fastest cuDNN kernel based on input shapes
+        # — non-deterministic but a real throughput win when sample_dim is
+        # fixed (it is, in our patch-based training). Under DDP we accept
+        # the determinism trade-off in exchange for speed. Outside DDP the
+        # determinism guarantee from seed_everything wins.
+        if is_distributed():
+            torch.backends.cudnn.benchmark = True
+            # Disable strict determinism so the benchmark kernels are usable.
+            torch.use_deterministic_algorithms(False)
+            if is_main_process():
+                logging.info("DDP: cudnn.benchmark enabled (non-deterministic)")
+        else:
+            logging.warning(
+                "trainer.cudnn_benchmark=True is incompatible with "
+                "deterministic algorithms in single-process mode; skipping "
+                "cuDNN benchmarking.")
 
     wandb_active = maybe_init_wandb(_configs, _fold=_fold)
 
@@ -185,31 +217,38 @@ def main_train(_configs, _fold: int = 0):
                                     valid_dataloader,
                                     train_dataset.getNumberOfClasses())
 
-    trainer.train()
+    try:
+        trainer.train()
+    finally:
+        # Always tear the process group down so a follow-up job doesn't
+        # inherit a dangling NCCL state.
+        cleanup_ddp()
 
     best = trainer.best_metrics()
 
-    # Persist per-fold best to disk next to the snapshots so a later
-    # orchestrator (or stats script) can pick it up without re-running.
-    if best is not None:
-        out_dir = (Path(_configs['root_path']) / 'results-train'
-                   / f'fold_{_fold}')
-        out_dir.mkdir(parents=True, exist_ok=True)
-        with open(out_dir / 'best_metrics.yaml', 'w', encoding='UTF-8') as f:
-            yaml.safe_dump(best, f, sort_keys=False)
-        logging.info("Fold %d best validation metrics: %s", _fold, best)
+    # Persist per-fold best + close W&B from rank-0 only. The other ranks
+    # have the same `best` (they all-reduced metrics inside the trainer)
+    # but only one process should touch the filesystem and the W&B run.
+    if is_main_process():
+        if best is not None:
+            out_dir = (Path(_configs['root_path']) / 'results-train'
+                       / f'fold_{_fold}')
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with open(out_dir / 'best_metrics.yaml', 'w', encoding='UTF-8') as f:
+                yaml.safe_dump(best, f, sort_keys=False)
+            logging.info("Fold %d best validation metrics: %s", _fold, best)
 
-    # E2: log best to W&B run summary, then close cleanly.
-    if wandb_active:
-        try:
-            import wandb
-            if best is not None:
-                for k, v in best.items():
-                    if isinstance(v, (int, float)):
-                        wandb.run.summary[f'best/{k}'] = v
-            wandb.finish()
-        except ImportError:
-            pass
+        # E2: log best to W&B run summary, then close cleanly.
+        if wandb_active:
+            try:
+                import wandb
+                if best is not None:
+                    for k, v in best.items():
+                        if isinstance(v, (int, float)):
+                            wandb.run.summary[f'best/{k}'] = v
+                wandb.finish()
+            except ImportError:
+                pass
 
     return best
 
@@ -349,6 +388,13 @@ def main_train_all_folds(_configs):
 
     Returns the same dict that gets written to ``cv_results.yaml``.
     """
+    if ddp_requested(_configs):
+        raise RuntimeError(
+            "trainer.ddp=True is incompatible with the in-process all-folds "
+            "orchestrator: each fold must be its own torchrun launch. "
+            "Submit per-fold via `sbatch sbatch/train_ddp.sbatch <exp> <fold>` "
+            "(or use sbatch/submit_cv_ddp.sh), then aggregate with "
+            "`gbm.py aggregate-cv <exp>` once all folds finish.")
     root_path = _configs['root_path']
     fold_assignments = read_assignments(root_path)
     k = len(fold_assignments)

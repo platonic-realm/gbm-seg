@@ -76,14 +76,26 @@ class Snapper:
              _epoch: int,
              _step: int,
              _async: bool = True) -> None:
-        """Write a snapshot to ``<snapshot_path>/<epoch:03d>-<step:04d>.pt``."""
+        """Write a snapshot to ``<snapshot_path>/<epoch:03d>-<step:04d>.pt``.
 
+        Under DDP only the rank-0 process writes — the other ranks have
+        identical weights (DDP keeps them in sync), so saving five copies
+        of the same model would just race on the same path. We early-return
+        on non-zero ranks rather than gating in the trainer so any caller
+        of Snapper.save gets correct behaviour for free.
+        """
+        from src.train.distributed import is_main_process
+        if not is_main_process():
+            return
         if self.snapshot_path is None:
             return
         snapshot = {}
         snapshot['EPOCHS'] = _epoch
         snapshot['STEP'] = _step
-        if isinstance(_model, DataParallel):
+        # DDP wraps the model the same way DP does (`model.module` is the
+        # inner nn.Module); handle both symmetrically.
+        from torch.nn.parallel import DistributedDataParallel
+        if isinstance(_model, (DataParallel, DistributedDataParallel)):
             snapshot['MODEL_STATE'] = _model.module.state_dict()
         else:
             snapshot['MODEL_STATE'] = _model.state_dict()
@@ -161,7 +173,10 @@ class Snapper:
                               weights_only=True)
 
         state_dict = snapshot['MODEL_STATE']
-        target = _model.module if isinstance(_model, DataParallel) else _model
+        from torch.nn.parallel import DistributedDataParallel
+        target = (_model.module
+                  if isinstance(_model, (DataParallel, DistributedDataParallel))
+                  else _model)
         target.load_state_dict(state_dict)
 
         # Old snapshots also carry a 'SEEN_LABELS' field; the key is ignored

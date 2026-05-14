@@ -174,15 +174,26 @@ trainer:
     tif: False
 
   dp: True
+  # DistributedDataParallel — opt-in alternative to DP. When True, training
+  # must be launched via `sbatch/train_ddp.sbatch` (which wraps `torchrun
+  # --nproc-per-node=N gbm.py train …`). DDP takes precedence over DP when
+  # both flags are set. Unlike DP, DDP scales near-linearly across the
+  # 4 GPUs and supports torch.compile + cudnn.benchmark.
+  # Mutually exclusive with the in-process all-folds orchestrator —
+  # submit one sbatch per fold via `sbatch/submit_cv_ddp.sh`.
+  ddp: False
   device: cuda
   mixed_precision: True
+  # cudnn.benchmark trades determinism for ~5-15% throughput; only honoured
+  # under DDP (single-process mode keeps the seed_everything determinism
+  # guarantee).
   cudnn_benchmark: False
+  # Channels-last 3D memory format. Can help conv-heavy models on Ampere+
+  # GPUs; safe no-op when the model doesn't benefit. DDP-only.
+  channels_last_3d: False
 
-  # JIT-compile the model via torch.compile(). Currently disabled because
-  # torch.compile + DataParallel is broken in both wrap orders (DP scatters
-  # bypass the OptimizedModule attribute proxy → AttributeError on the
-  # encoder_layers attribute during the first forward). Re-enable only
-  # after the deferred DDP migration (G1); torch.compile + DDP works.
+  # JIT-compile the model via torch.compile(). Works cleanly with DDP. With
+  # DataParallel it's wrap-then-compile-the-inner-module (Factory handles).
   compile: False
 
 inference:

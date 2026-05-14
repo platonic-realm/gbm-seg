@@ -91,6 +91,16 @@ class Unet3DTrainer:
 
     def trainEpoch(self, _epoch: int):
 
+        # DistributedSampler reshuffles deterministically based on the
+        # epoch number — without this, every epoch sees the same shard
+        # order, defeating shuffling under DDP.
+        sampler = getattr(self.training_loader, 'sampler', None)
+        if sampler is not None and hasattr(sampler, 'set_epoch'):
+            sampler.set_epoch(_epoch)
+        valid_sampler = getattr(self.validation_loader, 'sampler', None)
+        if valid_sampler is not None and hasattr(valid_sampler, 'set_epoch'):
+            valid_sampler.set_epoch(_epoch)
+
         train_running_metrics = GPURunningMetrics(self.device,
                                                   self.metric_list)
 

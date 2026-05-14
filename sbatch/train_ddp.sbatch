@@ -1,0 +1,31 @@
+#!/bin/bash
+#SBATCH --job-name=gbm_train_ddp
+#SBATCH --output=/home/afatehi/logs/gbm/train_ddp_%x_%A_fold%a.log
+#SBATCH --error=/home/afatehi/logs/gbm/train_ddp_%x_%A_fold%a.log
+#SBATCH --time=2-00:00:00
+#SBATCH --partition=train
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gres=gpu:4
+#SBATCH --mem=300G
+#SBATCH --cpus-per-task=32
+
+# Single-fold DDP training launcher. Spawns one Python process per GPU
+# (--nproc-per-node=4) via torchrun; each process runs gbm.py train.
+# init_ddp() inside main_train picks up LOCAL_RANK / RANK / WORLD_SIZE
+# from the torchrun env and brings up an NCCL process group.
+#
+# Args: $1 = experiment name, $2 = fold index (0..k-1)
+EXP_NAME="$1"
+FOLD="$2"
+
+mkdir -p /home/afatehi/logs/gbm/
+
+source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
+
+# rdzv settings work for single-node multi-GPU; for multi-node, add
+# --rdzv-endpoint=<host>:<port> with a coordinator.
+torchrun \
+    --standalone \
+    --nproc-per-node=4 \
+    gbm.py train "$EXP_NAME" --fold "$FOLD"
