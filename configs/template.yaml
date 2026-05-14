@@ -120,7 +120,12 @@ trainer:
     ignore_stride_mismatch: True
     workers: 4
     augmentation:
-      enabled_offline: True
+      # Offline aug precomputes _zoom/_twist/_rotate variants to disk; with
+      # the gbm.py create Z×6 stacking each "unique" anatomy is already
+      # replicated 6× in the labels, so precomputed aug compounds redundancy
+      # and pushes the model toward overfitting. Default off; flip on for
+      # ablations where the trade-off is worth measuring.
+      enabled_offline: False
       workers: 8
       methods_offline: [
                         ['_zoom', 2],
@@ -163,6 +168,11 @@ trainer:
   device: cuda
   mixed_precision: True
   cudnn_benchmark: False
+
+  # JIT-compile the model via torch.compile() before DataParallel wrap.
+  # Adds ~1-2 min one-time compile cost per fold but ~20-40% throughput on
+  # 3D convs. Set to False if you hit Inductor crashes on a new GPU / driver.
+  compile: True
 
 inference:
   number_class: 2

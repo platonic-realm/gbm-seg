@@ -93,6 +93,18 @@ def parse_exper() -> None:
                                    '<experiment>/fold_assignments.yaml — k=5 '
                                    'by default per gbm.py create.')
 
+    # Define a subparser for the 'aggregate-cv' action — consolidate
+    # per-fold best_metrics.yaml files into a single cv_results.{yaml,npz}
+    # and optionally post a W&B cv_summary run.
+    agg_parser = \
+        subparsers.add_parser('aggregate-cv',
+                              help='consolidate per-fold metrics into '
+                                   '<exp>/cv_results.{yaml,npz} and log a '
+                                   'W&B cv_summary run (use after sbatch '
+                                   'per-fold training jobs finish)')
+    agg_parser.add_argument('name',
+                            help='name of the experiment')
+
     # Define a subparser for the 'infer' action
     infer_parser = \
         subparsers.add_parser('infer',

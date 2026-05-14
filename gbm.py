@@ -46,6 +46,12 @@ def _do_train(args, configs):
                            _fold=args.fold)
 
 
+def _do_aggregate_cv(args, configs):
+    configure_logger(configs, _log_to_file=False)
+    exper.aggregate_cv_experiment(_name=args.name,
+                                  _root_path=configs['experiments']['root'])
+
+
 def _do_delete(args, configs):
     basic_logger()
     exper.delete_experiment(_name=args.name,
@@ -132,18 +138,19 @@ def _do_ablate(args, configs):
 
 # Aligned by hand for readability; suppress pycodestyle's "multiple spaces after ':'".
 HANDLERS = {
-    'create':  _do_create,
-    'list':    _do_list,
-    'train':   _do_train,
-    'delete':  _do_delete,
-    'infer':   _do_infer,
-    'psp':     _do_psp,
-    'morph':   _do_morph,
-    'blender': _do_blender,
-    'render':  _do_render,
-    'export':  _do_export,
-    'stats':   _do_stats,
-    'ablate':  _do_ablate,
+    'create':       _do_create,
+    'list':         _do_list,
+    'train':        _do_train,
+    'aggregate-cv': _do_aggregate_cv,
+    'delete':       _do_delete,
+    'infer':        _do_infer,
+    'psp':          _do_psp,
+    'morph':        _do_morph,
+    'blender':      _do_blender,
+    'render':       _do_render,
+    'export':       _do_export,
+    'stats':        _do_stats,
+    'ablate':       _do_ablate,
 }
 
 

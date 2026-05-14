@@ -59,10 +59,21 @@ def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
 
     run_config = {**_configs, 'fold': int(_fold)}
     explicit_name = wandb_cfg.get('run_name')
+
+    # Surface compile state in the run name and as a tag so torch.compile vs
+    # eager runs are visually distinguishable on the W&B dashboard. Other
+    # axes (model.name, loss, stitching, optimiser) are already filterable
+    # via wandb.config — only these two surface as first-class UI labels.
+    compile_on = bool(_configs['trainer'].get('compile', False))
+    compile_suffix = '-compile' if compile_on else '-eager'
+    tags = ['compile' if compile_on else 'eager',
+            f"fold-{int(_fold)}"]
+
     # Auto-suffix per-fold so multi-fold CV runs don't collide visually.
     auto_name = explicit_name
     if explicit_name is None and wandb_cfg.get('group'):
-        auto_name = f"{wandb_cfg['group']}-fold-{int(_fold)}"
+        auto_name = (f"{wandb_cfg['group']}-fold-{int(_fold)}"
+                     f"{compile_suffix}")
     try:
         wandb.init(
             project=wandb_cfg.get('project', 'gbm-seg'),
@@ -70,6 +81,7 @@ def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
             name=auto_name,
             group=wandb_cfg.get('group'),
             job_type='train',
+            tags=tags,
             config=run_config,
         )
         return True
@@ -218,6 +230,99 @@ def _aggregate_cv(per_fold: list) -> dict:
     return out
 
 
+def _read_per_fold_best(_root_path: str, _k: int) -> list:
+    """Load every fold's ``best_metrics.yaml`` from disk into a list of
+    dicts (one per fold, sorted by fold id). Missing files become a
+    placeholder ``{'fold': N}`` so the aggregator can still produce a
+    summary with the available folds — useful when an sbatch job died
+    mid-fold and the user wants to inspect the survivors.
+    """
+    out = []
+    root = Path(_root_path)
+    for fold_id in range(_k):
+        path = root / 'results-train' / f'fold_{fold_id}' / 'best_metrics.yaml'
+        entry = {'fold': fold_id}
+        if path.exists():
+            try:
+                with open(path, encoding='UTF-8') as f:
+                    entry.update(yaml.safe_load(f) or {})
+            except Exception as exc:
+                logging.warning("Could not read %s (%s); skipping.", path, exc)
+        else:
+            logging.warning("Missing %s; fold %d will be excluded from "
+                            "the aggregate.", path, fold_id)
+        out.append(entry)
+    return out
+
+
+def consolidate_cv_results(_per_fold: list,
+                           _configs: dict,
+                           _exp_name: str = None) -> dict:
+    """Persist per-fold + aggregate metrics to ``cv_results.{yaml,npz}``
+    and optionally open a W&B ``cv_summary`` run.
+
+    Shared between the in-process orchestrator (``main_train_all_folds``)
+    and the standalone ``gbm.py aggregate-cv`` command, so a partially-
+    completed sbatch fan-out can still be summarised after the fact.
+    """
+    root_path = _configs['root_path']
+    if _exp_name is None:
+        _exp_name = Path(root_path).name or 'experiment'
+    aggregate = _aggregate_cv(_per_fold)
+    out = {
+        'k': len(_per_fold),
+        'experiment': _exp_name,
+        'per_fold': _per_fold,
+        'aggregate': aggregate,
+    }
+    yaml_path = Path(root_path) / 'cv_results.yaml'
+    with open(yaml_path, 'w', encoding='UTF-8') as f:
+        yaml.safe_dump(out, f, sort_keys=False)
+    logging.info("CV results written to %s", yaml_path)
+
+    # Raw arrays for plotting; one key per numeric metric.
+    if _per_fold:
+        skip = {'fold', 'best_epoch', 'best_step'}
+        arrays = {}
+        for name in _per_fold[0]:
+            if name in skip or not isinstance(_per_fold[0][name],
+                                              (int, float)):
+                continue
+            arrays[name] = np.array(
+                [d.get(name, np.nan) for d in _per_fold], dtype=float)
+        if arrays:
+            npz_path = Path(root_path) / 'cv_results.npz'
+            np.savez_compressed(npz_path, **arrays)
+            logging.info("CV per-fold arrays written to %s", npz_path)
+
+    wandb_cfg = _configs['trainer'].get('wandb', {}) or {}
+    if wandb_cfg.get('enabled', False):
+        try:
+            import wandb
+            wandb.init(
+                project=wandb_cfg.get('project', 'gbm-seg'),
+                entity=wandb_cfg.get('entity'),
+                name=f"{_exp_name}-cv-summary",
+                group=wandb_cfg.get('group', _exp_name),
+                job_type='cv_summary',
+                config={'k': out['k'], 'experiment': _exp_name},
+            )
+            for metric, stats in aggregate.items():
+                for stat_name, val in stats.items():
+                    wandb.run.summary[f'cv/{metric}/{stat_name}'] = val
+            try:
+                wandb.save(str(yaml_path), policy='now')
+            except Exception:  # pragma: no cover — wandb sync edge cases
+                pass
+            wandb.finish()
+        except ImportError:
+            pass
+        except Exception as exc:  # pragma: no cover — networked
+            logging.warning("Could not log CV summary to W&B: %s", exc)
+
+    return out
+
+
 def main_train_all_folds(_configs):
     """Run every fold in ``fold_assignments.yaml`` sequentially.
 
@@ -254,60 +359,28 @@ def main_train_all_folds(_configs):
         per_fold.append({'fold': fold_id, **(best or {})})
         logging.info("===== Fold %d / %d done =====", fold_id, k - 1)
 
-    aggregate = _aggregate_cv(per_fold)
+    return consolidate_cv_results(per_fold, _configs, exp_name)
 
-    out = {
-        'k': k,
-        'experiment': exp_name,
-        'per_fold': per_fold,
-        'aggregate': aggregate,
-    }
 
-    yaml_path = Path(root_path) / 'cv_results.yaml'
-    with open(yaml_path, 'w', encoding='UTF-8') as f:
-        yaml.safe_dump(out, f, sort_keys=False)
-    logging.info("CV results written to %s", yaml_path)
+def aggregate_cv_from_disk(_configs):
+    """Standalone aggregation: read each fold's best_metrics.yaml from
+    disk and produce the consolidated cv_results.{yaml,npz} + W&B summary.
 
-    # Raw arrays for plotting; one key per metric.
-    if per_fold:
-        skip = {'fold', 'best_epoch', 'best_step'}
-        arrays = {}
-        for name in per_fold[0]:
-            if name in skip or not isinstance(per_fold[0][name], (int, float)):
-                continue
-            arrays[name] = np.array(
-                [d.get(name, np.nan) for d in per_fold], dtype=float)
-        if arrays:
-            npz_path = Path(root_path) / 'cv_results.npz'
-            np.savez_compressed(npz_path, **arrays)
-            logging.info("CV per-fold arrays written to %s", npz_path)
+    Used by ``gbm.py aggregate-cv``. Sbatch fan-out submits 5 per-fold
+    ``gbm.py train EXP --fold N`` jobs and a 6th dependent
+    ``gbm.py aggregate-cv EXP`` job that calls this.
+    """
+    root_path = _configs['root_path']
+    fold_assignments = read_assignments(root_path)
+    k = len(fold_assignments)
+    exp_name = Path(root_path).name or 'experiment'
 
-    # Aggregate W&B summary run.
-    if wandb_cfg.get('enabled', False):
-        try:
-            import wandb
-            wandb.init(
-                project=wandb_cfg.get('project', 'gbm-seg'),
-                entity=wandb_cfg.get('entity'),
-                name=f"{exp_name}-cv-summary",
-                group=wandb_cfg.get('group'),
-                job_type='cv_summary',
-                config={'k': k, 'experiment': exp_name},
-            )
-            for metric, stats in aggregate.items():
-                for stat_name, val in stats.items():
-                    wandb.run.summary[f'cv/{metric}/{stat_name}'] = val
-            try:
-                wandb.save(str(yaml_path), policy='now')
-            except Exception:  # pragma: no cover — wandb sync edge cases
-                pass
-            wandb.finish()
-        except ImportError:
-            pass
-        except Exception as exc:  # pragma: no cover — networked
-            logging.warning("Could not log CV summary to W&B: %s", exc)
+    wandb_cfg = _configs['trainer'].get('wandb', {}) or {}
+    wandb_cfg.setdefault('group', exp_name)
+    _configs['trainer']['wandb'] = wandb_cfg
 
-    return out
+    per_fold = _read_per_fold_best(root_path, k)
+    return consolidate_cv_results(per_fold, _configs, exp_name)
 
 
 if __name__ == '__main__':

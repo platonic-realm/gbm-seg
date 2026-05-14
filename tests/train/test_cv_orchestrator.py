@@ -111,6 +111,64 @@ def test_best_metrics_updates_on_higher_dice():
     assert best['best_step'] == 200
 
 
+def test_read_per_fold_best_handles_missing(tmp_path):
+    """_read_per_fold_best returns placeholder dicts for missing folds."""
+    # Write fold_0 and fold_2, leave fold_1 and fold_3 missing.
+    import yaml as _yaml
+
+    from train import _read_per_fold_best
+    (tmp_path / 'results-train' / 'fold_0').mkdir(parents=True)
+    (tmp_path / 'results-train' / 'fold_2').mkdir(parents=True)
+    (tmp_path / 'results-train' / 'fold_0' / 'best_metrics.yaml').write_text(
+        _yaml.safe_dump({'Dice': 0.81, 'Loss': 0.10,
+                         'best_epoch': 2, 'best_step': 100}))
+    (tmp_path / 'results-train' / 'fold_2' / 'best_metrics.yaml').write_text(
+        _yaml.safe_dump({'Dice': 0.77, 'Loss': 0.13,
+                         'best_epoch': 1, 'best_step': 80}))
+
+    per_fold = _read_per_fold_best(str(tmp_path), _k=4)
+    assert len(per_fold) == 4
+    assert per_fold[0]['Dice'] == 0.81
+    assert per_fold[1] == {'fold': 1}  # placeholder
+    assert per_fold[2]['Dice'] == 0.77
+    assert per_fold[3] == {'fold': 3}  # placeholder
+
+
+def test_consolidate_cv_results_writes_yaml_and_npz(tmp_path):
+    """consolidate_cv_results emits cv_results.yaml + cv_results.npz."""
+    import yaml as _yaml
+
+    from train import consolidate_cv_results
+
+    cfg = {
+        'root_path': str(tmp_path),
+        'trainer': {'wandb': {'enabled': False}},
+    }
+    per_fold = [
+        {'fold': 0, 'Dice': 0.80, 'Loss': 0.10},
+        {'fold': 1, 'Dice': 0.84, 'Loss': 0.09},
+        {'fold': 2, 'Dice': 0.78, 'Loss': 0.12},
+    ]
+
+    out = consolidate_cv_results(per_fold, cfg, _exp_name='mini')
+
+    yaml_path = tmp_path / 'cv_results.yaml'
+    npz_path = tmp_path / 'cv_results.npz'
+    assert yaml_path.exists() and npz_path.exists()
+
+    loaded = _yaml.safe_load(yaml_path.read_text())
+    assert loaded['k'] == 3
+    assert loaded['experiment'] == 'mini'
+    assert len(loaded['per_fold']) == 3
+    assert 'Dice' in loaded['aggregate']
+
+    import numpy as _np
+    npz = _np.load(npz_path)
+    assert 'Dice' in npz.files
+    assert npz['Dice'].shape == (3,)
+    assert out is not None
+
+
 def test_best_metrics_keeps_better_when_dice_drops():
     """A subsequent worse Dice must NOT overwrite the recorded best."""
     t = _make_trainer()

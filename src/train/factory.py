@@ -70,6 +70,22 @@ class Factory:
             _no_of_channles,
             _no_of_classes)
 
+        # JIT-compile (Inductor) when the config enables it. Compile *before*
+        # the DataParallel wrap so each replica is the compiled module rather
+        # than the DP shell. Falls back to the eager model with a clear log
+        # if compile fails (driver mismatch / unsupported op) — training
+        # shouldn't abort over a JIT failure.
+        if self.configs['trainer'].get('compile', False):
+            try:
+                model = torch.compile(model)
+                logging.info("torch.compile() applied to model "
+                             "'%s' (mode=default).",
+                             self.configs['trainer']['model']['name'])
+            except Exception as exc:
+                logging.warning(
+                    "torch.compile() failed (%s); continuing in eager mode.",
+                    exc)
+
         if self.configs['trainer']['dp']:
             model = DP(model)
 
