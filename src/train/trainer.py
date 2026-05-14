@@ -173,12 +173,17 @@ class Unet3DTrainer:
 
         sample = _data['sample'].to(self.device)
         labels = _data['labels'].to(self.device).long()
+        z_start = _data.get('z_start')
+        if z_start is not None:
+            z_start = z_start.to(self.device)
 
         logits, results, loss = self.stepper.step(sample, labels)
 
+        metric_pred, metric_target = self._select_real_z(
+            results, labels, z_start)
         metrics = Metrics(self.no_of_classes,
-                          results,
-                          labels)
+                          metric_pred,
+                          metric_target)
 
         return metrics.reportMetrics(self.metric_list, loss)
 
@@ -205,7 +210,10 @@ class Unet3DTrainer:
 
             # Loss against the full patch — the model is supervised at every
             # Z slice (including stacked copies), so the training signal must
-            # see them too. Only the metric counting changes.
+            # see them too. Only the metric counting changes (same convention
+            # as trainStep — both train and valid metrics are computed on
+            # real-label slices only via _select_real_z, while the loss term
+            # uses every slice).
             loss = self.loss_function(logits, labels)
 
             metric_pred, metric_target = self._select_real_z(
