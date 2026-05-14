@@ -1,6 +1,7 @@
 # Blender preparation, rendering, and export.
 # Moved out of src/utils/misc.py during the Phase 3 split.
 
+import logging
 import os
 import shlex
 import shutil
@@ -102,8 +103,18 @@ def export_results(_inference_result_path: Path, _inference_export_path: Path):
         shutil.copy(dir / "blender/result_distance.blend", thickness_blend)
         shutil.copy(dir / "blender/result_distance.mp4", thickness_mp4)
 
-        shutil.copy(dir / "blender/result_bumpiness.blend", bumpiness_blend)
-        shutil.copy(dir / "blender/result_bumpiness.mp4", bumpiness_mp4)
+        # Bumpiness rendering isn't produced by the current pipeline
+        # (blender_visualization only writes verts/faces/values_distance);
+        # skip cleanly when it's missing so export remains usable.
+        bumpiness_src_blend = dir / "blender/result_bumpiness.blend"
+        bumpiness_src_mp4 = dir / "blender/result_bumpiness.mp4"
+        if bumpiness_src_blend.exists() and bumpiness_src_mp4.exists():
+            shutil.copy(bumpiness_src_blend, bumpiness_blend)
+            shutil.copy(bumpiness_src_mp4, bumpiness_mp4)
+        else:
+            logging.info("Skipping bumpiness export for %s — render artifacts "
+                         "absent (blender_visualization only emits distance).",
+                         name)
 
         labels = np.load(dir / "prediction_psp.npz")['arr']
         labels[labels != 0] = 128
