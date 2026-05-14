@@ -55,16 +55,33 @@ def create_dirs_recursively(_path: str):
 
 
 # https://forum.image.sc/t/reading-pixel-size-from-image-file-with-python/74798/2
-def get_voxel_size(_tiff):
-    """
-    Implemented based on information found in https://pypi.org/project/tifffile
+def get_voxel_size(_tiff, _path=None):
+    """Read [x, y, z] voxel size (µm/pixel) from a tifffile-opened TIFF.
+
+    Raises ``ValueError`` when ``XResolution`` / ``YResolution`` tags are
+    missing — the pre-fix silent fallback to ``1.0`` combined with the
+    ``default_voxel_size=[0.05, 0.05, 0.3]`` target produced a ~5% zoom
+    that corrupted resize_and_copy outputs to 102x102 from 2048x2048
+    sources. Fail loud so the bad source surfaces at ``gbm.py create``
+    time rather than mid-training.
+
+    Z falls back to ``1.0`` when ImageJ metadata lacks ``spacing`` —
+    ``resize_and_copy`` doesn't resize on Z so this is harmless. (If a
+    future caller resizes Z, gate it the same way.)
     """
     def _xy_voxel_size(tags, key):
         assert key in ['XResolution', 'YResolution']
-        if key in tags:
-            num_pixels, units = tags[key].value
-            return units / num_pixels
-        return 1.
+        if key not in tags:
+            raise ValueError(
+                f"TIFF{' ' + str(_path) if _path else ''} is missing the "
+                f"{key} tag. resize_and_copy needs X/Y pixel size to compute "
+                "zoom_factors against default_voxel_size; without it the "
+                "silent fallback of 1.0 µm/pixel produces a ~5% zoom that "
+                "corrupts the output (e.g. 2048→102). Fix the source TIFF "
+                "(ImageJ: Image → Properties; tifffile.imwrite: pass "
+                "resolution=(px_per_unit, px_per_unit)) or drop the file.")
+        num_pixels, units = tags[key].value
+        return units / num_pixels
 
     image_metadata = _tiff.imagej_metadata
     if image_metadata is not None:
@@ -85,7 +102,7 @@ def resize_and_copy(_source_dir, _dest_dir, _target_size):
         file_name = file.stem
         with tifffile.TiffFile(file) as tiff:
             voxel_space = tiff.asarray()
-            voxel_size = get_voxel_size(tiff)
+            voxel_size = get_voxel_size(tiff, _path=file)
             metadata = tiff.imagej_metadata or tiff.metadata
 
             has_labels = voxel_space.shape[1] == 4

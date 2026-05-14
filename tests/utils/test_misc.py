@@ -1,14 +1,17 @@
-"""Tests for src/utils/misc.py — specifically the removed-key loader guard."""
+"""Tests for src/utils/misc.py — loader guard + resize/voxel-size guard."""
 
 import textwrap
 from pathlib import Path
 
+import numpy as np
 import pytest
+import tifffile
 
 from src.utils.misc import (
     REMOVED_CONFIG_KEYS,
     _check_removed_keys,
     _has_dotted_key,
+    get_voxel_size,
 )
 
 
@@ -79,3 +82,47 @@ def test_read_configs_rejects_legacy_yaml(tmp_path: Path):
 
     with pytest.raises(ValueError, match=r"trainer\.tensorboard"):
         read_configs(str(legacy))
+
+
+# --- get_voxel_size: fail loud on missing X/Y resolution -------------------
+
+
+class _FakePage:
+    """Minimal stand-in for tifffile.TiffPage exposing only `.tags` (a dict)."""
+
+    def __init__(self, tags):
+        self.tags = tags
+
+
+class _FakeTiff:
+    """Minimal stand-in for tifffile.TiffFile for get_voxel_size."""
+
+    def __init__(self, tags=None, imagej_metadata=None):
+        self.pages = [_FakePage(tags or {})]
+        self.imagej_metadata = imagej_metadata
+
+
+def test_get_voxel_size_raises_when_xy_resolution_missing():
+    """resize_and_copy would silently shrink images 95% when X/YResolution
+    tags were absent (returning 1.0 µm/pixel as the fallback). Regression
+    for the cluster-mouse smoke-run finding (2048→102 corruption).
+
+    Tifffile auto-writes default resolution tags, so we mock the TiffFile
+    surface directly to reproduce a no-X/YResolution source.
+    """
+    fake = _FakeTiff(tags={}, imagej_metadata={'ImageJ': '1.54f'})
+    with pytest.raises(ValueError, match=r"[XY]Resolution"):
+        get_voxel_size(fake, _path="bad.tiff")
+
+
+def test_get_voxel_size_succeeds_with_resolution(tmp_path):
+    arr = np.zeros((4, 4, 32, 32), dtype=np.float32)
+    good = tmp_path / "with_resolution.tiff"
+    # 20 px / µm → voxel size = 0.05 µm/pixel.
+    tifffile.imwrite(good, arr, shape=arr.shape, imagej=True,
+                     resolution=(20.0, 20.0))
+
+    with tifffile.TiffFile(good) as t:
+        x, y, z = get_voxel_size(t, _path=good)
+    assert abs(x - 0.05) < 1e-6
+    assert abs(y - 0.05) < 1e-6
