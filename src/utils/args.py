@@ -69,8 +69,11 @@ def parse_exper() -> None:
                               help='name of the experiment.')
     train_parser.add_argument('--fold',
                               type=int,
-                              default=0,
-                              help='which CV fold to train (0..k-1). The fold '
+                              default=None,
+                              help='train a single CV fold by index (0..k-1). '
+                                   'When omitted, train every fold sequentially '
+                                   'and aggregate the validation metrics into '
+                                   '<exp>/cv_results.{yaml,npz}. The fold '
                                    'partition lives in '
                                    '<experiment>/fold_assignments.yaml — k=5 '
                                    'by default per gbm.py create.')

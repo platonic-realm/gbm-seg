@@ -24,7 +24,7 @@ from src.utils.misc import (
     read_configs,
     resize_and_copy,
 )
-from train import main_train
+from train import main_train, main_train_all_folds
 
 
 def _persist_git_provenance(_destination_path: str, _source_path: str):
@@ -351,13 +351,22 @@ def infer_experiment(_name: str,
 
 def train_experiment(_name: str,
                      _root_path: str,
-                     _fold: int = 0):
+                     _fold=None):
+    """Dispatch to single-fold or all-folds training.
+
+    ``_fold=None`` (the default for `gbm.py train EXP` without --fold)
+    runs the full CV via :func:`main_train_all_folds`. ``_fold=<int>``
+    runs a single fold via :func:`main_train`.
+    """
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
         raise FileNotFoundError(message)
     configs_path = os.path.join(_root_path, _name, 'configs.yaml')
     configs = read_configs(configs_path)
-    main_train(configs, _fold=_fold)
+    if _fold is None:
+        main_train_all_folds(configs)
+    else:
+        main_train(configs, _fold=int(_fold))
 
 
 def delete_experiment(_name: str,

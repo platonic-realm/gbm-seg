@@ -1,4 +1,5 @@
 # Python Imports
+from __future__ import annotations
 
 # Library Imports
 import torch
@@ -55,6 +56,25 @@ class Unet3DTrainer:
 
         _model.to(self.device)
         self.model = _model
+
+        # Track best validation metrics (by Dice) across the run so the
+        # CV orchestrator can collect a single best per fold without
+        # re-running validation.
+        self.best_valid_metrics: dict | None = None
+        self.best_valid_epoch: int | None = None
+        self.best_valid_step: int | None = None
+
+    def best_metrics(self) -> dict | None:
+        """Return a JSON-serialisable snapshot of the best validation
+        metrics (and which epoch/step achieved them), or None if no
+        validation cycle ran during training."""
+        if self.best_valid_metrics is None:
+            return None
+        return {
+            **{k: float(v) for k, v in self.best_valid_metrics.items()},
+            'best_epoch': self.best_valid_epoch,
+            'best_step': self.best_valid_step,
+        }
 
     def train(self) -> None:
         """Run training for ``self.epochs`` epochs."""
@@ -117,6 +137,19 @@ class Unet3DTrainer:
                                        self.stepper.getSeenLabels(),
                                        'valid',
                                        metrics)
+
+                # Update best-valid tracking. Dice is the canonical CV
+                # metric (also drives ReduceLROnPlateau); break ties by
+                # later epoch since training generally improves.
+                current_dice = float(metrics.get('Dice', float('-inf')))
+                prior_best = (float('-inf')
+                              if self.best_valid_metrics is None
+                              else float(self.best_valid_metrics.get(
+                                  'Dice', float('-inf'))))
+                if current_dice > prior_best:
+                    self.best_valid_metrics = dict(metrics)
+                    self.best_valid_epoch = _epoch
+                    self.best_valid_step = int(self.stepper.getSteps())
 
     def trainStep(self,
                   _epoch_id: int,
