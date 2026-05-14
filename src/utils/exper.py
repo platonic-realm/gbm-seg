@@ -389,6 +389,7 @@ def create_new_experiment(_name: str,
                           _dataset_path: str,
                           _batch_size: int,
                           _voxel_size: list,
+                          _z_scale_factor: int = 1,
                           _semi_supervised: bool = False):
 
     destination_path = os.path.join(_root_path, f'{_name}/')
@@ -414,13 +415,15 @@ def create_new_experiment(_name: str,
     create_dirs_recursively(os.path.join(new_ds_train_path, 'dummy'))
     resize_and_copy(os.path.join(_dataset_path, 'ds_train'),
                     new_ds_train_path,
-                    _voxel_size)
+                    _voxel_size,
+                    _z_scale_factor=_z_scale_factor)
 
     new_ds_test_path = os.path.join(new_dataset_path, 'ds_test')
     create_dirs_recursively(os.path.join(new_ds_test_path, 'dummy'))
     resize_and_copy(os.path.join(_dataset_path, 'ds_test'),
                     new_ds_test_path,
-                    _voxel_size)
+                    _voxel_size,
+                    _z_scale_factor=_z_scale_factor)
 
     logging.info("Saving the requirements file to '%s'",
                  destination_path)
@@ -478,6 +481,12 @@ def create_new_experiment(_name: str,
         f"{new_dataset_path}/ds_test/"
 
     configs['inference']['inference_ds']['batch_size'] = _batch_size
+
+    # Persist the Z-scale used at create time. ``Factory.createTrainer``
+    # reads this to mask validation metrics to original-label slices only
+    # (positions where Z % z_scale == 0); without it the same label voxel
+    # would be counted z_scale times.
+    configs['trainer']['z_scale'] = int(_z_scale_factor)
 
     del configs['experiments']
 

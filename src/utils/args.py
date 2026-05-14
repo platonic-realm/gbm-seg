@@ -50,6 +50,21 @@ def parse_exper() -> None:
                                default=8,
                                help='set the batch size for training')
 
+    create_parser.add_argument('-zs',
+                               '--z-scale',
+                               action='store',
+                               type=int,
+                               default=None,
+                               help='Z-axis interpolation factor applied at '
+                                    'experiment-creation time. Channels 0-2 '
+                                    'are trilinear-upsampled in Z; the label '
+                                    'channel is np.repeat\'d so each manual '
+                                    'annotation is stacked N times. The '
+                                    'persisted value (trainer.z_scale) drives '
+                                    'the validation-metric mask. Defaults to '
+                                    'configs.experiments.default_z_scale '
+                                    '(template: 6).')
+
     # Define a subparser for the 'delete' action
     delete_parser = \
         subparsers.add_parser('delete',

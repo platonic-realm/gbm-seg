@@ -18,13 +18,17 @@ from src.utils.misc import basic_logger, configure_logger
 
 def _do_create(args, configs):
     basic_logger()
+    z_scale = (int(args.z_scale)
+               if args.z_scale is not None
+               else int(configs['experiments'].get('default_z_scale', 1)))
     exper.create_new_experiment(
         _name=args.name,
         _root_path=configs['experiments']['root'],
         _source_path=os.getcwd(),
         _dataset_path=configs['experiments']['default_data_path'],
         _batch_size=int(args.batch_size),
-        _voxel_size=configs['experiments']['default_voxel_size'])
+        _voxel_size=configs['experiments']['default_voxel_size'],
+        _z_scale_factor=z_scale)
 
 
 def _do_list(args, configs):

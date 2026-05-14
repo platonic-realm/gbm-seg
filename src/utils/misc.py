@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import tifffile
 import torch
+import torch.nn.functional as Fn
 import yaml
 from scipy.ndimage import zoom
 
@@ -117,7 +118,63 @@ def get_voxel_size(_tiff, _path=None, _default=None):
     return [x, y, z]
 
 
-def resize_and_copy(_source_dir, _dest_dir, _target_size):
+def _z_interpolate_and_stack(_image: np.ndarray,
+                             _scale_factor: int,
+                             _has_labels: bool) -> np.ndarray:
+    """Z-upsample channels and stack labels — restores the deleted
+    ``src/scripts/interpolate.py`` logic so it now lives inside
+    ``resize_and_copy``.
+
+    * Channels 0..2 (nephrin, collagen-4, WGA): trilinear interpolation
+      along Z via ``F.interpolate(scale_factor=(N, 1, 1), mode='trilinear')``.
+    * Channel 3 (labels): ``np.repeat(..., N, axis=0)`` so each original
+      label slice is replicated N times along Z. The "real" labels in the
+      output are at Z positions ``i * N`` for the source slice ``i``; the
+      N-1 positions after each are exact copies. ``factory.createTrainer``
+      reads ``trainer.z_scale`` so the validation step
+      (``_select_real_z``) can mask metric computation to those originals.
+
+    Returns a new array of shape ``(Z * N, C, H, W)`` with the same dtype
+    as the input. ``N <= 1`` is a no-op pass-through.
+    """
+    if _scale_factor <= 1:
+        return _image
+
+    z_in, channels, height, width = _image.shape
+    out_z = z_in * _scale_factor
+    out = np.empty((out_z, channels, height, width), dtype=_image.dtype)
+
+    intensity_count = 3 if _has_labels else channels
+    for c in range(intensity_count):
+        ch = _image[:, c, :, :]  # (Z, H, W)
+        # F.interpolate wants (N, C_in, D, H, W).
+        tensor = torch.from_numpy(ch).float().unsqueeze(0).unsqueeze(0)
+        scaled = Fn.interpolate(tensor,
+                                scale_factor=(_scale_factor, 1, 1),
+                                mode='trilinear',
+                                align_corners=False)
+        out[:, c, :, :] = (scaled.squeeze(0).squeeze(0).numpy()
+                           .astype(_image.dtype))
+
+    if _has_labels:
+        labels = _image[:, 3, :, :]  # (Z, H, W)
+        out[:, 3, :, :] = np.repeat(labels, _scale_factor, axis=0)
+
+    return out
+
+
+def resize_and_copy(_source_dir, _dest_dir, _target_size,
+                    _z_scale_factor: int = 1):
+    """Copy every TIFF from ``_source_dir`` to ``_dest_dir``.
+
+    * XY axes are zoomed to match ``_target_size[0..1]`` µm/pixel (per-slice
+      via ``scipy.ndimage.zoom``).
+    * When ``_z_scale_factor > 1``, the assembled volume is also
+      Z-upsampled (``trilinear`` on channels, ``np.repeat`` on labels) —
+      restoring the deleted offline ``interpolate.py`` step as part of
+      ``gbm.py create``. The label-stacking sets up the
+      ``trainer.z_scale``-driven validation mask in ``Unet3DTrainer``.
+    """
     source_path = Path(_source_dir)
     tiff_files = list(source_path.glob('*.tif')) + list(source_path.glob('*.tiff'))
     for file in tiff_files:
@@ -190,6 +247,18 @@ def resize_and_copy(_source_dir, _dest_dir, _target_size):
                 image_data = np.stack([resized_nephrin_stack,
                                        resized_collagen4_stack,
                                        resized_wga_stack], axis=1)
+
+            if _z_scale_factor > 1:
+                image_data = _z_interpolate_and_stack(
+                    image_data, _z_scale_factor, has_labels)
+                # Update ImageJ spacing so downstream tools (and an eventual
+                # re-load by `get_voxel_size`) see the new, finer Z step.
+                if isinstance(metadata, dict) and metadata.get('spacing'):
+                    try:
+                        metadata['spacing'] = (float(metadata['spacing'])
+                                               / _z_scale_factor)
+                    except (TypeError, ValueError):
+                        pass
 
         file_path = Path(_dest_dir) / f"{file_name}.tiff"
         tifffile.imwrite(file_path,

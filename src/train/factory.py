@@ -223,16 +223,14 @@ class Factory:
         report_freq = self.configs['trainer']['report_freq']
         epochs = self.configs['trainer']['epochs']
 
-        # When the dataset stacks labels along Z (replicated every N slices
-        # after Z-interpolation), validation metrics should be measured only
-        # at the original-label positions. Pull the stride from the existing
-        # `train_ds.augmentation.methods_online.scale` field — that's where
-        # the user already declares the Z scale factor for the training
-        # input. Default 1 = every slice is a real label.
-        train_aug = (self.configs['trainer']['train_ds']
-                     .get('augmentation', {}) or {})
-        methods_online = train_aug.get('methods_online', {}) or {}
-        valid_label_stride = int(methods_online.get('scale', 1) or 1)
+        # `gbm.py create` z-upsamples every channel and stacks the label
+        # along Z by ``trainer.z_scale`` (written into the per-experiment
+        # configs.yaml). Validation metrics are masked to slices where
+        # Z % z_scale == 0 — i.e. the original-label positions — so the
+        # same label voxel isn't counted z_scale times. Default 1 = no
+        # interpolation, no masking (every slice is a real label).
+        valid_label_stride = int(
+            self.configs['trainer'].get('z_scale', 1) or 1)
 
         _snapper.load(_model, device)
 

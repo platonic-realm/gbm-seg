@@ -7,11 +7,21 @@ experiments:
   scale_lerning_rate_for_batch_size: True
 
   # default_data_path: '/projects/ag-bozek/afatehi/gbm/data/ds_human/'
-  default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
+  # default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
+  default_data_path: '/projects/ag-bozek/afatehi/gbm/dataset/ds_mouse/'
   default_batch_size: 8
 
   # The training samples will resize to match this size
   default_voxel_size: [0.050, 0.050, 0.300]
+
+  # Z-axis interpolation factor applied at `gbm.py create` time.
+  # Channels 0-2 (nephrin, collagen-4, WGA) are trilinear-upsampled along
+  # Z; the label channel is np.repeat'd, stacking each manual annotation
+  # N times. The same value is written to the per-experiment configs.yaml
+  # as `trainer.z_scale` and read by Factory.createTrainer to mask
+  # validation metrics down to the *original* label positions only.
+  # Set to 1 to disable interpolation entirely.
+  default_z_scale: 6
 
 trainer:
   model:

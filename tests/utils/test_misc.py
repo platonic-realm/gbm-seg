@@ -11,7 +11,9 @@ from src.utils.misc import (
     REMOVED_CONFIG_KEYS,
     _check_removed_keys,
     _has_dotted_key,
+    _z_interpolate_and_stack,
     get_voxel_size,
+    resize_and_copy,
 )
 
 
@@ -140,3 +142,84 @@ def test_get_voxel_size_succeeds_with_resolution(tmp_path):
         x, y, z = get_voxel_size(t, _path=good)
     assert abs(x - 0.05) < 1e-6
     assert abs(y - 0.05) < 1e-6
+
+
+# --- _z_interpolate_and_stack: restore of the deleted interpolate.py logic --
+
+
+def test_z_interp_no_op_for_scale_one():
+    img = np.random.default_rng(0).standard_normal((4, 4, 8, 8)).astype(np.float32)
+    out = _z_interpolate_and_stack(img, 1, _has_labels=True)
+    # Same array returned unchanged.
+    assert out is img
+
+
+def test_z_interp_stacks_labels_by_repeat():
+    """Labels (channel 3) must be `np.repeat`'d along Z, not interpolated."""
+    z, c, h, w = 3, 4, 4, 4
+    img = np.zeros((z, c, h, w), dtype=np.float32)
+    # Distinct label per source Z so we can verify the replicate pattern.
+    img[0, 3] = 10
+    img[1, 3] = 20
+    img[2, 3] = 30
+
+    out = _z_interpolate_and_stack(img, 6, _has_labels=True)
+    assert out.shape == (z * 6, c, h, w)
+
+    label_z = out[:, 3, 0, 0]
+    expected = np.array([10] * 6 + [20] * 6 + [30] * 6, dtype=np.float32)
+    np.testing.assert_array_equal(label_z, expected)
+
+
+def test_z_interp_uses_trilinear_for_intensity_channels():
+    """Linear-ish gradient in Z should remain linear-ish in the upsampled output."""
+    z, h, w = 4, 4, 4
+    img = np.zeros((z, 4, h, w), dtype=np.float32)
+    # Channel 0 has a clean Z gradient 0, 10, 20, 30; channels 1-2 mirror;
+    # channel 3 is labels (zeros, irrelevant here).
+    for i in range(z):
+        img[i, 0] = i * 10.0
+        img[i, 1] = i * 10.0
+        img[i, 2] = i * 10.0
+
+    out = _z_interpolate_and_stack(img, 4, _has_labels=True)
+    assert out.shape == (z * 4, 4, h, w)
+    # Interpolation should bracket the source values: min and max preserved.
+    assert out[:, 0, 0, 0].min() >= 0.0
+    assert out[:, 0, 0, 0].max() <= 30.0
+    # Should be monotonically non-decreasing for a strictly increasing source.
+    diffs = np.diff(out[:, 0, 0, 0])
+    assert (diffs >= -1e-5).all(), "trilinear upsample should be non-decreasing"
+
+
+def test_resize_and_copy_z_scale_pipeline(tmp_path):
+    """End-to-end: a TIFF copied with z_scale=3 has 3x the Z slices, and
+    labels replicate every 3rd slice. Also confirm `resolution=` round-trips
+    so get_voxel_size doesn't fail (the smoke-time concern)."""
+    src = tmp_path / "ds_src"
+    src.mkdir()
+    # The threshold inside `resize_and_copy` snaps labels to {0, 255}, so
+    # distinguish source slices by alternating those two values.
+    arr = np.zeros((4, 4, 32, 32), dtype=np.float32)
+    for i in range(4):
+        arr[i, :3] = i * 50.0
+        arr[i, 3] = 255.0 if i % 2 == 1 else 0.0
+    tifffile.imwrite(src / "tiny.tiff", arr,
+                     shape=arr.shape, imagej=True,
+                     resolution=(20.0, 20.0))
+
+    dest = tmp_path / "ds_dest"
+    dest.mkdir()
+    resize_and_copy(str(src), str(dest),
+                    _target_size=[0.05, 0.05, 0.3],
+                    _z_scale_factor=3)
+
+    out_files = sorted(Path(dest).glob("*.tiff"))
+    assert len(out_files) == 1
+    out_img = tifffile.imread(out_files[0])
+    assert out_img.shape == (12, 4, 32, 32)
+    # Labels: np.repeat'd; original slice i sits at out Z = 3i..3i+2.
+    label_z = out_img[:, 3, 0, 0]
+    expected = np.repeat(
+        np.array([0.0, 255.0, 0.0, 255.0], dtype=np.float32), 3)
+    np.testing.assert_array_equal(label_z, expected)
