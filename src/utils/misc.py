@@ -55,31 +55,51 @@ def create_dirs_recursively(_path: str):
 
 
 # https://forum.image.sc/t/reading-pixel-size-from-image-file-with-python/74798/2
-def get_voxel_size(_tiff, _path=None):
+def get_voxel_size(_tiff, _path=None, _default=None):
     """Read [x, y, z] voxel size (µm/pixel) from a tifffile-opened TIFF.
 
-    Raises ``ValueError`` when ``XResolution`` / ``YResolution`` tags are
-    missing — the pre-fix silent fallback to ``1.0`` combined with the
+    The pre-fix silent fallback to ``1.0`` combined with the
     ``default_voxel_size=[0.05, 0.05, 0.3]`` target produced a ~5% zoom
     that corrupted resize_and_copy outputs to 102x102 from 2048x2048
-    sources. Fail loud so the bad source surfaces at ``gbm.py create``
-    time rather than mid-training.
+    sources. Two files in the cluster mouse dataset
+    (NCWM.BDP669.Series011.Pod-mutation, NCWM.CKM104.Series006.New.COL4-mutation)
+    are known to be affected.
+
+    Behaviour:
+    * ``_default=None`` — raise ``ValueError`` on missing X/Y resolution
+      tags (safe default; surfaces bad sources at ``gbm.py create`` time).
+    * ``_default=[x, y, z]`` — soft fallback: log a warning naming the
+      file and the missing tag, return the supplied default so callers
+      compute a zoom factor of 1.0 (no shrink). The TODO marker below
+      tracks files that need their metadata investigated.
 
     Z falls back to ``1.0`` when ImageJ metadata lacks ``spacing`` —
     ``resize_and_copy`` doesn't resize on Z so this is harmless. (If a
-    future caller resizes Z, gate it the same way.)
+    future caller resizes Z, route it through ``_default[2]`` too.)
     """
-    def _xy_voxel_size(tags, key):
+    # TODO(arash): The two cluster-mouse files mentioned above carry no
+    # X/YResolution metadata — confirm whether they were acquired at the
+    # default voxel size (0.05 µm/pixel) and either re-export with the
+    # right tags or move them out of ds_train/. Tracking via the soft
+    # fallback below; the warning log fires at every gbm.py create.
+    def _xy_voxel_size(tags, key, fallback):
         assert key in ['XResolution', 'YResolution']
         if key not in tags:
-            raise ValueError(
-                f"TIFF{' ' + str(_path) if _path else ''} is missing the "
-                f"{key} tag. resize_and_copy needs X/Y pixel size to compute "
-                "zoom_factors against default_voxel_size; without it the "
-                "silent fallback of 1.0 µm/pixel produces a ~5% zoom that "
-                "corrupts the output (e.g. 2048→102). Fix the source TIFF "
-                "(ImageJ: Image → Properties; tifffile.imwrite: pass "
-                "resolution=(px_per_unit, px_per_unit)) or drop the file.")
+            if fallback is None:
+                raise ValueError(
+                    f"TIFF{' ' + str(_path) if _path else ''} is missing the "
+                    f"{key} tag. resize_and_copy needs X/Y pixel size to compute "
+                    "zoom_factors against default_voxel_size; without it the "
+                    "silent fallback to 1.0 µm/pixel produces a ~5% zoom that "
+                    "corrupts the output (e.g. 2048→102). Fix the source TIFF "
+                    "(ImageJ: Image → Properties; tifffile.imwrite: pass "
+                    "resolution=(px_per_unit, px_per_unit)), drop the file, "
+                    "or call get_voxel_size with a non-None _default.")
+            logging.warning(
+                "TIFF %s lacks %s; assuming voxel_size=%s µm/pixel (no zoom). "
+                "Investigate this file's metadata.",
+                _path, key, fallback)
+            return fallback
         num_pixels, units = tags[key].value
         return units / num_pixels
 
@@ -90,8 +110,10 @@ def get_voxel_size(_tiff, _path=None):
         z = 1.
 
     tags = _tiff.pages[0].tags
-    y = _xy_voxel_size(tags, 'YResolution')
-    x = _xy_voxel_size(tags, 'XResolution')
+    fallback_x = _default[0] if _default is not None else None
+    fallback_y = _default[1] if _default is not None else None
+    y = _xy_voxel_size(tags, 'YResolution', fallback_y)
+    x = _xy_voxel_size(tags, 'XResolution', fallback_x)
     return [x, y, z]
 
 
@@ -102,7 +124,11 @@ def resize_and_copy(_source_dir, _dest_dir, _target_size):
         file_name = file.stem
         with tifffile.TiffFile(file) as tiff:
             voxel_space = tiff.asarray()
-            voxel_size = get_voxel_size(tiff, _path=file)
+            # Soft fallback for TIFFs missing X/YResolution metadata: assume
+            # the source is already at the target voxel size (zoom_factor=1.0)
+            # rather than silently shrinking 95%. The TODO in get_voxel_size
+            # tracks the affected files.
+            voxel_size = get_voxel_size(tiff, _path=file, _default=_target_size)
             metadata = tiff.imagej_metadata or tiff.metadata
 
             has_labels = voxel_space.shape[1] == 4

@@ -102,17 +102,31 @@ class _FakeTiff:
         self.imagej_metadata = imagej_metadata
 
 
-def test_get_voxel_size_raises_when_xy_resolution_missing():
-    """resize_and_copy would silently shrink images 95% when X/YResolution
-    tags were absent (returning 1.0 µm/pixel as the fallback). Regression
-    for the cluster-mouse smoke-run finding (2048→102 corruption).
+def test_get_voxel_size_raises_when_xy_resolution_missing_strict():
+    """Strict mode (default): raise when X/YResolution missing.
 
-    Tifffile auto-writes default resolution tags, so we mock the TiffFile
-    surface directly to reproduce a no-X/YResolution source.
+    Pre-fix, the silent fallback to 1.0 µm/pixel combined with the
+    default_voxel_size=[0.05, ...] target produced a 5% shrink (2048→102).
+    With _default=None we now refuse to fall back at all. Mock TiffFile
+    surface directly because tifffile.imwrite auto-emits defaults.
     """
     fake = _FakeTiff(tags={}, imagej_metadata={'ImageJ': '1.54f'})
     with pytest.raises(ValueError, match=r"[XY]Resolution"):
         get_voxel_size(fake, _path="bad.tiff")
+
+
+def test_get_voxel_size_soft_fallback_when_xy_missing(caplog):
+    """Soft mode (resize_and_copy): supply _default → fall back, warn."""
+    fake = _FakeTiff(tags={}, imagej_metadata={'ImageJ': '1.54f'})
+    target = [0.05, 0.05, 0.3]
+    import logging as _logging
+    with caplog.at_level(_logging.WARNING):
+        x, y, z = get_voxel_size(fake, _path="bad.tiff", _default=target)
+    assert x == 0.05
+    assert y == 0.05
+    # zoom_factor = target / voxel_size = 1.0 → no shrink.
+    assert any("bad.tiff" in r.message and "Resolution" in r.message
+               for r in caplog.records)
 
 
 def test_get_voxel_size_succeeds_with_resolution(tmp_path):
