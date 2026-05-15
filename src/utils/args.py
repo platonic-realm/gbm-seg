@@ -92,6 +92,19 @@ def parse_exper() -> None:
                                    'partition lives in '
                                    '<experiment>/fold_assignments.yaml — k=5 '
                                    'by default per gbm.py create.')
+    train_parser.add_argument('--all-data',
+                              dest='all_data',
+                              action='store_true',
+                              help='Stage-B final model: train on every '
+                                   'ds_train subject with no fold holdout. '
+                                   'No validation set, fixed-epoch; the last '
+                                   'snapshot is the deliverable. Mutually '
+                                   'exclusive with --fold.')
+    train_parser.add_argument('--epochs',
+                              type=int,
+                              default=None,
+                              help='override configs.trainer.epochs for this '
+                                   'run (typically paired with --all-data).')
 
     # Define a subparser for the 'aggregate-cv' action — consolidate
     # per-fold best_metrics.yaml files into a single cv_results.{yaml,npz}

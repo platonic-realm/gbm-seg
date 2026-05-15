@@ -46,7 +46,8 @@ def seed_everything(_seed: int):
 
 
 def maybe_init_wandb(_configs, _fold: int = 0,
-                     _resume_run_id: str | None = None) -> bool:
+                     _resume_run_id: str | None = None,
+                     _all_data: bool = False) -> bool:
     """Initialise a W&B run when ``configs.trainer.wandb.enabled`` is true.
 
     The full ``configs`` dict is logged as ``wandb.config`` so every axis
@@ -58,6 +59,11 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     ``wandb.init(resume="must", id=...)`` instead of starting a fresh
     one — so the metric charts continue from where they left off rather
     than appearing as a separate run.
+
+    ``_all_data=True`` marks an all-data (no-fold) final training: the run
+    is named ``<exp>-all_data`` and tagged ``all_data`` instead of
+    ``fold-N``, so Stage-B finals are visually distinct from the
+    Stage-A CV folds even within the same W&B project.
 
     Returns True iff a run was successfully initialised; False otherwise
     (wandb missing, disabled, or init failed). Failure is logged but
@@ -87,7 +93,8 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     if not wandb_cfg.get('group'):
         wandb_cfg['group'] = exp_name
 
-    run_config = {**_configs, 'fold': int(_fold)}
+    run_config = {**_configs,
+                  'fold': ('all_data' if _all_data else int(_fold))}
     explicit_name = wandb_cfg.get('run_name')
 
     # Surface compile state in the run name and as a tag so torch.compile vs
@@ -96,14 +103,13 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     # via wandb.config — only these two surface as first-class UI labels.
     compile_on = bool(_configs['trainer'].get('compile', False))
     compile_suffix = '-compile' if compile_on else '-eager'
-    tags = ['compile' if compile_on else 'eager',
-            f"fold-{int(_fold)}"]
+    split_tag = 'all_data' if _all_data else f"fold-{int(_fold)}"
+    tags = ['compile' if compile_on else 'eager', split_tag]
 
-    # Auto-suffix per-fold so multi-fold CV runs don't collide visually.
+    # Auto-suffix per-fold (or `-all_data`) so runs don't collide visually.
     auto_name = explicit_name
     if explicit_name is None:
-        auto_name = (f"{wandb_cfg['group']}-fold-{int(_fold)}"
-                     f"{compile_suffix}")
+        auto_name = f"{wandb_cfg['group']}-{split_tag}{compile_suffix}"
     init_kwargs = dict(
         project=wandb_cfg.get('project', 'gbm-seg'),
         entity=wandb_cfg.get('entity'),
@@ -305,6 +311,130 @@ def main_train(_configs, _fold: int = 0):
                 pass
 
     return best
+
+
+def main_train_all_data(_configs, _epochs: int | None = None):
+    """Train one model on ALL ``ds_train`` subjects — no fold holdout.
+
+    Stage-B final-model training. There is no validation set, hence no
+    "best" snapshot: the run trains for a fixed number of epochs and the
+    *last* snapshot is the deliverable. ``_epochs`` overrides
+    ``configs.trainer.epochs`` when given.
+
+    Outputs are namespaced under ``results-train/{snapshots,…}/all_data/``
+    so they never collide with the per-fold CV artefacts. An interrupted
+    run resumes from ``…/all_data/continue/*.pt`` like any fold run.
+    """
+    split_tag = 'all_data'
+    _configs['trainer']['snapshot_path'] = os.path.join(
+        _configs['trainer']['snapshot_path'].rstrip('/'), split_tag)
+    _configs['trainer']['visualization']['path'] = os.path.join(
+        _configs['trainer']['visualization']['path'].rstrip('/'), split_tag)
+    _configs['logging']['log_file'] = _configs['logging']['log_file'].replace(
+        '.log', f'.{split_tag}.log')
+
+    if _epochs is not None:
+        _configs['trainer']['epochs'] = int(_epochs)
+
+    if _configs['logging']['log_summary'] and is_main_process():
+        summerize_configs(_configs)
+
+    # DDP bring-up — same contract as main_train.
+    if ddp_requested(_configs) and not ddp_launchable():
+        raise RuntimeError(
+            "trainer.ddp=True requires the torchrun env vars "
+            "(LOCAL_RANK/RANK/WORLD_SIZE). Submit via "
+            "`sbatch/train_ddp.sbatch` (which wraps `torchrun "
+            "--nproc-per-node=N gbm.py train …`).")
+    init_ddp(_configs)
+
+    seed_everything(SEED)
+
+    if _configs['trainer']['cudnn_benchmark']:
+        if is_distributed():
+            torch.backends.cudnn.benchmark = True
+            torch.use_deterministic_algorithms(False)
+            if is_main_process():
+                logging.info(
+                    "DDP: cudnn.benchmark enabled (non-deterministic)")
+        else:
+            logging.warning(
+                "trainer.cudnn_benchmark=True is incompatible with "
+                "deterministic algorithms in single-process mode; skipping "
+                "cuDNN benchmarking.")
+
+    factory = Factory(_configs)
+
+    # All-data: every ds_train subject trains. file_filter=None → "all".
+    train_dataset = factory.createTrainDataset(file_filter=None)
+    train_dataloader = factory.createTrainDataLoader(train_dataset)
+    n_subjects = len(getattr(train_dataset, 'image_list', []) or [])
+    logging.info("All-data training: %d training subjects, no holdout.",
+                 n_subjects)
+
+    model = factory.createModel(train_dataset.getNumberOfChannels(),
+                                train_dataset.getNumberOfClasses())
+    loss_function = factory.createLoss()
+    optimizer = factory.createOptimizer(model, loss_function)
+    lr_scheduler = factory.createScheduler(optimizer)
+
+    stepper = factory.createStepper(model, optimizer, loss_function)
+    snapper = factory.createSnapper()
+
+    device = _configs['trainer']['device']
+    resume = snapper.load(model,
+                          _device=device,
+                          _stepper=stepper,
+                          _optimizer=optimizer,
+                          _scheduler=lr_scheduler)
+    if resume is not None:
+        logging.info(
+            "Resuming all-data training from snapshot: epoch=%d step=%d "
+            "wandb_id=%s",
+            resume['epoch'], resume['step'], resume['wandb_run_id'])
+
+    wandb_active = maybe_init_wandb(
+        _configs,
+        _resume_run_id=(resume['wandb_run_id'] if resume else None),
+        _all_data=True)
+
+    visualizer = factory.createVisualizer()
+    metric_logger = factory.createMetricLogger()
+
+    starting_epoch = (resume['epoch'] + 1) if resume else 0
+
+    # validation_loader=None → the trainer skips the validation cycle and
+    # steps the epoch-driven scheduler (poly_decay) once per epoch instead.
+    trainer = factory.createTrainer(
+        model,
+        loss_function,
+        stepper,
+        snapper,
+        visualizer,
+        metric_logger,
+        lr_scheduler,
+        train_dataloader,
+        None,
+        train_dataset.getNumberOfClasses(),
+        _starting_epoch=starting_epoch,
+    )
+
+    try:
+        trainer.train()
+    finally:
+        cleanup_ddp()
+
+    if is_main_process():
+        logging.info(
+            "All-data training complete (%d epochs). The final snapshot is "
+            "the deliverable — there is no best-validation selection.",
+            _configs['trainer']['epochs'])
+        if wandb_active:
+            try:
+                import wandb
+                wandb.finish()
+            except ImportError:
+                pass
 
 
 def _aggregate_cv(per_fold: list) -> dict:

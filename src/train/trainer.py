@@ -108,9 +108,11 @@ class Unet3DTrainer:
         sampler = getattr(self.training_loader, 'sampler', None)
         if sampler is not None and hasattr(sampler, 'set_epoch'):
             sampler.set_epoch(_epoch)
-        valid_sampler = getattr(self.validation_loader, 'sampler', None)
-        if valid_sampler is not None and hasattr(valid_sampler, 'set_epoch'):
-            valid_sampler.set_epoch(_epoch)
+        if self.validation_loader is not None:
+            valid_sampler = getattr(self.validation_loader, 'sampler', None)
+            if valid_sampler is not None and hasattr(valid_sampler,
+                                                     'set_epoch'):
+                valid_sampler.set_epoch(_epoch)
 
         train_running_metrics = GPURunningMetrics(self.device,
                                                   self.metric_list)
@@ -148,48 +150,69 @@ class Unet3DTrainer:
                     _best_valid_step=self.best_valid_step,
                 )
 
-                valid_running_metrics = GPURunningMetrics(self.device,
-                                                          self.metric_list)
+                # All-data training mode has no validation set — skip the
+                # validation cycle, its metric-driven scheduler step, and
+                # the best-valid tracker entirely.
+                if self.validation_loader is not None:
+                    self._validate(_epoch)
 
-                self.validation_loader.dataset.setIsValid(True)
-                for index, data in enumerate(self.validation_loader):
+        # In all-data mode an epoch-driven scheduler (poly_decay) can't step
+        # inside a validation cycle because there isn't one — advance it
+        # once per epoch instead. The all-data config sets poly_decay's
+        # total_iters in epoch units to match. ReduceLROnPlateau is
+        # metric-driven and simply cannot run without validation.
+        if (self.validation_loader is None
+                and self.scheduler is not None
+                and not isinstance(self.scheduler, ReduceLROnPlateau)
+                and _epoch > 0):
+            self.scheduler.step()
 
-                    results = self.validStep(_epoch_id=_epoch,
-                                             _batch_id=index,
-                                             _data=data)
+    def _validate(self, _epoch: int) -> None:
+        """Run one validation cycle: validate over the validation loader,
+        step a metric-driven scheduler, log valid metrics, and update the
+        best-valid tracker. Only called when a validation loader exists."""
+        valid_running_metrics = GPURunningMetrics(self.device,
+                                                  self.metric_list)
 
-                    valid_running_metrics.add(results)
+        self.validation_loader.dataset.setIsValid(True)
+        for index, data in enumerate(self.validation_loader):
 
-                metrics = valid_running_metrics.calculate()
+            results = self.validStep(_epoch_id=_epoch,
+                                     _batch_id=index,
+                                     _data=data)
 
-                # C1.1: the scheduler is now config-selectable.
-                # ReduceLROnPlateau is metric-driven; PolynomialLR (and any
-                # future epoch-driven scheduler) takes no argument. None
-                # means scheduler disabled (configs.trainer.scheduler null
-                # / .name == 'none') — skip the step entirely.
-                if _epoch > 0 and self.scheduler is not None:
-                    if isinstance(self.scheduler, ReduceLROnPlateau):
-                        self.scheduler.step(metrics['Dice'])
-                    else:
-                        self.scheduler.step()
+            valid_running_metrics.add(results)
 
-                self.metric_logger.log(_epoch,
-                                       self.stepper.getSteps(),
-                                       'valid',
-                                       metrics)
+        metrics = valid_running_metrics.calculate()
 
-                # Update best-valid tracking. Dice is the canonical CV
-                # metric (also drives ReduceLROnPlateau); break ties by
-                # later epoch since training generally improves.
-                current_dice = float(metrics.get('Dice', float('-inf')))
-                prior_best = (float('-inf')
-                              if self.best_valid_metrics is None
-                              else float(self.best_valid_metrics.get(
-                                  'Dice', float('-inf'))))
-                if current_dice > prior_best:
-                    self.best_valid_metrics = dict(metrics)
-                    self.best_valid_epoch = _epoch
-                    self.best_valid_step = int(self.stepper.getSteps())
+        # C1.1: the scheduler is now config-selectable.
+        # ReduceLROnPlateau is metric-driven; PolynomialLR (and any
+        # future epoch-driven scheduler) takes no argument. None
+        # means scheduler disabled (configs.trainer.scheduler null
+        # / .name == 'none') — skip the step entirely.
+        if _epoch > 0 and self.scheduler is not None:
+            if isinstance(self.scheduler, ReduceLROnPlateau):
+                self.scheduler.step(metrics['Dice'])
+            else:
+                self.scheduler.step()
+
+        self.metric_logger.log(_epoch,
+                               self.stepper.getSteps(),
+                               'valid',
+                               metrics)
+
+        # Update best-valid tracking. Dice is the canonical CV
+        # metric (also drives ReduceLROnPlateau); break ties by
+        # later epoch since training generally improves.
+        current_dice = float(metrics.get('Dice', float('-inf')))
+        prior_best = (float('-inf')
+                      if self.best_valid_metrics is None
+                      else float(self.best_valid_metrics.get(
+                          'Dice', float('-inf'))))
+        if current_dice > prior_best:
+            self.best_valid_metrics = dict(metrics)
+            self.best_valid_epoch = _epoch
+            self.best_valid_step = int(self.stepper.getSteps())
 
     def trainStep(self,
                   _epoch_id: int,
