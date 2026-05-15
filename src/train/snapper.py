@@ -278,7 +278,19 @@ class Snapper:
             _optimizer.load_state_dict(snapshot['OPTIMIZER_STATE'])
 
         if _scheduler is not None and snapshot.get('SCHEDULER_STATE') is not None:
-            _scheduler.load_state_dict(snapshot['SCHEDULER_STATE'])
+            # When the scheduler type changes between the original run and the
+            # resume (e.g. reduce_on_plateau → poly_decay because the user
+            # decided to switch strategy for the continuation), the saved
+            # state_dict is type-incompatible. Skip rather than crash — the
+            # new scheduler starts fresh from its config-driven defaults.
+            try:
+                _scheduler.load_state_dict(snapshot['SCHEDULER_STATE'])
+            except (KeyError, TypeError, ValueError) as exc:
+                logging.warning(
+                    "Scheduler state in snapshot is incompatible with the "
+                    "current scheduler (%s); starting the scheduler fresh. "
+                    "Underlying error: %s",
+                    type(_scheduler).__name__, exc)
 
         if _stepper is not None and snapshot.get('STEPPER_STATE') is not None:
             _stepper.load_state_dict(snapshot['STEPPER_STATE'])
