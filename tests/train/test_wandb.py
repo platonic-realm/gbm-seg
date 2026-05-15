@@ -51,11 +51,14 @@ def test_metric_wandb_log_namespaces_metrics_by_tag(fake_wandb):
     assert payload[0] == {
         'train/Loss': 0.5,
         'train/Dice': 0.8,
-        'epoch': 3,
     }
-    # Don't pass step= explicitly: wandb's auto-step indexes the charts.
-    # And don't put `step` in the payload — it'd add a redundant chart.
-    assert kwargs == {}
+    # No `epoch` or `step` in the payload — both would create a useless
+    # monotonic chart against wandb's internal _step axis.
+    # step= IS passed explicitly though, so the W&B chart x-axis lines up
+    # with our global step counter — critical for resumed runs where the
+    # original run's terminal _step would otherwise be where the resumed
+    # log emissions start, breaking x-axis continuity.
+    assert kwargs == {'step': 42}
 
 
 def test_metric_wandb_log_warns_with_no_active_run(fake_wandb, caplog):
