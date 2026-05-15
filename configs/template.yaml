@@ -61,10 +61,10 @@ trainer:
   # LR scheduler. Supported names:
   #   reduce_on_plateau  — fields: mode (max/min, default max), factor (default 0.1), patience (default 10). Stepped on validation Dice.
   #   poly_decay         — nnU-Net's (1 - t/T)^power. Fields: total_iters (default trainer.epochs), power (default 0.9). Stepped per validation cycle.
+  #   none               — disable scheduling. Equivalently, set `scheduler: null`.
   # If this block is omitted entirely, defaults to reduce_on_plateau with mode=max (the prior behaviour).
   scheduler:
-    name: reduce_on_plateau
-    mode: max
+    name: none
 
   loss: Cont
   loss_weights: [3.0, 7.0]

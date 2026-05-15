@@ -36,7 +36,11 @@ class Unet3DTrainer:
                  _device: str,
                  _freq: int,
                  _epochs: int,
-                 _valid_label_stride: int = 1):
+                 _valid_label_stride: int = 1,
+                 _starting_epoch: int = 0,
+                 _starting_best_metrics: dict | None = None,
+                 _starting_best_epoch: int | None = None,
+                 _starting_best_step: int | None = None):
 
         self.loss_function = _loss_funtion
         self.stepper = _stepper
@@ -65,12 +69,13 @@ class Unet3DTrainer:
         _model.to(self.device)
         self.model = _model
 
-        # Track best validation metrics (by Dice) across the run so the
-        # CV orchestrator can collect a single best per fold without
-        # re-running validation.
-        self.best_valid_metrics: dict | None = None
-        self.best_valid_epoch: int | None = None
-        self.best_valid_step: int | None = None
+        # Resume hooks — set by main_train from the snapshot's resume info
+        # so a continued run starts at the right epoch and doesn't reset
+        # the best-validation tracker. Defaults match the from-scratch path.
+        self.starting_epoch = int(_starting_epoch)
+        self.best_valid_metrics: dict | None = _starting_best_metrics
+        self.best_valid_epoch: int | None = _starting_best_epoch
+        self.best_valid_step: int | None = _starting_best_step
 
     def best_metrics(self) -> dict | None:
         """Return a JSON-serialisable snapshot of the best validation
@@ -85,8 +90,14 @@ class Unet3DTrainer:
         }
 
     def train(self) -> None:
-        """Run training for ``self.epochs`` epochs."""
-        for epoch in range(0, self.epochs + 1):
+        """Run training from ``self.starting_epoch`` to ``self.epochs``.
+
+        On a fresh run ``starting_epoch == 0`` and the loop covers
+        ``0..epochs`` inclusive (the existing N+1 sweep). On a resumed
+        run ``starting_epoch`` is set to ``saved_epoch + 1`` by
+        ``main_train`` so the already-completed epochs are skipped.
+        """
+        for epoch in range(self.starting_epoch, self.epochs + 1):
             self.trainEpoch(epoch)
 
     def trainEpoch(self, _epoch: int):
@@ -120,10 +131,22 @@ class Unet3DTrainer:
                                        'train',
                                        train_running_metrics.calculate())
 
-                # Save the snapshot
-                self.snapper.save(self.model,
-                                  _epoch,
-                                  self.stepper.getSteps())
+                # Snapshot the full resume-able state, not just the model.
+                # Pull the optimiser off the stepper (the trainer doesn't
+                # hold a direct reference). best_valid_* may still be None
+                # this early — the snapshot stores None and main_train's
+                # resume path handles None gracefully.
+                self.snapper.save(
+                    self.model,
+                    _epoch,
+                    self.stepper.getSteps(),
+                    _stepper=self.stepper,
+                    _optimizer=getattr(self.stepper, 'optimizer', None),
+                    _scheduler=self.scheduler,
+                    _best_valid_metrics=self.best_valid_metrics,
+                    _best_valid_epoch=self.best_valid_epoch,
+                    _best_valid_step=self.best_valid_step,
+                )
 
                 valid_running_metrics = GPURunningMetrics(self.device,
                                                           self.metric_list)
@@ -141,8 +164,10 @@ class Unet3DTrainer:
 
                 # C1.1: the scheduler is now config-selectable.
                 # ReduceLROnPlateau is metric-driven; PolynomialLR (and any
-                # future epoch-driven scheduler) takes no argument.
-                if _epoch > 0:
+                # future epoch-driven scheduler) takes no argument. None
+                # means scheduler disabled (configs.trainer.scheduler null
+                # / .name == 'none') — skip the step entirely.
+                if _epoch > 0 and self.scheduler is not None:
                     if isinstance(self.scheduler, ReduceLROnPlateau):
                         self.scheduler.step(metrics['Dice'])
                     else:

@@ -51,7 +51,12 @@ class Inference:
         self.scale_factor = _scale_factor
 
         _model.to(self.device)
-        _snapper.load(_model, self.device, _snapshot_path)
+        # Inference path: only the model weights need restoring; no
+        # optimiser/scheduler/stepper/RNG. Pass the explicit snapshot
+        # path so the auto-discovery (looks in <path>/continue/) is
+        # bypassed.
+        _snapper.load(_model, _device=self.device, _path=_snapshot_path,
+                      _restore_rng=False)
 
         self.model = _model
         self.model.eval()

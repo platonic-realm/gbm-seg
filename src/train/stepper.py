@@ -58,6 +58,13 @@ class StepperSimple(StepperInterface):
     def getSteps(self) -> int:
         return self.steps
 
+    def state_dict(self) -> dict:
+        """Picklable state for resume. No scaler in the simple path."""
+        return {'steps': self.steps, 'scaler': None}
+
+    def load_state_dict(self, _state: dict) -> None:
+        self.steps = int(_state.get('steps', 0))
+
 
 class StepperMixedPrecision(StepperInterface):
 
@@ -93,3 +100,17 @@ class StepperMixedPrecision(StepperInterface):
 
     def getSteps(self) -> int:
         return self.steps
+
+    def state_dict(self) -> dict:
+        """Picklable state for resume: step counter + GradScaler state.
+        The scaler holds the dynamic loss-scaling factor — restoring it
+        avoids the warmup that would otherwise blow the first few resumed
+        steps with overflowing gradients."""
+        return {'steps': self.steps,
+                'scaler': self.scaler.state_dict()}
+
+    def load_state_dict(self, _state: dict) -> None:
+        self.steps = int(_state.get('steps', 0))
+        scaler_state = _state.get('scaler')
+        if scaler_state is not None:
+            self.scaler.load_state_dict(scaler_state)

@@ -1,4 +1,6 @@
 # Python Imprts
+from __future__ import annotations
+
 import copy
 import logging
 import os
@@ -43,12 +45,19 @@ def seed_everything(_seed: int):
     torch.use_deterministic_algorithms(True, warn_only=True)
 
 
-def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
+def maybe_init_wandb(_configs, _fold: int = 0,
+                     _resume_run_id: str | None = None) -> bool:
     """Initialise a W&B run when ``configs.trainer.wandb.enabled`` is true.
 
     The full ``configs`` dict is logged as ``wandb.config`` so every axis
     of the eventual A2 ablation (model.name × loss × inference.stitching
     × optim.name × fold) is filterable on the W&B UI.
+
+    When ``_resume_run_id`` is provided (returned by ``Snapper.load`` on
+    a resumed run), the W&B run is reattached via
+    ``wandb.init(resume="must", id=...)`` instead of starting a fresh
+    one — so the metric charts continue from where they left off rather
+    than appearing as a separate run.
 
     Returns True iff a run was successfully initialised; False otherwise
     (wandb missing, disabled, or init failed). Failure is logged but
@@ -95,16 +104,26 @@ def maybe_init_wandb(_configs, _fold: int = 0) -> bool:
     if explicit_name is None:
         auto_name = (f"{wandb_cfg['group']}-fold-{int(_fold)}"
                      f"{compile_suffix}")
+    init_kwargs = dict(
+        project=wandb_cfg.get('project', 'gbm-seg'),
+        entity=wandb_cfg.get('entity'),
+        name=auto_name,
+        group=wandb_cfg.get('group'),
+        job_type='train',
+        tags=tags,
+        config=run_config,
+    )
+    if _resume_run_id:
+        # `resume="must"` raises if the run id can't be found, which is
+        # the right failure mode — silently starting a fresh run would
+        # split metric history across two W&B runs.
+        init_kwargs['id'] = _resume_run_id
+        init_kwargs['resume'] = 'must'
+
     try:
-        wandb.init(
-            project=wandb_cfg.get('project', 'gbm-seg'),
-            entity=wandb_cfg.get('entity'),
-            name=auto_name,
-            group=wandb_cfg.get('group'),
-            job_type='train',
-            tags=tags,
-            config=run_config,
-        )
+        wandb.init(**init_kwargs)
+        if _resume_run_id:
+            logging.info("W&B run resumed: id=%s", _resume_run_id)
         return True
     except Exception as exc:  # pragma: no cover — wandb init is networked
         logging.warning("W&B init failed (%s); continuing without it.", exc)
@@ -170,8 +189,6 @@ def main_train(_configs, _fold: int = 0):
                 "deterministic algorithms in single-process mode; skipping "
                 "cuDNN benchmarking.")
 
-    wandb_active = maybe_init_wandb(_configs, _fold=_fold)
-
     factory = Factory(_configs)
 
     # A1: subject-wise stratified 5-fold CV. Resolve which TIFFs belong to
@@ -203,19 +220,56 @@ def main_train(_configs, _fold: int = 0):
     stepper = factory.createStepper(model, optimizer, loss_function)
     snapper = factory.createSnapper()
 
+    # Resume from snapshot if `<snapshot_path>/continue/*.pt` is present.
+    # Restores model + optimiser + scheduler + stepper (incl. AMP scaler)
+    # + RNGs in-place. Returns the resume info (epoch/step/best/wandb_id)
+    # or None for a fresh run. snapper.load is fold-isolated because
+    # snapshot_path is already mutated to include `fold_N/` above.
+    device = _configs['trainer']['device']
+    resume = snapper.load(model,
+                          _device=device,
+                          _stepper=stepper,
+                          _optimizer=optimizer,
+                          _scheduler=lr_scheduler)
+    if resume is not None:
+        logging.info(
+            "Resuming fold %d from snapshot: epoch=%d step=%d "
+            "best_dice=%s wandb_id=%s",
+            _fold, resume['epoch'], resume['step'],
+            (None if resume['best_metrics'] is None
+             else round(float(resume['best_metrics'].get('Dice', 0)), 4)),
+            resume['wandb_run_id'])
+
+    # W&B comes AFTER snapper.load so we can reattach to the original
+    # run via resume="must" when a run id was persisted in the snapshot.
+    wandb_active = maybe_init_wandb(
+        _configs, _fold=_fold,
+        _resume_run_id=(resume['wandb_run_id'] if resume else None))
+
     visualizer = factory.createVisualizer()
     metric_logger = factory.createMetricLogger()
 
-    trainer = factory.createTrainer(model,
-                                    loss_function,
-                                    stepper,
-                                    snapper,
-                                    visualizer,
-                                    metric_logger,
-                                    lr_scheduler,
-                                    train_dataloader,
-                                    valid_dataloader,
-                                    train_dataset.getNumberOfClasses())
+    # Saved EPOCH is the epoch that was *in progress* (or that just
+    # finished) when the snapshot was written. To avoid re-iterating
+    # work already done, the resumed run starts at saved_epoch + 1.
+    starting_epoch = (resume['epoch'] + 1) if resume else 0
+
+    trainer = factory.createTrainer(
+        model,
+        loss_function,
+        stepper,
+        snapper,
+        visualizer,
+        metric_logger,
+        lr_scheduler,
+        train_dataloader,
+        valid_dataloader,
+        train_dataset.getNumberOfClasses(),
+        _starting_epoch=starting_epoch,
+        _starting_best_metrics=(resume['best_metrics'] if resume else None),
+        _starting_best_epoch=(resume['best_epoch'] if resume else None),
+        _starting_best_step=(resume['best_step'] if resume else None),
+    )
 
     try:
         trainer.train()

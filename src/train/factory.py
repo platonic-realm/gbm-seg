@@ -1,4 +1,6 @@
 # Python Imports
+from __future__ import annotations
+
 import logging
 import os
 import random
@@ -225,9 +227,12 @@ class Factory:
     def createScheduler(self, _optimizer):
         """Build the LR scheduler from ``configs.trainer.scheduler``.
 
-        C1.1: supports ``reduce_on_plateau`` (default, existing) and
-        ``poly_decay`` (nnU-Net's ``(1 - t/T)^power``). The trainer
-        dispatches its ``.step()`` call accordingly — see
+        Supports ``reduce_on_plateau`` (default, existing), ``poly_decay``
+        (nnU-Net's ``(1 - t/T)^power``), and the disabled form — set
+        ``trainer.scheduler: null`` or ``trainer.scheduler: {name: none}``
+        to skip LR scheduling entirely (the trainer guards None internally).
+
+        The trainer dispatches its ``.step()`` call accordingly — see
         :class:`Unet3DTrainer.trainEpoch`.
 
         For backwards compatibility, if ``trainer.scheduler`` is absent the
@@ -235,8 +240,14 @@ class Factory:
         (mode=max) behaviour.
         """
         sched_cfg = self.configs['trainer'].get('scheduler', {})
+        # `trainer.scheduler: null` in yaml deserialises to None; treat
+        # that as the disabled form (returns None — no scheduler).
+        if sched_cfg is None:
+            return None
         name = sched_cfg.get('name', 'reduce_on_plateau')
 
+        if name == 'none':
+            return None
         if name == 'reduce_on_plateau':
             mode = sched_cfg.get('mode', 'max')
             factor = sched_cfg.get('factor', 0.1)
@@ -283,7 +294,11 @@ class Factory:
                       _lr_scheduler: ReduceLROnPlateau,
                       _training_loader: DataLoader,
                       _validation_loader: DataLoader,
-                      _no_of_classes: int):
+                      _no_of_classes: int,
+                      _starting_epoch: int = 0,
+                      _starting_best_metrics: dict | None = None,
+                      _starting_best_epoch: int | None = None,
+                      _starting_best_step: int | None = None):
 
         metrics_list = self.configs['trainer']['metrics']
         device = self.configs['trainer']['device']
@@ -299,7 +314,10 @@ class Factory:
         valid_label_stride = int(
             self.configs['trainer'].get('z_scale', 1) or 1)
 
-        _snapper.load(_model, device)
+        # Snapshot restore happens in train.main_train *before* this call,
+        # so all state objects (model, optimiser, scheduler, stepper) are
+        # already warm here. Resume-related fields (starting_epoch + best
+        # tracker) are threaded through from main_train.
 
         # B1.2 refactor: the trainer is model-agnostic — any model that
         # satisfies the post-A3 interface (forward(x) -> (logits, outputs))
@@ -319,7 +337,11 @@ class Factory:
                                 device,
                                 report_freq,
                                 epochs,
-                                valid_label_stride)
+                                valid_label_stride,
+                                _starting_epoch,
+                                _starting_best_metrics,
+                                _starting_best_epoch,
+                                _starting_best_step)
 
         return trainer
 
