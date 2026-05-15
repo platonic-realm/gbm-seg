@@ -443,9 +443,13 @@ def create_new_experiment(_name: str,
 
     code_path = os.path.join(destination_path, 'code/')
     create_dirs_recursively(os.path.join(code_path, 'dummy'))
+    # Exclude runtime artefacts from the code/ snapshot: .git (history),
+    # tags (ctags index), and wandb/ — the latter accumulates ~100 stale
+    # run directories and carries dangling snapshot symlinks that would
+    # otherwise abort the copy.
     copy_directory(_source_path,
                    code_path,
-                   ['.git', 'tags'])
+                   ['.git', 'tags', 'wandb'])
 
     logging.info("Copying experiment's datasets")
     new_dataset_path = os.path.join(destination_path, 'datasets')

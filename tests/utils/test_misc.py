@@ -332,3 +332,62 @@ def test_create_new_experiment_three_way_dataset_split(tmp_path):
         'ds_test_unlabeled/')
     assert cfg['inference']['labeled_test_ds']['path'].endswith(
         'ds_test_labeled/')
+
+
+def test_copy_directory_survives_dangling_symlink(tmp_path):
+    """copy_directory must not abort when the source tree contains a
+    broken symlink. Regression: wandb writes `policy='live'` symlinks to
+    snapshot files that may already be deleted; shutil.copytree's default
+    raises on dangling links, which aborted the whole code/ snapshot at
+    `gbm.py create` time."""
+    from src.utils.misc import copy_directory
+
+    src = tmp_path / "src"
+    (src / "sub").mkdir(parents=True)
+    (src / "sub" / "real.txt").write_text("ok")
+    # A dangling symlink — target never exists.
+    (src / "sub" / "broken.pt").symlink_to(src / "sub" / "gone.pt")
+    (src / "keep.py").write_text("code")
+
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    copy_directory(str(src), str(dest), ['.git'])
+
+    # The copy completed despite the dangling link.
+    assert (dest / "keep.py").read_text() == "code"
+    assert (dest / "sub" / "real.txt").read_text() == "ok"
+
+
+def test_copy_directory_honors_exclude_list(tmp_path):
+    """Top-level items named in the exclude list are skipped entirely —
+    this is how `gbm.py create` keeps wandb/ out of the code/ snapshot."""
+    from src.utils.misc import copy_directory
+
+    src = tmp_path / "src"
+    (src / "wandb").mkdir(parents=True)
+    (src / "wandb" / "junk.txt").write_text("x")
+    (src / "code.py").write_text("y")
+
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    copy_directory(str(src), str(dest), ['wandb'])
+
+    assert (dest / "code.py").exists()
+    assert not (dest / "wandb").exists()
+
+
+def test_copy_directory_skips_pycache(tmp_path):
+    """__pycache__ / *.pyc are stripped at every nesting level."""
+    from src.utils.misc import copy_directory
+
+    src = tmp_path / "src"
+    (src / "pkg" / "__pycache__").mkdir(parents=True)
+    (src / "pkg" / "__pycache__" / "mod.cpython-39.pyc").write_text("bc")
+    (src / "pkg" / "mod.py").write_text("src")
+
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    copy_directory(str(src), str(dest), [])
+
+    assert (dest / "pkg" / "mod.py").exists()
+    assert not (dest / "pkg" / "__pycache__").exists()

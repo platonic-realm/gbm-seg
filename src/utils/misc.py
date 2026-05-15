@@ -270,12 +270,20 @@ def resize_and_copy(_source_dir, _dest_dir, _target_size,
 
 
 def copy_directory(_source_dir, _dest_dir, _exclude_list: list):
+    # Skip Python bytecode / test caches at every nesting level — they only
+    # bloat the experiment's code/ snapshot. `ignore_dangling_symlinks`
+    # makes copytree skip (rather than raise on) broken symlinks: wandb
+    # writes `policy='live'` symlinks to snapshot files that may already be
+    # gone, and following one of those would abort the whole copy.
+    ignore = shutil.ignore_patterns('__pycache__', '*.pyc', '.pytest_cache')
     for item in os.listdir(_source_dir):
         source_path = os.path.join(_source_dir, item)
         dest_path = os.path.join(_dest_dir, item)
         if item not in _exclude_list:
             if os.path.isdir(source_path):
-                shutil.copytree(source_path, dest_path)
+                shutil.copytree(source_path, dest_path,
+                                ignore=ignore,
+                                ignore_dangling_symlinks=True)
             else:
                 shutil.copy2(source_path, dest_path)
 
