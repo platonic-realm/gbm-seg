@@ -27,6 +27,7 @@ from src.utils.misc import (
 from train import (
     aggregate_cv_from_disk,
     main_train,
+    main_train_all_data,
     main_train_all_folds,
 )
 
@@ -333,7 +334,7 @@ def infer_experiment(_name: str,
         os.path.join(_root_path,
                      _name,
                      'datasets/',
-                     'ds_test/')
+                     'ds_test_unlabeled/')
 
     configs['inference']['inference_ds']['batch_size'] = _batch_size
 
@@ -366,9 +367,14 @@ def infer_experiment(_name: str,
 
 def train_experiment(_name: str,
                      _root_path: str,
-                     _fold=None):
-    """Dispatch to single-fold or all-folds training.
+                     _fold=None,
+                     _all_data: bool = False,
+                     _epochs=None):
+    """Dispatch to all-data, single-fold, or all-folds training.
 
+    ``_all_data=True`` runs a Stage-B final model on every ds_train
+    subject (no holdout) via :func:`main_train_all_data`; ``_epochs``
+    optionally overrides ``configs.trainer.epochs``.
     ``_fold=None`` (the default for `gbm.py train EXP` without --fold)
     runs the full CV via :func:`main_train_all_folds`. ``_fold=<int>``
     runs a single fold via :func:`main_train`.
@@ -378,7 +384,10 @@ def train_experiment(_name: str,
         raise FileNotFoundError(message)
     configs_path = os.path.join(_root_path, _name, 'configs.yaml')
     configs = read_configs(configs_path)
-    if _fold is None:
+    if _all_data:
+        main_train_all_data(configs,
+                            _epochs=(None if _epochs is None else int(_epochs)))
+    elif _fold is None:
         main_train_all_folds(configs)
     else:
         main_train(configs, _fold=int(_fold))
@@ -418,7 +427,10 @@ def create_new_experiment(_name: str,
                           _batch_size: int,
                           _voxel_size: list,
                           _z_scale_factor: int = 1,
-                          _semi_supervised: bool = False):
+                          _semi_supervised: bool = False,
+                          _ds_train_subdir: str = 'ds_train',
+                          _ds_test_labeled_subdir: str = 'ds_test_labeled',
+                          _ds_test_unlabeled_subdir: str = 'ds_test_unlabeled'):
 
     destination_path = os.path.join(_root_path, f'{_name}/')
     logging.info("Creating a new experiment in '%s%s/'", _root_path, _name)
@@ -441,20 +453,44 @@ def create_new_experiment(_name: str,
 
     new_ds_train_path = os.path.join(new_dataset_path, 'ds_train')
     create_dirs_recursively(os.path.join(new_ds_train_path, 'dummy'))
-    resize_and_copy(os.path.join(_dataset_path, 'ds_train'),
+    resize_and_copy(os.path.join(_dataset_path, _ds_train_subdir),
                     new_ds_train_path,
                     _voxel_size,
                     _z_scale_factor=_z_scale_factor)
 
-    new_ds_test_path = os.path.join(new_dataset_path, 'ds_test')
-    create_dirs_recursively(os.path.join(new_ds_test_path, 'dummy'))
-    # Test data stays at native Z resolution; `gbm.py infer` performs the
+    # Both test sets stay at native Z resolution; `gbm.py infer` performs the
     # Z upsampling on-the-fly via InferenceDataset when --interpolation true.
     # Pre-upsampling here would double the inflation factor (and also fight
     # with inference.inference_ds.scale_factor=6).
-    resize_and_copy(os.path.join(_dataset_path, 'ds_test'),
-                    new_ds_test_path,
+
+    # ds_test_unlabeled: flat directory of whole-glomerulus 3-channel volumes.
+    new_ds_test_unlabeled_path = os.path.join(new_dataset_path,
+                                              'ds_test_unlabeled')
+    create_dirs_recursively(os.path.join(new_ds_test_unlabeled_path, 'dummy'))
+    resize_and_copy(os.path.join(_dataset_path, _ds_test_unlabeled_subdir),
+                    new_ds_test_unlabeled_path,
                     _voxel_size)
+
+    # ds_test_labeled: one sub-directory per annotator (e.g. Chris/David/Robin),
+    # each holding the same crops as 4-channel TIFFs (channel 3 = that expert's
+    # label). Copy each expert into a matching sub-directory so the 3-expert
+    # structure is preserved for Stage-C scoring.
+    new_ds_test_labeled_path = os.path.join(new_dataset_path, 'ds_test_labeled')
+    create_dirs_recursively(os.path.join(new_ds_test_labeled_path, 'dummy'))
+    src_labeled = Path(_dataset_path) / _ds_test_labeled_subdir
+    expert_dirs = (sorted(p for p in src_labeled.iterdir() if p.is_dir())
+                   if src_labeled.is_dir() else [])
+    if not expert_dirs:
+        logging.warning(
+            "ds_test_labeled source '%s' has no annotator sub-directories; "
+            "Stage-C evaluation will be unavailable for this experiment.",
+            src_labeled)
+    for expert_dir in expert_dirs:
+        dest_expert = os.path.join(new_ds_test_labeled_path, expert_dir.name)
+        create_dirs_recursively(os.path.join(dest_expert, 'dummy'))
+        resize_and_copy(str(expert_dir), dest_expert, _voxel_size)
+        logging.info("Copied labeled test crops for annotator '%s'",
+                     expert_dir.name)
 
     logging.info("Saving the requirements file to '%s'",
                  destination_path)
@@ -509,7 +545,10 @@ def create_new_experiment(_name: str,
     configs['trainer']['valid_ds']['batch_size'] = _batch_size
 
     configs['inference']['inference_ds']['path'] = \
-        f"{new_dataset_path}/ds_test/"
+        f"{new_dataset_path}/ds_test_unlabeled/"
+
+    configs['inference']['labeled_test_ds']['path'] = \
+        f"{new_dataset_path}/ds_test_labeled/"
 
     configs['inference']['inference_ds']['batch_size'] = _batch_size
 

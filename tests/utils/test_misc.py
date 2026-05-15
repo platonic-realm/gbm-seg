@@ -225,21 +225,35 @@ def test_resize_and_copy_z_scale_pipeline(tmp_path):
     np.testing.assert_array_equal(label_z, expected)
 
 
-def test_create_new_experiment_z_upsamples_only_ds_train(tmp_path):
-    """Regression: ds_test must NOT be Z-upsampled at create time —
-    inference does that on-the-fly via InferenceDataset.scale. The pre-fix
-    create called resize_and_copy on ds_test with _z_scale_factor=6,
-    double-upsampling when the user later ran gbm.py infer with scale=6.
+def test_create_new_experiment_three_way_dataset_split(tmp_path):
+    """create_new_experiment produces a 3-way dataset split:
+
+    - ds_train          — Z-upsampled by z_scale at create time.
+    - ds_test_unlabeled — flat whole-glom volumes, native Z (inference
+                          does the Z upsampling on-the-fly; pre-upsampling
+                          here would double the inflation).
+    - ds_test_labeled   — one sub-directory per annotator, native Z.
+
+    Also asserts the per-experiment configs.yaml routes the inference
+    paths to the new directory names.
     """
+    import yaml as _yaml
+
     from src.utils.exper import create_new_experiment
 
     src_root = tmp_path / "src_dataset"
     (src_root / "ds_train").mkdir(parents=True)
-    (src_root / "ds_test").mkdir(parents=True)
+    (src_root / "ds_test_unlabeled").mkdir(parents=True)
+    experts = ("Chris", "David", "Robin")
+    for expert in experts:
+        (src_root / "ds_test_labeled" / expert).mkdir(parents=True)
 
-    arr = np.zeros((4, 4, 32, 32), dtype=np.float32)
-    arr[:, :3] = 100.0
-    arr[:, 3] = 0.0
+    # 4-channel (image + label) array for train + labeled crops.
+    arr4 = np.zeros((4, 4, 32, 32), dtype=np.float32)
+    arr4[:, :3] = 100.0
+    # 3-channel (image only) array for the unlabeled whole-glom volumes.
+    arr3 = arr4[:, :3].copy()
+
     # Filenames must match SAMPLE_GROUP_PREFIXES so assign_folds doesn't
     # bail. Five distinct train files cover the k=5 fold requirement.
     train_names = [
@@ -250,10 +264,15 @@ def test_create_new_experiment_z_upsamples_only_ds_train(tmp_path):
         "NCW.CKM104.fake5.tiff",
     ]
     for name in train_names:
-        tifffile.imwrite(src_root / "ds_train" / name, arr,
-                         shape=arr.shape, imagej=True, resolution=(20.0, 20.0))
-    tifffile.imwrite(src_root / "ds_test" / "NCW.CKM105.test.tiff", arr,
-                     shape=arr.shape, imagej=True, resolution=(20.0, 20.0))
+        tifffile.imwrite(src_root / "ds_train" / name, arr4,
+                         shape=arr4.shape, imagej=True, resolution=(20.0, 20.0))
+    tifffile.imwrite(src_root / "ds_test_unlabeled" / "NCW.CKM105.whole.tiff",
+                     arr3, shape=arr3.shape, imagej=True,
+                     resolution=(20.0, 20.0))
+    for expert in experts:
+        tifffile.imwrite(
+            src_root / "ds_test_labeled" / expert / "NCW.CKM105.crop.tiff",
+            arr4, shape=arr4.shape, imagej=True, resolution=(20.0, 20.0))
 
     exp_root = tmp_path / "experiments"
     exp_root.mkdir()
@@ -271,6 +290,7 @@ def test_create_new_experiment_z_upsamples_only_ds_train(tmp_path):
         "trainer:\n  train_ds: {path: '', batch_size: 8, augmentation: {}}\n"
         "  valid_ds: {path: '', batch_size: 8}\n  optim: {lr: 0.0001}\n"
         "inference:\n  inference_ds: {path: '', batch_size: 8}\n"
+        "  labeled_test_ds: {path: ''}\n"
         "root_path: ./\n")
     # The function reads from cwd-relative ./configs/template.yaml, so run
     # from src_code.
@@ -285,13 +305,30 @@ def test_create_new_experiment_z_upsamples_only_ds_train(tmp_path):
     finally:
         _os.chdir(cwd_before)
 
-    train_out = tifffile.imread(
-        exp_root / "mini" / "datasets" / "ds_train" / "NCW.AUY381.fake1.tiff")
-    test_out = tifffile.imread(
-        exp_root / "mini" / "datasets" / "ds_test" / "NCW.CKM105.test.tiff")
+    ds = exp_root / "mini" / "datasets"
+    train_out = tifffile.imread(ds / "ds_train" / "NCW.AUY381.fake1.tiff")
+    unlabeled_out = tifffile.imread(
+        ds / "ds_test_unlabeled" / "NCW.CKM105.whole.tiff")
+    labeled_out = tifffile.imread(
+        ds / "ds_test_labeled" / "Chris" / "NCW.CKM105.crop.tiff")
 
-    # Train: Z went 4 → 24 (× z_scale=6). Test: Z stays at 4 (untouched).
+    # Train Z-upsampled 4 → 24 (× z_scale=6); both test sets stay native Z=4.
     assert train_out.shape[0] == 24, (
         f"ds_train must be Z-upsampled (got {train_out.shape})")
-    assert test_out.shape[0] == 4, (
-        f"ds_test must stay at native Z (got {test_out.shape})")
+    assert unlabeled_out.shape[0] == 4, (
+        f"ds_test_unlabeled must stay native Z (got {unlabeled_out.shape})")
+    assert labeled_out.shape[0] == 4, (
+        f"ds_test_labeled must stay native Z (got {labeled_out.shape})")
+
+    # All three annotator sub-directories were copied.
+    for expert in experts:
+        assert (ds / "ds_test_labeled" / expert
+                / "NCW.CKM105.crop.tiff").exists(), (
+            f"missing labeled crops for annotator {expert}")
+
+    # configs.yaml routes the inference paths to the new directory names.
+    cfg = _yaml.safe_load((exp_root / "mini" / "configs.yaml").read_text())
+    assert cfg['inference']['inference_ds']['path'].endswith(
+        'ds_test_unlabeled/')
+    assert cfg['inference']['labeled_test_ds']['path'].endswith(
+        'ds_test_labeled/')

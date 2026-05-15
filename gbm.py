@@ -21,14 +21,20 @@ def _do_create(args, configs):
     z_scale = (int(args.z_scale)
                if args.z_scale is not None
                else int(configs['experiments'].get('default_z_scale', 1)))
+    exp_cfg = configs['experiments']
     exper.create_new_experiment(
         _name=args.name,
-        _root_path=configs['experiments']['root'],
+        _root_path=exp_cfg['root'],
         _source_path=os.getcwd(),
-        _dataset_path=configs['experiments']['default_data_path'],
+        _dataset_path=exp_cfg['default_data_path'],
         _batch_size=int(args.batch_size),
-        _voxel_size=configs['experiments']['default_voxel_size'],
-        _z_scale_factor=z_scale)
+        _voxel_size=exp_cfg['default_voxel_size'],
+        _z_scale_factor=z_scale,
+        _ds_train_subdir=exp_cfg.get('ds_train_subdir', 'ds_train'),
+        _ds_test_labeled_subdir=exp_cfg.get('ds_test_labeled_subdir',
+                                            'ds_test_labeled'),
+        _ds_test_unlabeled_subdir=exp_cfg.get('ds_test_unlabeled_subdir',
+                                              'ds_test_unlabeled'))
 
 
 def _do_list(args, configs):
@@ -43,7 +49,9 @@ def _do_train(args, configs):
     configure_logger(configs, _log_to_file=True)
     exper.train_experiment(_name=args.name,
                            _root_path=configs['experiments']['root'],
-                           _fold=args.fold)
+                           _fold=args.fold,
+                           _all_data=getattr(args, 'all_data', False),
+                           _epochs=getattr(args, 'epochs', None))
 
 
 def _do_aggregate_cv(args, configs):

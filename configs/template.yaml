@@ -16,6 +16,18 @@ experiments:
   default_data_path: '/projects/ag-bozek/afatehi/gbm/dataset/ds_mouse/'
   default_batch_size: 20
 
+  # Sub-directory names inside `default_data_path`, consumed by `gbm.py create`.
+  #   ds_train_subdir          — training TIFFs (4-channel: image + label).
+  #   ds_test_labeled_subdir   — held-out test crops WITH expert labels. Expects
+  #                              one sub-sub-directory per annotator (e.g. Chris/
+  #                              David/Robin), each holding the same crops as
+  #                              4-channel TIFFs (channel 3 = that expert's label).
+  #   ds_test_unlabeled_subdir — whole-glomerulus test volumes, 3-channel, no labels.
+  # Set these to the actual on-disk names if they contain spaces / differ.
+  ds_train_subdir: 'ds_train'
+  ds_test_labeled_subdir: 'ds_test_labeled'
+  ds_test_unlabeled_subdir: 'ds_test_unlabeled'
+
   # The training samples will resize to match this size
   default_voxel_size: [0.050, 0.050, 0.300]
 
@@ -307,6 +319,9 @@ inference:
 
   result_dir: ''
 
+  # Whole-glomerulus test set (no labels) — consumed by `gbm.py infer` and the
+  # downstream psp/morph/stats pipeline. Populated by `gbm.py create` from
+  # `experiments.ds_test_unlabeled_subdir`.
   inference_ds:
     path: ''
     batch_size: 8
@@ -315,6 +330,12 @@ inference:
     pin_memory: True
     scale_factor: 6
     workers: 8
+
+  # Held-out test crops WITH expert labels — consumed by `gbm.py eval-test`
+  # (Stage C). `path` points at a directory of per-annotator sub-directories.
+  # Populated by `gbm.py create` from `experiments.ds_test_labeled_subdir`.
+  labeled_test_ds:
+    path: ''
 
 logging:
   # Logging verbosity. Standard logging-module levels:
