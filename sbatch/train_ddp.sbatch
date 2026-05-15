@@ -7,8 +7,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:4
-#SBATCH --mem=300G
+#SBATCH --mem=400G
 #SBATCH --cpus-per-task=32
+# 400G excludes the 384G boxes (lg7, lg8) where fold 4 OOM'd previously,
+# leaves headroom on lg3/lg4/lg5 (510G) and is permissive enough that 5
+# folds can queue without long resource waits.
 
 # Single-fold DDP training launcher. Spawns one Python process per GPU
 # (--nproc-per-node=4) via torchrun; each process runs gbm.py train.
