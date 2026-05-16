@@ -406,17 +406,78 @@ def aggregate_cv_experiment(_name: str, _root_path: str):
     aggregate_cv_from_disk(configs)
 
 
+def _delete_wandb_runs(_name: str, _configs_path: str) -> None:
+    """Best-effort deletion of an experiment's Weights & Biases runs.
+
+    The W&B project/entity are read from the experiment's ``configs.yaml``;
+    runs are matched by their W&B ``group``, which ``maybe_init_wandb``
+    sets to the experiment-directory name. This NEVER raises — a W&B
+    problem (not installed, offline, project gone) must not block the
+    local experiment deletion. It just logs and returns.
+    """
+    if not os.path.isfile(_configs_path):
+        logging.warning(
+            "No configs.yaml for '%s'; cannot resolve its W&B project — "
+            "skipping W&B cleanup.", _name)
+        return
+    try:
+        with open(_configs_path, encoding='UTF-8') as f:
+            cfg = yaml.safe_load(f) or {}
+        wandb_cfg = (cfg.get('trainer', {}) or {}).get('wandb', {}) or {}
+        entity = wandb_cfg.get('entity')
+        project = wandb_cfg.get('project')
+    except Exception as exc:  # pragma: no cover — defensive
+        logging.warning("Could not read W&B config for '%s': %s", _name, exc)
+        return
+    if not project:
+        logging.warning(
+            "No trainer.wandb.project in '%s' config; skipping W&B cleanup.",
+            _name)
+        return
+    try:
+        import wandb
+    except ImportError:
+        logging.warning("wandb not installed; skipping W&B cleanup.")
+        return
+    api_path = f"{entity}/{project}" if entity else project
+    try:
+        runs = list(wandb.Api().runs(api_path))
+    except Exception as exc:  # pragma: no cover — networked
+        logging.warning(
+            "Could not list W&B runs at '%s' for '%s': %s — skipping.",
+            api_path, _name, exc)
+        return
+    deleted = 0
+    for run in runs:
+        if run.group == _name:
+            try:
+                run.delete()
+                deleted += 1
+            except Exception as exc:  # pragma: no cover — networked
+                logging.warning("Failed to delete W&B run %s: %s",
+                                run.id, exc)
+    logging.info("Deleted %d W&B run(s) grouped under '%s' (project '%s').",
+                 deleted, _name, project)
+
+
 def delete_experiment(_name: str,
                       _root_path: str,
-                      _force: bool = False):
+                      _force: bool = False,
+                      _remove_wandb: bool = False):
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
         raise FileNotFoundError(message)
     if not _force:
         raise RuntimeError(
             f"Refusing to delete experiment '{_name}' without --force.")
+    exp_path = os.path.join(_root_path, _name)
+    if _remove_wandb:
+        # Resolve + delete the W&B runs *before* rmtree — the W&B
+        # project/entity are read from the experiment's configs.yaml,
+        # which is about to be removed.
+        _delete_wandb_runs(_name, os.path.join(exp_path, 'configs.yaml'))
     logging.info("Removing the experiment: %s", _name)
-    shutil.rmtree(os.path.join(_root_path, _name))
+    shutil.rmtree(exp_path)
     logging.info('Experiment "%s" has been deleted', _name)
 
 

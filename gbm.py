@@ -64,7 +64,8 @@ def _do_delete(args, configs):
     basic_logger()
     exper.delete_experiment(_name=args.name,
                             _root_path=configs['experiments']['root'],
-                            _force=args.force)
+                            _force=args.force,
+                            _remove_wandb=args.wandb)
 
 
 def _do_infer(args, configs):

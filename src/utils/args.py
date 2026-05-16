@@ -75,6 +75,14 @@ def parse_exper() -> None:
                                '--force',
                                action='store_true',
                                help='confirm deletion (required, non-interactive)')
+    delete_parser.add_argument('-w',
+                               '--wandb',
+                               action='store_true',
+                               help='also delete the experiment\'s Weights & '
+                                    'Biases runs (matched by W&B group = '
+                                    'experiment name). Best-effort: a W&B '
+                                    'failure does not block the local '
+                                    'deletion.')
 
     # Define a subparser for the 'train' action
     train_parser = \
