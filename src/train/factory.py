@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import random
 import re
@@ -201,10 +202,30 @@ class Factory:
         momentum=0.99, often with poly-decay scheduler). Each branch reads
         its own keyword arguments from the same ``optim`` sub-dict; unknown
         keys are ignored.
+
+        Under DDP the learning rate is scaled for the effective (global)
+        batch — see the LR-scaling block below.
         """
         optim_cfg = self.configs['trainer']['optim']
         name = optim_cfg['name']
         lr = optim_cfg['lr']
+
+        # DDP effective-batch LR scaling. Under DDP the effective (global)
+        # batch is per-rank batch_size x world_size; the config `lr` is the
+        # single-process LR for the per-rank batch, so it is scaled up to
+        # match the larger effective batch. SGD follows the linear scaling
+        # rule (lr x world_size); Adam follows the square-root rule
+        # (lr x sqrt(world_size)) — linear scaling does not hold for
+        # adaptive optimisers (Malladi et al., SDE scaling rules). No-op in
+        # single-process mode (world_size == 1).
+        world_size = get_world_size()
+        if world_size > 1:
+            factor = world_size if name == 'sgd' else math.sqrt(world_size)
+            scaled_lr = lr * factor
+            logging.info(
+                "DDP LR scaling (%s, world_size=%d): lr %.3e -> %.3e",
+                name, world_size, lr, scaled_lr)
+            lr = scaled_lr
 
         if isinstance(_loss, nn.Module):
             parameters = list(_model.parameters()) + list(_loss.parameters())

@@ -6,6 +6,9 @@ Tests exercise both paths plus default-fallback behaviour and the
 unknown-name error path.
 """
 
+import math
+from unittest.mock import patch
+
 import pytest
 import torch
 from torch import nn
@@ -167,3 +170,33 @@ def test_poly_decay_lr_actually_decays():
     assert half_lr < initial_lr
     # Approximate (1 - 5/10)^0.9 ≈ 0.536
     assert abs(half_lr / initial_lr - 0.5**0.9) < 0.05
+
+
+# --- DDP effective-batch LR scaling --------------------------------------
+
+
+def test_optim_adam_lr_sqrt_scaled_under_ddp():
+    """Under DDP the effective batch is per-rank batch x world_size, so
+    Adam's LR is scaled by sqrt(world_size) — the square-root rule that
+    holds for adaptive optimisers (linear scaling is SGD-only)."""
+    factory = _factory_with({'optim': {'name': 'adam', 'lr': 1e-4}})
+    with patch('src.train.factory.get_world_size', return_value=8):
+        opt = factory.createOptimizer(_TinyNet(), None)
+    assert opt.param_groups[0]['lr'] == pytest.approx(1e-4 * math.sqrt(8))
+
+
+def test_optim_sgd_lr_linear_scaled_under_ddp():
+    """Under DDP, SGD's LR is scaled linearly by world_size — the linear
+    scaling rule (Goyal et al.), which holds for SGD but not Adam."""
+    factory = _factory_with({'optim': {'name': 'sgd', 'lr': 1e-2}})
+    with patch('src.train.factory.get_world_size', return_value=4):
+        opt = factory.createOptimizer(_TinyNet(), None)
+    assert opt.param_groups[0]['lr'] == pytest.approx(1e-2 * 4)
+
+
+def test_optim_lr_unscaled_in_single_process():
+    """world_size == 1 (no DDP) → the config LR is used verbatim."""
+    factory = _factory_with({'optim': {'name': 'adam', 'lr': 1e-4}})
+    with patch('src.train.factory.get_world_size', return_value=1):
+        opt = factory.createOptimizer(_TinyNet(), None)
+    assert opt.param_groups[0]['lr'] == pytest.approx(1e-4)
