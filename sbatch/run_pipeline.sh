@@ -17,7 +17,12 @@
 #
 # Usage:
 #   sbatch/run_pipeline.sh <exp> <snapshot> <bs> <sample_dim> <stride> \
-#                          <scale> <interp> [--clipping]
+#                          <scale> <interp> [--output-name NAME] [--clipping]
+#
+#   --output-name NAME  isolate this run under results-infer/NAME/ instead of
+#                       the auto-derived tag — lets a fresh run sit alongside
+#                       an existing one without colliding.
+#   --clipping          pass --clipping through to the stats stage.
 # Example:
 #   sbatch/run_pipeline.sh debug_swinunetr_alldata_5ep all_data/005-7000.pt \
 #       8 "24, 128, 128" "12, 64, 64" 6 true
@@ -25,21 +30,37 @@ set -euo pipefail
 
 if [ "$#" -lt 7 ]; then
     echo "Usage: $0 <exp> <snapshot> <bs> <sample_dim> <stride> <scale>" \
-         "<interp> [--clipping]"
+         "<interp> [--output-name NAME] [--clipping]"
     exit 1
 fi
 
 EXP="$1"; SNAP="$2"; BS="$3"; SD="$4"; ST="$5"; SCALE="$6"; INTERP="$7"
-CLIP="${8:-}"
+shift 7
+
+OUTPUT_NAME=""
+CLIP=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --output-name) OUTPUT_NAME="$2"; shift 2 ;;
+        --clipping)    CLIP="--clipping"; shift ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
 
 cd ~/.vix/projects/gbm-seg
 
-# The inference tag must match infer_experiment()'s derivation exactly:
+# The downstream stages locate the run by its inference tag. With
+# --output-name the tag IS that name; otherwise it must match
+# infer_experiment()'s derivation exactly:
 #   f"{snapshot}_{''.join(sample_dim)}_{''.join(stride)}_{scale}"
 # i.e. the dimension lists with every comma and space stripped out.
-SD_J=$(echo "$SD" | tr -d ', ')
-ST_J=$(echo "$ST" | tr -d ', ')
-TAG="${SNAP}_${SD_J}_${ST_J}_${SCALE}"
+if [ -n "$OUTPUT_NAME" ]; then
+    TAG="$OUTPUT_NAME"
+else
+    SD_J=$(echo "$SD" | tr -d ', ')
+    ST_J=$(echo "$ST" | tr -d ', ')
+    TAG="${SNAP}_${SD_J}_${ST_J}_${SCALE}"
+fi
 
 # --- Pre-flight checks (fail fast, before queueing anything) ---
 ROOT_PATH=$(python -c "import yaml; print(yaml.safe_load(open('./configs/template.yaml'))['experiments']['root'])")
@@ -59,8 +80,9 @@ echo "Inference tag           : ${TAG}"
 echo
 
 # --- Chain the stages ---
+# $8 (OUTPUT_NAME) is forwarded to infer.sbatch; empty => auto-derived tag.
 J_INFER=$(sbatch --parsable sbatch/infer.sbatch \
-    "$EXP" "$SNAP" "$BS" "$SD" "$ST" "$SCALE" "$INTERP")
+    "$EXP" "$SNAP" "$BS" "$SD" "$ST" "$SCALE" "$INTERP" "$OUTPUT_NAME")
 echo "infer    : $J_INFER"
 
 J_PSP=$(sbatch --parsable --dependency=afterok:"$J_INFER" \

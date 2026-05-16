@@ -13,6 +13,8 @@
 #
 # Args: $1 exp  $2 snapshot  $3 batch  $4 sample_dim  $5 stride
 #       $6 scale_factor  $7 interpolation (true/false)
+#       $8 output_name (optional) — overrides the auto-derived inference
+#          tag so an isolated run can sit alongside an existing one.
 
 mkdir -p /home/afatehi/logs/gbm/
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
@@ -77,8 +79,15 @@ fi
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 echo "Array task $SLURM_ARRAY_TASK_ID inferring volume: $VOL"
+
+# Optional $8 overrides the inference tag (results-infer/<tag>/ dir).
+EXTRA=()
+if [ -n "${8:-}" ]; then
+    EXTRA+=(--output-name "$8")
+fi
+
 # -sn picks the single volume; -f makes infer non-interactive. $7 must be
 # `true` when the model trained on Z-upsampled data so InferenceDataset
 # upsamples to match — see ds_infer.py:43 (needs scale_factor>1 AND interp).
 ./gbm.py infer "$1" -s "$2" -bs "$3" -sd "$4" -st "$5" -sf "$6" \
-    -in "$7" -sn "$VOL" -f
+    -in "$7" -sn "$VOL" -f "${EXTRA[@]}"
