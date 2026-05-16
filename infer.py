@@ -8,10 +8,17 @@ from src.utils import args
 from src.utils.misc import configure_logger
 
 
-def main_infer(_configs):
+def main_infer(_configs, _sample_name=None):
+    """Run sliding-window inference.
+
+    ``_sample_name`` (a TIFF filename) restricts the run to that single
+    volume — the per-volume mode used for SLURM-array parallelism (one
+    array task / GPU per volume). When None, every volume in the
+    inference set is processed sequentially.
+    """
     factory = Factory(_configs)
 
-    data_loaders = factory.createInferenceDataLoaders()
+    data_loaders = factory.createInferenceDataLoaders(_sample_name=_sample_name)
     morph = factory.createMorphModule()
     snapper = factory.createSnapper()
 

@@ -283,7 +283,8 @@ def infer_experiment(_name: str,
                      _interpolate: bool,
                      _force: bool = False,
                      _stitching: str = None,
-                     _output_name: str = None):
+                     _output_name: str = None,
+                     _sample_name: str = None):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
@@ -310,15 +311,23 @@ def infer_experiment(_name: str,
     _batch_size = int(_batch_size)
 
     inference_result_path = os.path.join(inference_root_path, inference_tag)
-    if os.path.exists(inference_result_path):
-        if not _force:
-            raise FileExistsError(
-                f"Inference already exists at {inference_result_path}. "
-                "Pass --force to overwrite.")
-        logging.info("--force given; removing existing inference at %s",
-                     inference_result_path)
-        shutil.rmtree(inference_result_path)
-    create_dirs_recursively(os.path.join(inference_result_path, 'dummy'))
+    if _sample_name is None:
+        # Whole-directory mode: --force wipes the entire tag directory.
+        if os.path.exists(inference_result_path):
+            if not _force:
+                raise FileExistsError(
+                    f"Inference already exists at {inference_result_path}. "
+                    "Pass --force to overwrite.")
+            logging.info("--force given; removing existing inference at %s",
+                         inference_result_path)
+            shutil.rmtree(inference_result_path)
+        create_dirs_recursively(os.path.join(inference_result_path, 'dummy'))
+    else:
+        # Per-volume mode (SLURM array): the tag directory is SHARED across
+        # the array — every task writes its own <tag>/<volume>/ subdir into
+        # it, so the shared dir must never be wiped. makedirs(exist_ok) is
+        # race-safe across the concurrently-starting array tasks.
+        create_dirs_recursively(os.path.join(inference_result_path, 'dummy'))
 
     configs['root_path'] = _root_path
 
@@ -355,14 +364,18 @@ def infer_experiment(_name: str,
 
     inference_configs = configs['inference']
 
-    with open(os.path.join(inference_result_path, 'configs.yaml'), 'w',
-              encoding='UTF-8') as config_file:
-        yaml.dump(inference_configs,
-                  config_file,
-                  default_flow_style=None,
-                  sort_keys=False)
+    # In per-volume mode every array task would write this; the content is
+    # identical (sample_name is not persisted), so a write-if-absent guard
+    # avoids the concurrent-write race on the shared tag directory.
+    cfg_yaml = os.path.join(inference_result_path, 'configs.yaml')
+    if _sample_name is None or not os.path.exists(cfg_yaml):
+        with open(cfg_yaml, 'w', encoding='UTF-8') as config_file:
+            yaml.dump(inference_configs,
+                      config_file,
+                      default_flow_style=None,
+                      sort_keys=False)
 
-    main_infer(configs)
+    main_infer(configs, _sample_name=_sample_name)
 
 
 def train_experiment(_name: str,

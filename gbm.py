@@ -89,7 +89,8 @@ def _do_infer(args, configs):
                            _interpolate=args.interpolation,
                            _force=args.force,
                            _stitching=args.stitching,
-                           _output_name=args.output_name)
+                           _output_name=args.output_name,
+                           _sample_name=args.sample_name)
 
 
 def _do_psp(args, configs):

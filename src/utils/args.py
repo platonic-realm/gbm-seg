@@ -187,6 +187,17 @@ def parse_exper() -> None:
                               action='store_true',
                               help='overwrite existing inference output (non-interactive)')
 
+    infer_parser.add_argument('-sn',
+                              '--sample-name',
+                              action='store',
+                              default=None,
+                              help='infer a SINGLE volume by filename — the '
+                                   'per-volume mode used for SLURM-array '
+                                   'parallelism (one array task / GPU per '
+                                   'volume; see sbatch/infer.sbatch). When '
+                                   'omitted, every volume in the inference '
+                                   'set is processed sequentially.')
+
     infer_parser.add_argument('--stitching',
                               action='store',
                               default=None,

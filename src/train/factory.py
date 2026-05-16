@@ -543,7 +543,12 @@ class Factory:
 
         return MetricLogger(metric_wandb)
 
-    def createInferenceDataLoaders(self) -> list:
+    def createInferenceDataLoaders(self, _sample_name=None) -> list:
+        """Build one DataLoader per inference volume.
+
+        ``_sample_name`` (a TIFF filename) restricts the result to that
+        single volume — the per-volume mode for SLURM-array inference.
+        """
 
         result = []
 
@@ -552,6 +557,13 @@ class Factory:
         directory_content = os.listdir(source_directory)
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)', _x),
                                         directory_content))
+
+        if _sample_name is not None:
+            if _sample_name not in directory_content:
+                raise FileNotFoundError(
+                    f"Sample '{_sample_name}' not found in "
+                    f"{source_directory}")
+            directory_content = [_sample_name]
 
         no_of_classes = self.configs['inference']['number_class']
         sample_dimension = self.configs['inference']['inference_ds']['sample_dimension']
