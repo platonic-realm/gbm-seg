@@ -3,6 +3,7 @@
 #SBATCH --output=/home/afatehi/logs/gbm/morph.log
 #SBATCH --error=/home/afatehi/logs/gbm/morph.log
 #SBATCH --partition=train   # Adjust partition based on available resources
+#SBATCH --time=7-00:00:00   # parent blocks for the whole array (see below)
 # (No GPU request here so the parent job does not get a GPU)
 
 # Check if this is the parent job (no SLURM_ARRAY_TASK_ID defined)
@@ -45,13 +46,19 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
     mkdir -p /home/afatehi/logs/gbm/morph
 
     # Submit a job array with DIR_NAMES properly passed and individual log files
-    sbatch -p train -c 8 --mem=64G --gres=gpu:1 --time=7-00:00:00 \
+    ARRAY_JID=$(sbatch --parsable \
+        -p train -c 8 --mem=64G --gres=gpu:1 --time=7-00:00:00 \
         --array=1-${N} \
         --output=/home/afatehi/logs/gbm/morph/job_%A_%a.log \
         --error=/home/afatehi/logs/gbm/morph/job_%A_%a.log \
-        --export=ALL,DIR_NAMES="$DIR_NAMES_STR" "$0" "$@"
+        --export=ALL,DIR_NAMES="$DIR_NAMES_STR" "$0" "$@")
+    echo "Submitted morph array job $ARRAY_JID"
 
-    exit
+    # Block until the array finishes so an afterok dependent (run_pipeline.sh)
+    # fires only after every sample is actually processed.
+    source sbatch/lib_array_wait.sh
+    wait_for_array "$ARRAY_JID"
+    exit $?
 fi
 
 # --- Child Array Job Phase ---

@@ -2,8 +2,10 @@
 #SBATCH --job-name=gbm_infer
 #SBATCH --output=/home/afatehi/logs/gbm/infer.log
 #SBATCH --error=/home/afatehi/logs/gbm/infer.log
-#SBATCH --time=0-02:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --partition=train
+# The parent blocks until its array finishes (see lib_array_wait.sh), so
+# its walltime must comfortably exceed the array children's 1-day limit.
 
 # Per-volume parallel inference. One SLURM array task = one test volume =
 # one GPU, so the volumes infer concurrently instead of one process
@@ -47,13 +49,20 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
 
     # One A100 GPU per task. --array=1-N runs all volumes concurrently
     # (SLURM queues them as GPUs free up).
-    sbatch --gres=gpu:A100:1 --cpus-per-task=16 --mem=120G \
+    ARRAY_JID=$(sbatch --parsable \
+           --gres=gpu:A100:1 --cpus-per-task=16 --mem=120G \
            --time=1-00:00:00 --partition=train \
            --array=1-"${N}" \
            --output=/home/afatehi/logs/gbm/infer/job_%A_%a.log \
            --error=/home/afatehi/logs/gbm/infer/job_%A_%a.log \
-           --export=ALL,VOLS="$VOLS_STR" "$0" "$@"
-    exit
+           --export=ALL,VOLS="$VOLS_STR" "$0" "$@")
+    echo "Submitted inference array job $ARRAY_JID"
+
+    # Block until the array finishes so an afterok dependent (run_pipeline.sh)
+    # fires only after every volume is actually inferred.
+    source sbatch/lib_array_wait.sh
+    wait_for_array "$ARRAY_JID"
+    exit $?
 fi
 
 # --- Child array phase: infer exactly one volume ---

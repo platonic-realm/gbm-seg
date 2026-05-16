@@ -1,0 +1,92 @@
+#!/bin/bash
+# gbm-seg inference pipeline orchestrator.
+#
+# Submits the whole post-training pipeline as one dependency-chained set of
+# SLURM jobs and returns immediately — no node is held while it runs.
+#
+#   infer -> psp -> morph -+-> stats                     (analysis branch)
+#                          +-> blender -> render -> export   (visual branch)
+#
+# Every stage starts only after its predecessor succeeds (--dependency=afterok).
+# The array stages (infer/morph/blender) use a parent that blocks until its
+# array completes (see lib_array_wait.sh), so afterok on them is honest:
+# a dependent fires only once every volume/sample actually finished.
+#
+# stats depends on morph directly, so the analysis branch is not held up by
+# the expensive Blender render branch.
+#
+# Usage:
+#   sbatch/run_pipeline.sh <exp> <snapshot> <bs> <sample_dim> <stride> \
+#                          <scale> <interp> [--clipping]
+# Example:
+#   sbatch/run_pipeline.sh debug_swinunetr_alldata_5ep all_data/005-7000.pt \
+#       8 "24, 128, 128" "12, 64, 64" 6 true
+set -euo pipefail
+
+if [ "$#" -lt 7 ]; then
+    echo "Usage: $0 <exp> <snapshot> <bs> <sample_dim> <stride> <scale>" \
+         "<interp> [--clipping]"
+    exit 1
+fi
+
+EXP="$1"; SNAP="$2"; BS="$3"; SD="$4"; ST="$5"; SCALE="$6"; INTERP="$7"
+CLIP="${8:-}"
+
+cd ~/.vix/projects/gbm-seg
+
+# The inference tag must match infer_experiment()'s derivation exactly:
+#   f"{snapshot}_{''.join(sample_dim)}_{''.join(stride)}_{scale}"
+# i.e. the dimension lists with every comma and space stripped out.
+SD_J=$(echo "$SD" | tr -d ', ')
+ST_J=$(echo "$ST" | tr -d ', ')
+TAG="${SNAP}_${SD_J}_${ST_J}_${SCALE}"
+
+# --- Pre-flight checks (fail fast, before queueing anything) ---
+ROOT_PATH=$(python -c "import yaml; print(yaml.safe_load(open('./configs/template.yaml'))['experiments']['root'])")
+if [ ! -d "${ROOT_PATH}/${EXP}" ]; then
+    echo "Error: experiment '${EXP}' not found under ${ROOT_PATH}"
+    exit 1
+fi
+if [ ! -f "${ROOT_PATH}/${EXP}/results-train/snapshots/${SNAP}" ]; then
+    echo "Error: snapshot '${SNAP}' not found under" \
+         "${ROOT_PATH}/${EXP}/results-train/snapshots/"
+    exit 1
+fi
+
+echo "Pipeline for experiment : ${EXP}"
+echo "Snapshot                : ${SNAP}"
+echo "Inference tag           : ${TAG}"
+echo
+
+# --- Chain the stages ---
+J_INFER=$(sbatch --parsable sbatch/infer.sbatch \
+    "$EXP" "$SNAP" "$BS" "$SD" "$ST" "$SCALE" "$INTERP")
+echo "infer    : $J_INFER"
+
+J_PSP=$(sbatch --parsable --dependency=afterok:"$J_INFER" \
+    sbatch/psp.sbatch "$EXP" "$TAG")
+echo "psp      : $J_PSP   (afterok $J_INFER)"
+
+J_MORPH=$(sbatch --parsable --dependency=afterok:"$J_PSP" \
+    sbatch/morph.sbatch "$EXP" "$TAG")
+echo "morph    : $J_MORPH   (afterok $J_PSP)"
+
+J_STATS=$(sbatch --parsable --dependency=afterok:"$J_MORPH" \
+    sbatch/stats.sbatch "$EXP" "$TAG" "$CLIP")
+echo "stats    : $J_STATS   (afterok $J_MORPH)"
+
+J_BLENDER=$(sbatch --parsable --dependency=afterok:"$J_MORPH" \
+    sbatch/blender.sbatch "$EXP" "$TAG")
+echo "blender  : $J_BLENDER   (afterok $J_MORPH)"
+
+J_RENDER=$(sbatch --parsable --dependency=afterok:"$J_BLENDER" \
+    sbatch/render.sbatch "$EXP" "$TAG")
+echo "render   : $J_RENDER   (afterok $J_BLENDER)"
+
+J_EXPORT=$(sbatch --parsable --dependency=afterok:"$J_RENDER" \
+    sbatch/export.sbatch "$EXP" "$TAG")
+echo "export   : $J_EXPORT   (afterok $J_RENDER)"
+
+echo
+echo "Submitted. Monitor with:  squeue -u $USER"
+echo "If any stage fails, every afterok dependent is auto-cancelled."
