@@ -479,20 +479,33 @@ class GBMDataset(BaseDataset):
 
     @staticmethod
     def _rotate_channels(nephrin, collagen4, wga, label):
-        # Define the rotation angles
+        # Rotation around all three axes is intentional: rotating content
+        # through Z propagates the high-resolution XY information into the
+        # low-resolution Z direction, which smooths the Z output.
         angle_x = np.random.randint(0, 20)  # rotation around the x-axis
         angle_y = np.random.randint(0, 20)  # rotation around the y-axis
         angle_z = np.random.randint(0, 20)  # rotation around the z-axis
 
-        def rotate_voxel_space(voxel_space):
-            # Rotate around each axis
-            rotated_voxel_space = rotate(voxel_space, angle=angle_x, axes=(1, 2), reshape=False, order=1)
-            rotated_voxel_space = rotate(rotated_voxel_space, angle=angle_y, axes=(0, 2), reshape=False, order=1)
-            rotated_voxel_space = rotate(rotated_voxel_space, angle=angle_z, axes=(0, 1), reshape=False, order=1)
+        def rotate_voxel_space(voxel_space, _order):
+            # Rotate around each axis. `_order` is the spline-interpolation
+            # order: 1 (linear) for the continuous intensity channels,
+            # 0 (nearest-neighbour) for the binary label — order>=1 would
+            # blend the label into fractional values, which the trainer's
+            # `labels.long()` then truncates to 0, silently eroding the
+            # thin GBM membrane on every rotated patch.
+            rotated_voxel_space = rotate(voxel_space, angle=angle_x,
+                                         axes=(1, 2), reshape=False,
+                                         order=_order)
+            rotated_voxel_space = rotate(rotated_voxel_space, angle=angle_y,
+                                         axes=(0, 2), reshape=False,
+                                         order=_order)
+            rotated_voxel_space = rotate(rotated_voxel_space, angle=angle_z,
+                                         axes=(0, 1), reshape=False,
+                                         order=_order)
 
             return rotated_voxel_space
 
-        return (rotate_voxel_space(nephrin),
-                rotate_voxel_space(collagen4),
-                rotate_voxel_space(wga),
-                rotate_voxel_space(label))
+        return (rotate_voxel_space(nephrin, 1),
+                rotate_voxel_space(collagen4, 1),
+                rotate_voxel_space(wga, 1),
+                rotate_voxel_space(label, 0))
