@@ -9,7 +9,7 @@ experiments:
   models: ['unet_3d', 'swin_unetr']
   losses: ['CrossEntropy', 'Dice', 'IoU', 'Cont', 'Compound']
 
-  scale_lerning_rate_for_batch_size: True
+  scale_lerning_rate_for_batch_size: False
 
   # default_data_path: '/projects/ag-bozek/afatehi/gbm/data/ds_human/'
   # default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
@@ -74,7 +74,7 @@ trainer:
       attn_drop_rate: 0.0
       z_deduction_per_stage: 2     # matches Unet3D's pool kernel (3, 2, 2)
 
-  epochs: 10
+  epochs: 25
 
   # Optimiser. Supported names:
   #   adam — Adam. Fields: lr (required). β1=0.9, β2=0.999 are PyTorch defaults
@@ -146,8 +146,8 @@ trainer:
   # Requires `pip install wandb` and a `wandb login` (or WANDB_API_KEY env
   # var); silently skipped with a warning if wandb is absent.
   wandb:
-    enabled: False
-    project: gbm-seg
+    enabled: True
+    project: gbm-ablation
     entity: gbm-project  # personal entity is admin-disabled; use team handle
     run_name: null       # null → wandb auto-generates a name
 
@@ -263,7 +263,7 @@ trainer:
     gif: True
     tif: False
 
-  dp: True
+  dp: False
   # DistributedDataParallel — opt-in alternative to DP. When True, training
   # must be launched via `sbatch/train_ddp.sbatch` (which wraps `torchrun
   # --nproc-per-node=N gbm.py train …`). DDP takes precedence over DP when
@@ -271,7 +271,7 @@ trainer:
   # 4 GPUs and supports torch.compile + cudnn.benchmark.
   # Mutually exclusive with the in-process all-folds orchestrator —
   # submit one sbatch per fold via `sbatch/submit_cv_ddp.sh`.
-  ddp: False
+  ddp: True
   # Compute device. Supported:
   #   cuda — GPU (training default). Required for DDP / compile.
   #   cpu  — useful only for tests or smoke checks; very slow for training.
