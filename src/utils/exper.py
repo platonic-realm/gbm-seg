@@ -393,6 +393,38 @@ def train_experiment(_name: str,
         main_train(configs, _fold=int(_fold))
 
 
+def offline_augment_experiment(_name: str, _root_path: str):
+    """Precompute the offline-augmentation cache for an experiment.
+
+    Offline augmentation (twist/zoom/rotate variants of every training
+    volume, written to ``<ds_train>/cache/``) is CPU-heavy. Doing it
+    lazily inside the training dataset means every DDP rank recomputes
+    the same volumes simultaneously — N x CPU and N x RAM, which swap-
+    kills the node. This command builds the cache ONCE, single-process,
+    ahead of training; the DDP ranks then only read it.
+
+    Run it after `gbm.py create` and before any `gbm.py train` whose
+    config has ``train_ds.augmentation.enabled_offline: true``.
+    """
+    if not experiment_exists(_root_path, _name):
+        raise FileNotFoundError(f"Experiment '{_name}' doesn't exist")
+    configs = read_configs(os.path.join(_root_path, _name, 'configs.yaml'))
+    methods = (configs['trainer']['train_ds']['augmentation']
+               .get('methods_offline'))
+    if not methods:
+        logging.warning(
+            "Experiment '%s' has no train_ds.augmentation.methods_offline; "
+            "nothing to precompute.", _name)
+        return
+    logging.info("Precomputing offline-augmentation cache for '%s' "
+                 "(methods: %s)", _name, methods)
+    factory = Factory(configs)
+    # Building the dataset in precompute mode populates <ds_train>/cache/
+    # as a side effect of GBMDataset.__init__; the object is then dropped.
+    factory.createTrainDataset(file_filter=None, _offline_precompute=True)
+    logging.info("Offline-augmentation cache built for '%s'.", _name)
+
+
 def aggregate_cv_experiment(_name: str, _root_path: str):
     """Standalone CV aggregation. Reads each fold's best_metrics.yaml from
     disk and writes <exp>/cv_results.{yaml,npz} plus a W&B cv_summary run

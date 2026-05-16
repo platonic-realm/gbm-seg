@@ -126,6 +126,18 @@ def parse_exper() -> None:
     agg_parser.add_argument('name',
                             help='name of the experiment')
 
+    # Define a subparser for the 'offline-aug' action — precompute the
+    # offline-augmentation cache once, ahead of (DDP) training.
+    offline_aug_parser = \
+        subparsers.add_parser('offline-aug',
+                              help='precompute the offline-augmentation '
+                                   'cache for an experiment (run once after '
+                                   'create, before training with '
+                                   'enabled_offline: true — keeps DDP ranks '
+                                   'from each recomputing it)')
+    offline_aug_parser.add_argument('name',
+                                    help='name of the experiment')
+
     # Define a subparser for the 'infer' action
     infer_parser = \
         subparsers.add_parser('infer',

@@ -60,6 +60,13 @@ def _do_aggregate_cv(args, configs):
                                   _root_path=configs['experiments']['root'])
 
 
+def _do_offline_aug(args, configs):
+    configure_logger(configs, _log_to_file=False)
+    exper.offline_augment_experiment(
+        _name=args.name,
+        _root_path=configs['experiments']['root'])
+
+
 def _do_delete(args, configs):
     basic_logger()
     exper.delete_experiment(_name=args.name,
@@ -169,6 +176,7 @@ HANDLERS = {
     'list':         _do_list,
     'train':        _do_train,
     'aggregate-cv': _do_aggregate_cv,
+    'offline-aug':  _do_offline_aug,
     'delete':       _do_delete,
     'infer':        _do_infer,
     'psp':          _do_psp,

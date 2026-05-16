@@ -345,13 +345,19 @@ class Factory:
 
         return trainer
 
-    def createTrainDataset(self, file_filter=None) -> BaseDataset:
+    def createTrainDataset(self, file_filter=None,
+                           _offline_precompute=False) -> BaseDataset:
         """Build the *training* dataset (augmentation on).
 
         A1: ``file_filter`` (a list of TIFF basenames) restricts the
         dataset to the per-fold training subset. When None, every TIFF
         in ``train_ds.path`` is used (legacy behaviour, used only by
         old experiments that lack fold_assignments.yaml).
+
+        ``_offline_precompute=True`` is the `gbm.py offline-aug` path:
+        the offline-augmentation cache is computed + written (regardless
+        of the ``enabled_offline`` flag). With it False, training only
+        *reads* the cache — a missing entry raises (see GBMDataset).
         """
         root_path = self.configs['root_path']
         training_ds_dir: str = os.path.join(root_path,
@@ -359,13 +365,16 @@ class Factory:
         training_sample_dimension: list = self.configs['trainer']['train_ds']['sample_dimension']
         training_pixel_stride: list = self.configs['trainer']['train_ds']['pixel_stride']
 
+        aug_cfg = self.configs['trainer']['train_ds']['augmentation']
         training_augmentation_offline = None
-        if self.configs['trainer']['train_ds']['augmentation']['enabled_offline']:
-            training_augmentation_offline = self.configs['trainer']['train_ds']['augmentation']['methods_offline']
+        # The offline-aug command builds the cache for methods_offline even
+        # when enabled_offline is false (its whole job is to populate it).
+        if _offline_precompute or aug_cfg['enabled_offline']:
+            training_augmentation_offline = aug_cfg['methods_offline']
 
         training_augmentation_online = None
-        if self.configs['trainer']['train_ds']['augmentation']['enabled_online']:
-            training_augmentation_online = self.configs['trainer']['train_ds']['augmentation']['methods_online']
+        if aug_cfg['enabled_online']:
+            training_augmentation_online = aug_cfg['methods_online']
 
         training_dataset = GBMDataset(
                 _source_directory=training_ds_dir,
@@ -374,9 +383,10 @@ class Factory:
                 _ignore_stride_mismatch=self.configs['trainer']['train_ds']['ignore_stride_mismatch'],
                 _augmentation_offline=training_augmentation_offline,
                 _augmentation_online=training_augmentation_online,
-                _augmentation_workers=self.configs['trainer']['train_ds']['augmentation']['workers'],
+                _augmentation_workers=aug_cfg['workers'],
                 _is_valid=False,
-                _file_filter=file_filter)
+                _file_filter=file_filter,
+                _offline_precompute=_offline_precompute)
 
         return training_dataset
 

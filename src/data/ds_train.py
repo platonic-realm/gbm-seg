@@ -35,7 +35,8 @@ class GBMDataset(BaseDataset):
                  _augmentation_online=None,
                  _augmentation_workers=8,
                  _is_valid=False,
-                 _file_filter=None):
+                 _file_filter=None,
+                 _offline_precompute=False):
 
         super().__init__(_sample_dimension,
                          _pixel_per_step,
@@ -53,6 +54,11 @@ class GBMDataset(BaseDataset):
         self.augmentation_online = _augmentation_online
         self.augmentation_offline = _augmentation_offline
         self.is_valid = _is_valid
+        # When True (the `gbm.py offline-aug` command) the offline-aug
+        # cache is computed + written. When False (training) the cache
+        # is read-only — a missing entry raises rather than recomputing,
+        # because under DDP every rank would recompute simultaneously.
+        self.offline_precompute = _offline_precompute
 
         directory_content = os.listdir(self.source_directory)
         directory_content = list(filter(lambda _x: re.match(r'(.+).(tiff|tif)',
@@ -268,7 +274,14 @@ class GBMDataset(BaseDataset):
             if _method is not None:
                 cached_file_path = os.path.join(self.cache_directory,
                                                 file_name)
-                if file_name not in self.cache_content:
+                if os.path.exists(cached_file_path):
+                    # Cache hit — read the precomputed augmented volume.
+                    # (os.path.exists, not the stale self.cache_content
+                    # snapshot, so a cache written after __init__ is seen.)
+                    with tifffile.TiffFile(cached_file_path) as tiff:
+                        image = tiff.asarray()
+                elif self.offline_precompute:
+                    # `gbm.py offline-aug` mode: compute + write the cache.
                     image = getattr(GBMDataset, _method[0])(self,
                                                             image,
                                                             _method[1],
@@ -279,8 +292,15 @@ class GBMDataset(BaseDataset):
                                      imagej=True,
                                      compression="lzw")
                 else:
-                    with tifffile.TiffFile(cached_file_path) as tiff:
-                        image = tiff.asarray()
+                    # Training must NOT compute offline aug: under DDP every
+                    # rank would recompute the same volumes simultaneously
+                    # (Nx CPU + Nx RAM -> swap death). The cache is built
+                    # once, ahead of time, by `gbm.py offline-aug`.
+                    raise FileNotFoundError(
+                        f"Offline-augmentation cache missing for "
+                        f"'{file_name}'. Run `gbm.py offline-aug "
+                        f"<experiment>` once before training with "
+                        f"train_ds.augmentation.enabled_offline: true.")
 
             def label_correction_function(_labels):
                 _labels = _labels.astype(int)
