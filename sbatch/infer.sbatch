@@ -12,8 +12,12 @@
 # Args: $1 exp  $2 snapshot  $3 batch  $4 sample_dim  $5 stride
 #       $6 scale_factor  $7 interpolation (true/false)
 
+mkdir -p /home/afatehi/logs/gbm/
+source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
+
 if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
     # --- Parent phase: enumerate the volumes, submit the array ---
+    # venv + cd already done above so the python yaml read below works.
     ROOT_PATH=$(python -c "import yaml; print(yaml.safe_load(open('./configs/template.yaml'))['experiments']['root'])")
     DS_DIR="${ROOT_PATH}/$1/datasets/ds_test_unlabeled"
     if [ ! -d "$DS_DIR" ]; then
@@ -61,8 +65,6 @@ if [ -z "$VOL" ]; then
     exit 1
 fi
 
-mkdir -p /home/afatehi/logs/gbm/
-source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 echo "Array task $SLURM_ARRAY_TASK_ID inferring volume: $VOL"
