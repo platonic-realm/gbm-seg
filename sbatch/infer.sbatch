@@ -12,5 +12,10 @@
 mkdir -p /home/afatehi/logs/gbm/
 
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
-./gbm.py infer $1 -s $2 -bs $3 -sd "$4" -st "$5" -sf $6
+# Args: $1 exp  $2 snapshot  $3 batch  $4 sample_dim  $5 stride
+#       $6 scale_factor  $7 interpolation (true/false)
+# -f makes infer non-interactive (SLURM-safe). $7 must be `true` when the
+# model was trained on Z-upsampled data so InferenceDataset upsamples to
+# match — see ds_infer.py:43 (needs scale_factor>1 AND interpolate).
+./gbm.py infer $1 -s $2 -bs $3 -sd "$4" -st "$5" -sf $6 -in "$7" -f
 

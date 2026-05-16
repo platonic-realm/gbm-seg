@@ -26,6 +26,10 @@ mkdir -p /home/afatehi/logs/gbm/
 
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
 
+# expandable_segments cuts the reserved-but-unallocated fragmentation that
+# can tip a tight model into a spurious OOM.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 # rdzv settings work for single-node multi-GPU; for multi-node, add
 # --rdzv-endpoint=<host>:<port> with a coordinator.
 torchrun \
