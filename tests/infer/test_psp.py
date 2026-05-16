@@ -30,8 +30,34 @@ def test_small_3d_blob_removed(tmp_path):
 
     out = np.load(tmp_path / "prediction_psp.npz")['arr']
     assert out[0, 0, 0] == 0, "Small blob should have been removed"
-    # The big blob should mostly survive (erosion + dilation may shrink it slightly).
+    # The big blob survives; opening-by-reconstruction restores it to full extent.
     assert out[:, 10:50, 10:50].sum() > 0
+
+
+def test_reconstruction_preserves_thin_attachment(tmp_path):
+    """A thin arm attached to a surviving component must be kept whole.
+
+    A bare erode+dilate (morphological opening) deletes any structure
+    narrower than the kernel — the arm would be lost past the 1-px the
+    dilation can regrow. Opening by reconstruction geodesically dilates
+    the survivor back to its full pre-erosion extent, so the entire arm,
+    being connected to the body, is restored.
+    """
+    pred = np.zeros((4, 64, 64), dtype=np.uint8)
+    pred[:, 10:50, 10:30] = 1          # solid body (survives erosion)
+    pred[:, 29:30, 30:55] = 1          # 1-px-thin arm (vanishes under a 3x3 erosion)
+
+    np.savez_compressed(tmp_path / "prediction.npz", arr=pred)
+
+    p = PSP(_kernel_size=3, _min_2d_size=10, _min_3d_size=10)
+    p.post_processing(tmp_path / "prediction.npz",
+                      tmp_path / "prediction_psp.npz")
+
+    out = np.load(tmp_path / "prediction_psp.npz")['arr']
+    assert out[:, 10:50, 10:30].all(), "body should survive intact"
+    # The whole arm — including its far end the dilation could never reach —
+    # must be reconstructed back.
+    assert out[:, 29, 30:55].all(), "thin arm should be fully preserved"
 
 
 def test_parallel_post_processing_does_not_double_run():

@@ -4,30 +4,55 @@ import multiprocessing
 import os
 from pathlib import Path
 
-import imageio
-
 # Library Imports
+import imageio
 import numpy as np
-from scipy import ndimage
 from skimage import measure, morphology
 
 # Local Imports
 
 
 class PSP:
-    """Per-sample post-processing: 2D erosion → connected-component filter by
-    ``min_2d_size`` → dilation, then 3D connected-component filter by
-    ``min_3d_size``. Parallelised across samples via multiprocessing.Pool.
+    """Per-sample post-processing of a binary GBM mask.
+
+    3D pass:  (optional) fill small enclosed cavities -> drop 3D connected
+              components below ``min_3d_size`` voxels.
+    2D pass (per Z-slice): (optional) fill small holes -> erode -> drop 2D
+              components below ``min_2d_size`` px -> *opening by
+              reconstruction*.
+
+    Why reconstruction instead of a plain dilation: a bare erode+dilate is
+    a morphological opening, which is anti-extensive — it can only remove
+    voxels and systematically thins anything narrower than the kernel.
+    The GBM is a thin membrane and ``prediction_psp.npz`` is the input to
+    the thickness morphometry (``misc.morph_analysis``), so an opening
+    here would bias the headline measurement. Opening by reconstruction
+    instead geodesically dilates the surviving components back to their
+    exact pre-erosion extent: components that vanish under erosion
+    (specks, thin noise) are dropped, every survivor is left untouched.
+
+    Full connectivity is used for every labelling step. The GBM is a thin
+    curved sheet that meets the pixel grid diagonally everywhere; face-only
+    connectivity would fragment one real arc into many small pieces that
+    then fall below the size threshold and get deleted.
+
+    Hole-filling is opt-in (``max_*_hole_size`` default 0 = disabled): a
+    threshold must stay well below a capillary-lumen cross-section so a
+    real lumen is never filled.
     """
 
     def __init__(self,
                  _kernel_size: int,
                  _min_2d_size: int,
-                 _min_3d_size: int):
+                 _min_3d_size: int,
+                 _max_2d_hole_size: int = 0,
+                 _max_3d_hole_size: int = 0):
 
         self.kernel_size: int = _kernel_size
         self.min_2d_size: int = _min_2d_size
         self.min_3d_size: int = _min_3d_size
+        self.max_2d_hole_size: int = _max_2d_hole_size
+        self.max_3d_hole_size: int = _max_3d_hole_size
 
     def parallel_post_processing(self,
                                  _results_path: str,
@@ -61,57 +86,66 @@ class PSP:
         PID = os.getpid()
         logging.info("Process %d: started!", PID)
 
-        prediction = np.load(_input_path)['arr']
-        logging.info("Process %d: prediction numpy array loaded", PID)
+        mask = np.load(_input_path)['arr'].astype(bool)
+        logging.info("Process %d: prediction loaded, shape=%s", PID, mask.shape)
 
-        labels, labels_num = ndimage.label(prediction)
-        # Count voxels per label in a single linear pass via bincount, then
-        # zero out every voxel whose label's count is below min_3d_size.
-        # The pre-fix code did `np.sum(labels == k)` once per label — O(N×V)
-        # — which pegged CPU for an hour on 60M+-voxel volumes.
-        logging.info("Process %d: removing 3D objects smaller than %d "
-                     "(labels=%d)", PID, self.min_3d_size, labels_num)
-        if labels_num > 0:
-            counts = np.bincount(labels.ravel())
-            small_labels = np.where(counts < self.min_3d_size)[0]
-            # Label 0 is background — it's always "small" in this sense but
-            # already zero. Subtract a fast `labels == 0` test to avoid an
-            # unnecessary isin pass on the background mask.
-            small_labels = small_labels[small_labels != 0]
-            if small_labels.size:
-                prediction[np.isin(labels, small_labels)] = 0
-
+        # --- 3D pass: optional cavity fill, then drop small components ---
+        if self.max_3d_hole_size > 0:
+            mask = morphology.remove_small_holes(
+                mask, area_threshold=self.max_3d_hole_size, connectivity=3)
+        logging.info("Process %d: removing 3D objects smaller than %d",
+                     PID, self.min_3d_size)
+        mask = morphology.remove_small_objects(
+            mask, min_size=self.min_3d_size, connectivity=3)
         logging.info("Process %d: 3D post processing finished", PID)
 
-        logging.info("Process %d: removing 2D objects smaller than %d", PID, self.min_2d_size)
+        # --- 2D pass: per-slice opening by reconstruction ---
+        logging.info("Process %d: removing 2D objects smaller than %d",
+                     PID, self.min_2d_size)
         kernel = morphology.rectangle(self.kernel_size, self.kernel_size)
-        for i in range(prediction.shape[0]):
-            prediction[i, :, :] = morphology.erosion(prediction[i, :, :], kernel)
+        for i in range(mask.shape[0]):
+            sample = mask[i]
+            if self.max_2d_hole_size > 0:
+                sample = morphology.remove_small_holes(
+                    sample, area_threshold=self.max_2d_hole_size,
+                    connectivity=2)
 
-            sample = prediction[i, :, :]
-            slice_labels = measure.label(sample, connectivity=1)
-            # Same vectorisation as the 3D pass.
-            unique_labels, label_counts = np.unique(slice_labels,
-                                                    return_counts=True)
-            small = unique_labels[(label_counts < self.min_2d_size)
-                                  & (unique_labels != 0)]
-            if small.size:
-                prediction[i][np.isin(slice_labels, small)] = 0
+            # Erosion breaks thin noise-bridges, so a noise blob bridged to
+            # real structure becomes a separate component and can be
+            # dropped on its own. The size threshold is read off the
+            # eroded slice; survivors are restored below by reconstruction.
+            eroded = morphology.erosion(sample, kernel)
+            labels = measure.label(eroded, connectivity=2)
+            counts = np.bincount(labels.ravel())
+            keep = counts >= self.min_2d_size
+            keep[0] = False  # label 0 is background
+            seed = keep[labels]
 
-            prediction[i, :, :] = morphology.dilation(prediction[i, :, :], kernel)
+            if seed.any():
+                # Geodesic dilation of the survivors, clipped to `sample`:
+                # grows each survivor back to its full pre-erosion extent
+                # while the dropped components (absent from the seed) stay
+                # gone. Cast to uint8 — reconstruction expects a numeric
+                # intensity image, not bool.
+                mask[i] = morphology.reconstruction(
+                    seed.astype(np.uint8),
+                    sample.astype(np.uint8),
+                    method='dilation').astype(bool)
+            else:
+                mask[i] = False
 
         logging.info("Process %d: 2D post processing finished", PID)
 
+        prediction = mask.astype(np.uint8)
         np.savez_compressed(_output_path, arr=prediction)
         logging.info("Process %d: processed prediction numpy array saved", PID)
 
         gif_path = _output_path.parent / "prediction_psp.gif"
 
-        prediction = prediction * _multiplier  # To differentiate the colors
-        prediction = prediction.astype(np.uint8)
-
+        # Scale 0/1 -> 0/_multiplier so the mask is visible in the gif.
+        frames = (prediction * _multiplier).astype(np.uint8)
         with imageio.get_writer(gif_path, mode='I') as writer:
-            for index in range(prediction.shape[0]):
-                writer.append_data(prediction[index])
+            for index in range(frames.shape[0]):
+                writer.append_data(frames[index])
 
         logging.info("Process %d: processed prediction gif saved", PID)

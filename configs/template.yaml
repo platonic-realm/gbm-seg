@@ -308,9 +308,14 @@ inference:
 
   post_processing:
     enabled: True
-    min_2d_size: 500
-    min_3d_size: 5000
-    kernel_size: 3
+    min_2d_size: 500       # drop 2D components smaller than this (px)
+    min_3d_size: 5000      # drop 3D components smaller than this (voxels)
+    kernel_size: 3         # erosion kernel for the per-slice opening-by-reconstruction
+    # Hole-filling — fill enclosed background regions below the threshold.
+    # 0 disables it. Keep well below a capillary-lumen cross-section so a
+    # real lumen is never filled.
+    max_2d_hole_size: 64   # per-slice pinhole fill (px); 0 = off
+    max_3d_hole_size: 0    # 3D cavity fill (voxels); 0 = off
 
   morph:
     kernel_ave_size: 5

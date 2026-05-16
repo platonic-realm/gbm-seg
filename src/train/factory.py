@@ -599,13 +599,20 @@ class Factory:
 
     def createPSPer(self):
 
-        kernel_size = self.configs['inference']['post_processing']['kernel_size']
-        min_2d_size = self.configs['inference']['post_processing']['min_2d_size']
-        min_3d_size = self.configs['inference']['post_processing']['min_3d_size']
+        post_processing = self.configs['inference']['post_processing']
+        kernel_size = post_processing['kernel_size']
+        min_2d_size = post_processing['min_2d_size']
+        min_3d_size = post_processing['min_3d_size']
+        # Hole-filling is opt-in; .get keeps experiment configs created
+        # before these keys existed working (0 = disabled).
+        max_2d_hole_size = post_processing.get('max_2d_hole_size', 0)
+        max_3d_hole_size = post_processing.get('max_3d_hole_size', 0)
 
         psp = PSP(kernel_size,
                   min_2d_size,
-                  min_3d_size)
+                  min_3d_size,
+                  max_2d_hole_size,
+                  max_3d_hole_size)
 
         return psp
 
