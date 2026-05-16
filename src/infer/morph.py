@@ -23,6 +23,14 @@ PSFLateral = 149  # 149nm
 PSFAxial = 434  # 434nm
 # Thickness = ( Measured^2 - ((PSFLateral * cos(a))^2 + (PSFAxial * sin(a))^2) ) ^ 0.5
 
+# Minimum ray length (in voxels) before a surface hit counts as the
+# opposite wall — a hit must clear the source voxel's own 3x3x3 block.
+# sqrt(3) is one voxel-diagonal; it is comfortably below the thinnest
+# real GBM (the membrane spans many voxels after the x6 Z-upsampling),
+# so genuinely thin membrane is still measured.
+MIN_RAY_VOXELS = 3 ** 0.5
+
+
 def draw(_file_path, _input):
     _input = torch.squeeze(_input)
     _input = torch.squeeze(_input)
@@ -471,7 +479,9 @@ class Morph(nn.Module):
                                                other_axis_2,
                                                range), dim=2)
 
-        # Here I am truncating the intercestions to interpret them as the base of the voxel
+        # `truncated` snaps each intersection to the integer base corner of
+        # the voxel it lands in — used only for the integer surface_mask
+        # lookup and the bounds tests below, not for the distance itself.
         truncated = intersection_planes.trunc()
         # We filter out out of bound values, because we are only interested in the
         # intercestions inside the voxel space
@@ -487,15 +497,28 @@ class Morph(nn.Module):
         condition = truncated[:, :, axis_list[1]] < _size[1]
         truncated[~condition] = torch.nan
 
-        # Another filter to keep only intercestions that are surface voxels
-        condition = _surface_mask[0][0][truncated[:, :, 0].int(),
-                                        truncated[:, :, 1].int(),
-                                        truncated[:, :, 2].int()].bool()
+        # Another filter to keep only intercestions that are surface voxels.
+        # Rows the bounds tests above rejected are all-nan here, and
+        # nan.int() is INT_MIN — an out-of-bounds index (IndexError on CPU,
+        # a silent out-of-bounds read on CUDA). Map nan/inf to a safe 0
+        # index purely for the lookup: those rows are already nan in
+        # `truncated` and stay excluded whatever surface_mask[0,0,0] returns.
+        safe_index = truncated.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
+        condition = _surface_mask[0][0][safe_index[:, :, 0].int(),
+                                        safe_index[:, :, 1].int(),
+                                        safe_index[:, :, 2].int()].bool()
         truncated[~condition] = torch.nan
 
-        # Calculating the distance between the point on the source to base of the
-        # target voxel, it might be better to use the displacement again here instead of the base
-        distances = truncated - _points
+        # The ray endpoint is the EXACT plane crossing, not the voxel's base
+        # corner — this mirrors the sub-voxel source point (_points) on the
+        # target side, so the measured distance is the true on-ray length to
+        # the far surface. `truncated` is used only for the integer lookups
+        # above; every intersection it filtered out is carried over here so
+        # an invalid hit stays invalid.
+        endpoint = intersection_planes.clone()
+        endpoint[truncated.isnan().any(dim=2)] = torch.nan
+
+        distances = endpoint - _points
         validation = (distances * _slopes).sum(dim=2)
         condition = validation > 0
         distances[~condition] = torch.nan
@@ -503,7 +526,10 @@ class Morph(nn.Module):
         if distances.numel() > 0:
             distances = (distances * distances).sum(dim=2)
 
-            condition = distances > 1.7
+            # `distances` is the SQUARED distance here, so the cutoff is
+            # squared too — drop hits closer than MIN_RAY_VOXELS (the
+            # source voxel and its immediate neighbours).
+            condition = distances > MIN_RAY_VOXELS ** 2
             distances[~condition] = torch.nan
             distances[torch.isnan(distances)] = torch.inf
 
