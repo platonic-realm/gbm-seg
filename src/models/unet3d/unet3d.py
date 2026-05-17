@@ -31,6 +31,7 @@ class Unet3D(nn.Module):
             _feature_maps=(64, 128, 256, 512),
             _conv_layer_type='bcr',
             _sample_dimension=None,
+            _z_deduction_per_stage='auto',
             _deep_supervision: bool = False,
             _ds_levels: int = 2):
 
@@ -48,6 +49,19 @@ class Unet3D(nn.Module):
         self.feature_maps = _feature_maps
         self.conv_layer_type = _conv_layer_type
 
+        # Z deduction per encoder pool. 'auto' derives it from the Z patch
+        # depth — the encoder reduces Z to ~half its depth over the
+        # (num_stages - 1) pools — the same anisotropic rule as SwinUNETR;
+        # an explicit int overrides.
+        num_stages = len(_feature_maps)
+        if (isinstance(_z_deduction_per_stage, str)
+                and _z_deduction_per_stage.lower() == 'auto'):
+            sample_z = int(_sample_dimension[0])
+            self.z_deduction = max(
+                1, round(sample_z / (2 * max(1, num_stages - 1))))
+        else:
+            self.z_deduction = int(_z_deduction_per_stage)
+
         logging.debug("Initializing Unet3D: in_ch=%s, features=%s, kernels=%s",
                       _input_channels, _feature_maps, _encoder_kernel_size)
 
@@ -56,13 +70,15 @@ class Unet3D(nn.Module):
                                                     _encoder_kernel_size,
                                                     _encoder_padding,
                                                     _sample_dimension,
-                                                    _conv_layer_type)
+                                                    _conv_layer_type,
+                                                    self.z_deduction)
 
         self.decoder_layers = create_decoder_layers(_feature_maps,
                                                     _decoder_kernel_size,
                                                     _decoder_padding,
                                                     _sample_dimension,
-                                                    _conv_layer_type)
+                                                    _conv_layer_type,
+                                                    self.z_deduction)
 
         self.last_layer = nn.Conv3d(in_channels=_feature_maps[0],
                                     out_channels=self.number_of_classes,

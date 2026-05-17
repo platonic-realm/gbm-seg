@@ -62,6 +62,12 @@ trainer:
     decoder_kernel: [3, 3, 3]
     decoder_padding: 'same'
 
+    # Anisotropic Z handling. 'auto' derives the per-stage Z deduction from
+    # the Z patch depth (encoder reduces Z to ~half over num_stages-1
+    # merges); an explicit int overrides. The 3D U-Net reads this key;
+    # SwinUNETR reads swin_unetr.z_deduction_per_stage below.
+    z_deduction_per_stage: auto
+
     # SwinUNETR-specific. Only consulted when name=swin_unetr.
     swin_unetr:
       feature_size: 24             # base embed dim; channels double each stage
@@ -162,7 +168,7 @@ trainer:
     levels: 2
     # weights: [0.571, 0.286, 0.143]   # explicit override (normalised)
 
-  report_freq: 500
+  report_freq: 1000
 
   # Metrics logged per validation cycle. Supported names (computed in
   # src/utils/metrics/clfication.py:Metrics; pick any subset):

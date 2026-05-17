@@ -21,6 +21,7 @@ def build(configs, input_channels, num_classes):
         _decoder_kernel_size=model_cfg['decoder_kernel'],
         _feature_maps=model_cfg['feature_maps'],
         _sample_dimension=sample_dimension,
+        _z_deduction_per_stage=model_cfg.get('z_deduction_per_stage', 'auto'),
         _deep_supervision=ds_cfg.get('enabled', False),
         _ds_levels=ds_cfg.get('levels', 2),
     )

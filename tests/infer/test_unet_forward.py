@@ -48,3 +48,22 @@ def test_unet3d_no_inference_state():
     assert not hasattr(model, 'result_tensor')
     assert not hasattr(model, 'inference')
     assert not hasattr(model, 'get_result')
+
+
+def test_unet3d_auto_z_deduction_scales_with_patch_depth():
+    """'auto' z_deduction derives from the Z patch depth — the encoder
+    reduces Z to ~half its depth over the num_stages-1 pools; an explicit
+    int overrides. Same anisotropic rule as SwinUNETR."""
+    # 4 stages, Z=12 -> round(12/(2*3)) = 2 (the historical default).
+    m = Unet3D(_name='unet_3d', _input_channels=3, _number_of_classes=2,
+               _feature_maps=(8, 16, 32, 64), _sample_dimension=[12, 32, 32])
+    assert m.z_deduction == 2
+    # 4 stages, Z=24 -> round(24/6) = 4.
+    m = Unet3D(_name='unet_3d', _input_channels=3, _number_of_classes=2,
+               _feature_maps=(8, 16, 32, 64), _sample_dimension=[24, 64, 64])
+    assert m.z_deduction == 4
+    # An explicit int overrides 'auto'.
+    m = Unet3D(_name='unet_3d', _input_channels=3, _number_of_classes=2,
+               _feature_maps=(8, 16, 32, 64), _sample_dimension=[24, 64, 64],
+               _z_deduction_per_stage=2)
+    assert m.z_deduction == 2
