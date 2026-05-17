@@ -177,38 +177,58 @@ class WindowAttention3D(nn.Module):
             relative_coords.sum(-1).long())  # (N, N)
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
+        # Attention dropout is applied inside scaled_dot_product_attention
+        # via its dropout_p argument — store the rate, not a module.
+        self.attn_drop_p = float(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x: Tensor, mask: Tensor = None) -> Tensor:
         """``x``: ``(B*nW, N, C)`` where ``N = win_z * win_h * win_w``.
         ``mask``: optional ``(nW, N, N)`` additive mask for shifted windows.
+
+        Uses ``F.scaled_dot_product_attention`` so the ``(B*nW, heads, N, N)``
+        score matrix is never materialised — with the project's full-Z
+        windows (N is large) that matrix is the dominant memory term.
+        The relative-position bias and the shifted-window mask are passed
+        as the additive ``attn_mask``; this is numerically equivalent to a
+        plain ``softmax(scale*QKᵀ + bias + mask) @ V``.
         """
         B_, N, C = x.shape
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads)
         qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B_, heads, N, head_dim)
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        q, k, v = qkv[0], qkv[1], qkv[2]   # each (B_, heads, N, head_dim)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale  # (B_, heads, N, N)
-
-        # Add relative position bias.
+        # Relative position bias — additive on the scores: (heads, N, N).
         bias = self.relative_position_bias_table[
             self.relative_position_index.view(-1)
-        ].view(N, N, self.num_heads)
-        bias = bias.permute(2, 0, 1).contiguous()  # (heads, N, N)
-        attn = attn + bias.unsqueeze(0)
+        ].view(N, N, self.num_heads).permute(2, 0, 1).contiguous()
 
-        if mask is not None:
+        dropout_p = self.attn_drop_p if self.training else 0.0
+
+        if mask is None:
+            # attn_mask broadcasts over the batch dim B_.
+            out = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=bias.unsqueeze(0),
+                dropout_p=dropout_p, scale=self.scale)
+        else:
+            # Shifted windows: the additive mask depends on the window
+            # index. Split B_ = B * nW and broadcast the (nW, N, N) mask
+            # and (heads, N, N) bias rather than materialising the full
+            # (B_, heads, N, N) score-shaped tensor.
             nW = mask.shape[0]
-            attn = attn.view(B_ // nW, nW, self.num_heads, N, N)
-            attn = attn + mask.unsqueeze(1).unsqueeze(0)
-            attn = attn.view(-1, self.num_heads, N, N)
+            B = B_ // nW
+            q = q.view(B, nW, self.num_heads, N, -1)
+            k = k.view(B, nW, self.num_heads, N, -1)
+            v = v.view(B, nW, self.num_heads, N, -1)
+            attn_mask = (bias.view(1, 1, self.num_heads, N, N)
+                         + mask.view(1, nW, 1, N, N))
+            out = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=attn_mask,
+                dropout_p=dropout_p, scale=self.scale)
+            out = out.reshape(B_, self.num_heads, N, -1)
 
-        attn = F.softmax(attn, dim=-1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
+        x = out.transpose(1, 2).reshape(B_, N, C)
         return self.proj_drop(self.proj(x))
 
 

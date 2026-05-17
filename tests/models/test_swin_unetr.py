@@ -21,6 +21,7 @@ from src.models.swin_unetr.blocks import (
     PatchEmbed3D,
     PatchMerging3D,
     SwinTransformerBlock3D,
+    WindowAttention3D,
     window_partition,
     window_reverse,
 )
@@ -335,3 +336,52 @@ def test_swin_unetr_forward_backward_with_checkpointing():
     assert logits.shape == (1, 2, 12, 32, 32)
     logits.mean().backward()
     assert x.grad is not None and torch.isfinite(x.grad).all()
+
+
+# --- WindowAttention3D: SDPA numerical equivalence ------------------------
+
+def _reference_window_attention(attn, x, mask=None):
+    """Explicit softmax(scale*QK^T + bias [+ mask]) @ V, then proj — the
+    plain attention the SDPA path must reproduce."""
+    B_, N, C = x.shape
+    h = attn.num_heads
+    qkv = attn.qkv(x).reshape(B_, N, 3, h, C // h).permute(2, 0, 3, 1, 4)
+    q, k, v = qkv[0], qkv[1], qkv[2]
+    bias = attn.relative_position_bias_table[
+        attn.relative_position_index.view(-1)
+    ].view(N, N, h).permute(2, 0, 1)
+    scores = (q @ k.transpose(-2, -1)) * attn.scale + bias.unsqueeze(0)
+    if mask is not None:
+        nW = mask.shape[0]
+        scores = scores.view(B_ // nW, nW, h, N, N) + mask.view(1, nW, 1, N, N)
+        scores = scores.view(B_, h, N, N)
+    ref = torch.softmax(scores, dim=-1) @ v
+    return attn.proj(ref.transpose(1, 2).reshape(B_, N, C))
+
+
+def test_window_attention_sdpa_matches_reference_no_mask():
+    """The SDPA attention path equals plain softmax-attention (no mask)."""
+    torch.manual_seed(0)
+    dim, heads, win = 12, 3, (4, 3, 3)
+    attn = WindowAttention3D(dim=dim, window_size=win, num_heads=heads).eval()
+    n = win[0] * win[1] * win[2]
+    x = torch.randn(2, n, dim)
+    with torch.no_grad():
+        assert torch.allclose(attn(x), _reference_window_attention(attn, x),
+                              atol=1e-4)
+
+
+def test_window_attention_sdpa_matches_reference_with_mask():
+    """Equivalence holds with a shifted-window additive mask."""
+    torch.manual_seed(1)
+    dim, heads, win = 12, 3, (4, 3, 3)
+    attn = WindowAttention3D(dim=dim, window_size=win, num_heads=heads).eval()
+    n = win[0] * win[1] * win[2]
+    nW, b = 2, 2
+    x = torch.randn(b * nW, n, dim)
+    mask = torch.zeros(nW, n, n)
+    mask[1, :n // 2, n // 2:] = float('-inf')
+    with torch.no_grad():
+        assert torch.allclose(attn(x, mask=mask),
+                              _reference_window_attention(attn, x, mask),
+                              atol=1e-4)
