@@ -389,7 +389,8 @@ class BasicLayer3D(nn.Module):
                  window_size: Sequence[int],
                  mlp_ratio: float = 4.0, qkv_bias: bool = True,
                  drop: float = 0.0, attn_drop: float = 0.0,
-                 downsample: bool = False):
+                 downsample: bool = False,
+                 z_deduction: int = 2):
         super().__init__()
         win_z, win_h, win_w = window_size
         # Z is full-window, so no Z shift. XY shifts by half the window.
@@ -404,7 +405,12 @@ class BasicLayer3D(nn.Module):
                 mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                 drop=drop, attn_drop=attn_drop))
         self.blocks = nn.ModuleList(blocks)
-        self.downsample = PatchMerging3D(dim) if downsample else None
+        # `z_deduction` must reach PatchMerging3D — otherwise the merge
+        # always deducts the default 2 while the model's window sizes and
+        # decoder assume the configured value (a silent shape mismatch for
+        # any deduction != 2).
+        self.downsample = (PatchMerging3D(dim, z_deduction=z_deduction)
+                           if downsample else None)
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         """Returns ``(features_after_blocks, features_after_optional_downsample)``.

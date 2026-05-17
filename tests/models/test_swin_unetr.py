@@ -30,7 +30,8 @@ from src.models.swin_unetr.swin_unetr import SwinUNETR3D
 def _build_swin(sample_dimension=(12, 64, 64), feature_size=12, depths=(2, 2, 2, 2),
                 num_heads=(2, 4, 8, 16), window_size_xy=4,
                 deep_supervision=False, ds_levels=2,
-                in_channels=3, num_classes=2):
+                in_channels=3, num_classes=2,
+                z_deduction='auto', gradient_checkpointing='auto'):
     return SwinUNETR3D(
         _name='swin_unetr',
         _input_channels=in_channels,
@@ -40,6 +41,8 @@ def _build_swin(sample_dimension=(12, 64, 64), feature_size=12, depths=(2, 2, 2,
         _depths=depths,
         _num_heads=num_heads,
         _window_size_xy=window_size_xy,
+        _z_deduction_per_stage=z_deduction,
+        _gradient_checkpointing=gradient_checkpointing,
         _deep_supervision=deep_supervision,
         _ds_levels=ds_levels,
     )
@@ -250,9 +253,10 @@ def test_swin_unetr_drops_in_for_unet3d_on_same_input():
 # --- Validity guards -------------------------------------------------------
 
 def test_swin_unetr_rejects_too_shallow_z_for_depth():
-    """Z=6 with 4 stages and deduct=2 would force Z=0 at the bottleneck."""
+    """Even at the minimum auto deduction of 1, Z=3 over 4 stages collapses
+    the bottleneck to 0 — the guard must still fire."""
     with pytest.raises(ValueError, match="too shallow"):
-        _build_swin(sample_dimension=(6, 32, 32), depths=(2, 2, 2, 2))
+        _build_swin(sample_dimension=(3, 32, 32), depths=(2, 2, 2, 2))
 
 
 def test_swin_unetr_rejects_mismatched_depths_and_heads():
@@ -283,3 +287,51 @@ def test_swin_unetr_backward_flows_to_input():
     logits.mean().backward()
     assert x.grad is not None
     assert torch.isfinite(x.grad).all()
+
+
+# --- Adaptive z_deduction + gradient checkpointing ------------------------
+
+def test_swin_unetr_auto_z_deduction_scales_with_patch_depth():
+    """'auto' z_deduction is derived from the Z patch depth — it reproduces
+    the hand-tuned 2 at Z=12 and scales up for deeper patches."""
+    assert _build_swin(sample_dimension=(12, 64, 64)).z_deduction == 2
+    assert _build_swin(sample_dimension=(24, 64, 64)).z_deduction == 4
+    assert _build_swin(sample_dimension=(6, 64, 64)).z_deduction == 1
+
+
+def test_swin_unetr_explicit_z_deduction_overrides_auto():
+    """An explicit integer z_deduction is used verbatim, not derived."""
+    model = _build_swin(sample_dimension=(24, 64, 64), z_deduction=2)
+    assert model.z_deduction == 2
+
+
+def test_swin_unetr_encoder_merge_uses_configured_z_deduction():
+    """The encoder PatchMerging3D must deduct by the configured value —
+    regression for the BasicLayer3D path that ignored it (always 2)."""
+    model = _build_swin(sample_dimension=(24, 64, 64), z_deduction=4)
+    # PatchMerging3D's z-kernel is z_deduction + 1.
+    assert model.encoder_stages[0].downsample.z_kernel == 5
+
+
+def test_swin_unetr_checkpointing_setting_resolves():
+    """'on'/'off'/bool/None resolve deterministically; 'auto' is off on CPU."""
+    resolve = SwinUNETR3D._resolve_checkpointing
+    assert resolve('on') is True
+    assert resolve(True) is True
+    assert resolve('off') is False
+    assert resolve(False) is False
+    assert resolve(None) is False
+    assert resolve('auto') is False   # no CUDA device in the test env
+
+
+def test_swin_unetr_forward_backward_with_checkpointing():
+    """With checkpointing forced on, forward + backward still run and
+    produce finite gradients (the checkpointed encoder is exact)."""
+    model = _build_swin(sample_dimension=(12, 32, 32), window_size_xy=4,
+                        gradient_checkpointing='on')
+    assert model.use_checkpointing is True
+    x = torch.randn(1, 3, 12, 32, 32, requires_grad=True)
+    logits, _ = model(x)
+    assert logits.shape == (1, 2, 12, 32, 32)
+    logits.mean().backward()
+    assert x.grad is not None and torch.isfinite(x.grad).all()

@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 import torch
 from torch import Tensor, nn
+from torch.utils.checkpoint import checkpoint
 
 from src.models.swin_unetr.blocks import (
     BasicLayer3D,
@@ -88,7 +89,8 @@ class SwinUNETR3D(nn.Module):
             _qkv_bias: bool = True,
             _drop_rate: float = 0.0,
             _attn_drop_rate: float = 0.0,
-            _z_deduction_per_stage: int = 2,
+            _z_deduction_per_stage='auto',
+            _gradient_checkpointing='auto',
             _deep_supervision: bool = False,
             _ds_levels: int = 2):
 
@@ -105,8 +107,25 @@ class SwinUNETR3D(nn.Module):
         self.input_channels = _input_channels
         self.number_of_classes = _number_of_classes
         self.num_stages = num_stages
-        self.z_deduction = int(_z_deduction_per_stage)
+        # Z deduction per encoder merge. 'auto' derives it from the patch
+        # depth: the encoder reduces Z to ~half the patch depth, spread
+        # over the (num_stages - 1) merges. This reproduces the hand-tuned
+        # value 2 at the original Z=12 / 4-stage config and scales with
+        # deeper patches; an explicit int overrides.
+        if (isinstance(_z_deduction_per_stage, str)
+                and _z_deduction_per_stage.lower() == 'auto'):
+            sample_z = int(self.sample_dimension[0])
+            self.z_deduction = max(
+                1, round(sample_z / (2 * (num_stages - 1))))
+        else:
+            self.z_deduction = int(_z_deduction_per_stage)
         self.window_size_xy = int(_window_size_xy)
+        # Gradient checkpointing of the encoder stages (memory down,
+        # compute up). 'auto' turns it on when the GPU is too small to
+        # hold the un-checkpointed activations (40 GB A100 / 32 GB V100)
+        # and off on the 80 GB A100; 'on'/'off' force it.
+        self.use_checkpointing = self._resolve_checkpointing(
+            _gradient_checkpointing)
 
         # --- Patch embedding: halve XY, keep Z, project to feature_size ---
         self.patch_embed = PatchEmbed3D(_input_channels, _feature_size,
@@ -134,7 +153,8 @@ class SwinUNETR3D(nn.Module):
                 qkv_bias=_qkv_bias,
                 drop=_drop_rate,
                 attn_drop=_attn_drop_rate,
-                downsample=(k < num_stages - 1)))
+                downsample=(k < num_stages - 1),
+                z_deduction=self.z_deduction))
 
         # --- Decoder: mirror of the encoder ---
         # For each non-bottleneck encoder stage k (0..num_stages-2), there is
@@ -185,7 +205,13 @@ class SwinUNETR3D(nn.Module):
         # --- Encoder pass, collect skips ---
         skips = []
         for stage in self.encoder_stages:
-            skip, x = stage(x)
+            if self.use_checkpointing and torch.is_grad_enabled():
+                # Recompute this stage in the backward pass instead of
+                # storing its activations. use_reentrant=False is the
+                # DDP-safe form.
+                skip, x = checkpoint(stage, x, use_reentrant=False)
+            else:
+                skip, x = stage(x)
             skips.append(skip)
         # skips[0] = stage 0 output (shallowest), ..., skips[-1] = bottleneck
 
@@ -222,3 +248,23 @@ class SwinUNETR3D(nn.Module):
             return [logits, *aux_logits], argmax
 
         return logits, argmax
+
+    @staticmethod
+    def _resolve_checkpointing(setting) -> bool:
+        """Resolve the gradient-checkpointing setting to a bool.
+
+        'on'/True force it on, 'off'/False/None force it off. 'auto'
+        enables it when the current CUDA device has under 60 GiB of
+        memory — the un-checkpointed SwinUNETR activations fit the 80 GB
+        A100 but overflow the 40 GB A100 and 32 GB V100.
+        """
+        if setting in ('on', True):
+            return True
+        if setting in ('off', False, None):
+            return False
+        # 'auto': decide from the device's total memory.
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(
+                torch.cuda.current_device())
+            return props.total_memory < 60 * (1024 ** 3)
+        return False

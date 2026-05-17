@@ -72,7 +72,7 @@ trainer:
       qkv_bias: true
       drop_rate: 0.0
       attn_drop_rate: 0.0
-      z_deduction_per_stage: 2     # matches Unet3D's pool kernel (3, 2, 2)
+      z_deduction_per_stage: auto  # 'auto' derives it from the Z patch depth; or an explicit int
 
   epochs: 25
 
@@ -277,6 +277,11 @@ trainer:
   #   cpu  — useful only for tests or smoke checks; very slow for training.
   device: cuda
   mixed_precision: True
+  # SwinUNETR-only: gradient (activation) checkpointing — trades ~25-35%
+  # extra compute for a large drop in activation memory. 'auto' enables it
+  # when the GPU is too small for the un-checkpointed model (40 GB A100 /
+  # 32 GB V100) and leaves it off on the 80 GB A100; 'on'/'off' force it.
+  gradient_checkpointing: auto
   # cudnn.benchmark trades determinism for ~5-15% throughput; only honoured
   # under DDP (single-process mode keeps the seed_everything determinism
   # guarantee).

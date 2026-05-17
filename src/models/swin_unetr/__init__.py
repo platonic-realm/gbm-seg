@@ -31,7 +31,9 @@ def build(configs, input_channels, num_classes):
         _qkv_bias=bool(swin_cfg.get('qkv_bias', True)),
         _drop_rate=float(swin_cfg.get('drop_rate', 0.0)),
         _attn_drop_rate=float(swin_cfg.get('attn_drop_rate', 0.0)),
-        _z_deduction_per_stage=int(swin_cfg.get('z_deduction_per_stage', 2)),
+        _z_deduction_per_stage=swin_cfg.get('z_deduction_per_stage', 'auto'),
+        _gradient_checkpointing=configs['trainer'].get(
+            'gradient_checkpointing', 'auto'),
         _deep_supervision=ds_cfg.get('enabled', False),
         _ds_levels=ds_cfg.get('levels', 2),
     )
