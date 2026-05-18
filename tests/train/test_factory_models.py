@@ -40,6 +40,7 @@ def _minimal_configs():
                     'sample_dimension': [12, 16, 16],
                 },
             },
+            'runtime': {},
         },
     }
 

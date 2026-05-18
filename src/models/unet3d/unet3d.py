@@ -4,6 +4,7 @@ import logging
 # Library Imports
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 # Local Imports
 from src.models.unet3d.blocks import create_decoder_layers, create_encoder_layers
@@ -32,6 +33,7 @@ class Unet3D(nn.Module):
             _conv_layer_type='bcr',
             _sample_dimension=None,
             _z_deduction_per_stage='auto',
+            _gradient_checkpointing='auto',
             _deep_supervision: bool = False,
             _ds_levels: int = 2):
 
@@ -61,6 +63,15 @@ class Unet3D(nn.Module):
                 1, round(sample_z / (2 * max(1, num_stages - 1))))
         else:
             self.z_deduction = int(_z_deduction_per_stage)
+
+        # Gradient checkpointing of the encoder/decoder layers (memory down,
+        # compute up): each layer is recomputed in the backward pass rather
+        # than holding its internal activations. 'auto' turns it on when the
+        # GPU is too small to fit the un-checkpointed activations; 'on'/'off'
+        # force it. Same knob as SwinUNETR — configs.trainer.runtime.
+        # gradient_checkpointing.
+        self.use_checkpointing = self._resolve_checkpointing(
+            _gradient_checkpointing)
 
         logging.debug("Initializing Unet3D: in_ch=%s, features=%s, kernels=%s",
                       _input_channels, _feature_maps, _encoder_kernel_size)
@@ -112,7 +123,13 @@ class Unet3D(nn.Module):
         encoder_features = []
 
         for encoder in self.encoder_layers:
-            _x = encoder(_x)
+            if self.use_checkpointing and torch.is_grad_enabled():
+                # Recompute this layer in the backward pass instead of
+                # storing its internal activations. use_reentrant=False is
+                # the DDP-safe form and tolerates the (non-grad) input batch.
+                _x = checkpoint(encoder, _x, use_reentrant=False)
+            else:
+                _x = encoder(_x)
             encoder_features.insert(0, _x)
 
         outputs = encoder_features[0]
@@ -120,7 +137,11 @@ class Unet3D(nn.Module):
         intermediate_features = []
         for i, decoder in enumerate(self.decoder_layers):
             encoder_feature = None if i == 0 else encoder_features[i + 1]
-            outputs = decoder(encoder_feature, outputs)
+            if self.use_checkpointing and torch.is_grad_enabled():
+                outputs = checkpoint(decoder, encoder_feature, outputs,
+                                     use_reentrant=False)
+            else:
+                outputs = decoder(encoder_feature, outputs)
             # Cache intermediate features for DS heads (deepest first).
             if self.deep_supervision and i < self.ds_levels:
                 intermediate_features.append(outputs)
@@ -143,6 +164,25 @@ class Unet3D(nn.Module):
             return [logits, *aux_logits], argmax
 
         return logits, argmax
+
+    @staticmethod
+    def _resolve_checkpointing(setting) -> bool:
+        """Resolve the gradient-checkpointing setting to a bool.
+
+        'on'/True force it on, 'off'/False/None force it off. 'auto'
+        enables it when the current CUDA device has under 60 GiB of
+        memory. Mirrors ``SwinUNETR3D._resolve_checkpointing``.
+        """
+        if setting in ('on', True):
+            return True
+        if setting in ('off', False, None):
+            return False
+        # 'auto': decide from the device's total memory.
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(
+                torch.cuda.current_device())
+            return props.total_memory < 60 * (1024 ** 3)
+        return False
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
