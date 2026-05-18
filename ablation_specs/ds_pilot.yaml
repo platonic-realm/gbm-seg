@@ -8,16 +8,16 @@ base_experiment: my_baseline
 cells:
   - name: ds_off
     overrides:
-      trainer.deep_supervision.enabled: false
+      trainer.optimization.deep_supervision.enabled: false
 
   - name: ds_2_levels
     overrides:
-      trainer.deep_supervision.enabled: true
-      trainer.deep_supervision.levels: 2
+      trainer.optimization.deep_supervision.enabled: true
+      trainer.optimization.deep_supervision.levels: 2
 
   - name: ds_3_levels
     overrides:
-      trainer.deep_supervision.enabled: true
-      trainer.deep_supervision.levels: 3
+      trainer.optimization.deep_supervision.enabled: true
+      trainer.optimization.deep_supervision.levels: 3
 
 folds: [0]

@@ -25,10 +25,11 @@ from src.ablation.spec import Cell, Spec
 def _base_configs():
     return {
         'trainer': {
-            'loss': 'Cont',
-            'cont_alpha': 0.7,
-            'optim': {'name': 'adam', 'lr': 1e-4},
-            'wandb': {'enabled': False},
+            'optimization': {
+                'loss': {'name': 'Cont', 'cont_alpha': 0.7},
+                'optim': {'name': 'adam', 'lr': 1e-4},
+            },
+            'logging': {'wandb': {'enabled': False}},
         },
         'inference': {'stitching': 'gaussian'},
     }
@@ -63,7 +64,7 @@ def _make_spec(cells, folds=None):
 # --- materialise -----------------------------------------------------------
 
 def test_materialise_missing_base_raises(tmp_path):
-    spec = _make_spec([Cell(name='dice', overrides={'trainer.loss': 'Dice'})])
+    spec = _make_spec([Cell(name='dice', overrides={'trainer.optimization.loss.name': 'Dice'})])
     with pytest.raises(FileNotFoundError, match="Base experiment not found"):
         materialise(spec, tmp_path)
 
@@ -72,8 +73,8 @@ def test_materialise_creates_one_dir_per_cell_fold(tmp_path):
     _make_base_experiment(tmp_path)
     spec = _make_spec(
         cells=[
-            Cell(name='dice', overrides={'trainer.loss': 'Dice'}),
-            Cell(name='cont', overrides={'trainer.loss': 'Cont'}),
+            Cell(name='dice', overrides={'trainer.optimization.loss.name': 'Dice'}),
+            Cell(name='cont', overrides={'trainer.optimization.loss.name': 'Cont'}),
         ],
         folds=[0, 1],
     )
@@ -90,7 +91,7 @@ def test_materialise_creates_one_dir_per_cell_fold(tmp_path):
 
 def test_materialise_symlinks_datasets_and_code(tmp_path):
     base = _make_base_experiment(tmp_path)
-    spec = _make_spec([Cell(name='dice', overrides={'trainer.loss': 'Dice'})])
+    spec = _make_spec([Cell(name='dice', overrides={'trainer.optimization.loss.name': 'Dice'})])
     paths = materialise(spec, tmp_path)
     cell = paths[0]
 
@@ -103,7 +104,7 @@ def test_materialise_symlinks_datasets_and_code(tmp_path):
 
 def test_materialise_copies_small_provenance_files(tmp_path):
     _make_base_experiment(tmp_path)
-    spec = _make_spec([Cell(name='dice', overrides={'trainer.loss': 'Dice'})])
+    spec = _make_spec([Cell(name='dice', overrides={'trainer.optimization.loss.name': 'Dice'})])
     paths = materialise(spec, tmp_path)
     cell = paths[0]
     for name in ('fold_assignments.yaml', 'requirements.txt', 'git_sha.txt'):
@@ -114,17 +115,20 @@ def test_materialise_copies_small_provenance_files(tmp_path):
 def test_materialise_writes_cell_configs_with_overrides_applied(tmp_path):
     _make_base_experiment(tmp_path)
     spec = _make_spec([
-        Cell(name='dice', overrides={'trainer.loss': 'Dice',
-                                      'trainer.cont_alpha': 1.0}),
+        Cell(name='dice',
+             overrides={'trainer.optimization.loss.name': 'Dice',
+                        'trainer.optimization.loss.cont_alpha': 1.0}),
     ])
     paths = materialise(spec, tmp_path)
     cfg = yaml.safe_load((paths[0] / 'configs.yaml').read_text(encoding="UTF-8"))
-    assert cfg['trainer']['loss'] == 'Dice'           # override applied
-    assert cfg['trainer']['cont_alpha'] == 1.0
-    assert cfg['trainer']['optim']['name'] == 'adam'  # unchanged from base
+    optimization = cfg['trainer']['optimization']
+    assert optimization['loss']['name'] == 'Dice'        # override applied
+    assert optimization['loss']['cont_alpha'] == 1.0
+    assert optimization['optim']['name'] == 'adam'       # unchanged from base
     # Each cell's W&B run_name is set to the experiment name so cells show up
     # as separate runs in the UI.
-    assert cfg['trainer']['wandb']['run_name'] == 'loss_pilot__dice__fold0'
+    assert (cfg['trainer']['logging']['wandb']['run_name']
+            == 'loss_pilot__dice__fold0')
     # Ablation provenance recorded inline for runtime visibility.
     assert cfg['ablation']['cell'] == 'dice'
     assert cfg['ablation']['fold'] == 0
@@ -133,7 +137,7 @@ def test_materialise_writes_cell_configs_with_overrides_applied(tmp_path):
 def test_materialise_is_idempotent(tmp_path, caplog):
     import logging
     _make_base_experiment(tmp_path)
-    spec = _make_spec([Cell(name='dice', overrides={'trainer.loss': 'Dice'})])
+    spec = _make_spec([Cell(name='dice', overrides={'trainer.optimization.loss.name': 'Dice'})])
     paths1 = materialise(spec, tmp_path)
     with caplog.at_level(logging.INFO):
         paths2 = materialise(spec, tmp_path)
@@ -146,7 +150,7 @@ def test_materialise_is_idempotent(tmp_path, caplog):
 def test_emit_commands_plain_python(tmp_path):
     _make_base_experiment(tmp_path)
     spec = _make_spec(
-        cells=[Cell(name='dice', overrides={'trainer.loss': 'Dice'})],
+        cells=[Cell(name='dice', overrides={'trainer.optimization.loss.name': 'Dice'})],
         folds=[0, 1],
     )
     paths = materialise(spec, tmp_path)
@@ -160,7 +164,7 @@ def test_emit_commands_plain_python(tmp_path):
 def test_emit_commands_sbatch_wrapper(tmp_path):
     _make_base_experiment(tmp_path)
     spec = _make_spec(
-        cells=[Cell(name='dice', overrides={'trainer.loss': 'Dice'})],
+        cells=[Cell(name='dice', overrides={'trainer.optimization.loss.name': 'Dice'})],
     )
     paths = materialise(spec, tmp_path)
     cmds = emit_commands(spec, paths,

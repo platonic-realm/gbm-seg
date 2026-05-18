@@ -63,7 +63,7 @@ def test_removed_config_keys_includes_known_dead_fields():
         "trainer.tensorboard",
         "trainer.sqlite",
         "trainer.profiling",
-        "trainer.visualization.blender",
+        "trainer.logging.visualization.blender",
         "experiments.model_sizes",
         "experiments.train_same_sample_size",
     ]:
@@ -287,8 +287,12 @@ def test_create_new_experiment_three_way_dataset_split(tmp_path):
         "experiments:\n  root: ./\n  default_data_path: ./\n  "
         "default_batch_size: 8\n  default_voxel_size: [0.05, 0.05, 0.3]\n  "
         "scale_learning_rate_for_batch_size: True\n"
-        "trainer:\n  train_ds: {path: '', batch_size: 8, augmentation: {}}\n"
-        "  valid_ds: {path: '', batch_size: 8}\n  optim: {lr: 0.0001}\n"
+        "trainer:\n"
+        "  optimization: {epochs: 1, optim: {lr: 0.0001}}\n"
+        "  data:\n"
+        "    train_ds: {path: '', batch_size: 8, augmentation: {}}\n"
+        "    valid_ds: {path: '', batch_size: 8}\n"
+        "  logging: {report_freq: 1000}\n"
         "inference:\n  inference_ds: {path: '', batch_size: 8}\n"
         "  labeled_test_ds: {path: ''}\n"
         "root_path: ./\n")

@@ -28,12 +28,17 @@ def _minimal_configs():
         'trainer': {
             'model': {
                 'name': 'unet_3d',
-                'encoder_kernel': [3, 3, 3],
-                'decoder_kernel': [3, 3, 3],
-                'feature_maps': [4, 8, 16],
+                'unet_3d': {
+                    'encoder_kernel': [3, 3, 3],
+                    'decoder_kernel': [3, 3, 3],
+                    'feature_maps': [4, 8, 16],
+                },
             },
-            'train_ds': {
-                'sample_dimension': [12, 16, 16],
+            'optimization': {},
+            'data': {
+                'train_ds': {
+                    'sample_dimension': [12, 16, 16],
+                },
             },
         },
     }

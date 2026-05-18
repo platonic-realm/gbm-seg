@@ -6,13 +6,14 @@
 # (folds: [0] -> a single dir each); `sbatch/submit_cv_ddp.sh <cell> 5`
 # then trains all 5 folds into that dir and aggregates them.
 #
-# Each cell overrides only `trainer.loss` — the loss-specific params
-# (cont_alpha/cont_beta, loss_weights) already live in the base config.
+# Each cell overrides only `trainer.optimization.loss.name` — the
+# loss-specific params (cont_alpha/cont_beta, weights) already live in the
+# base config.
 study: lossabl_unet
 base_experiment: ablbase_unet
 folds: [0]
 cells:
-  - {name: cont,         overrides: {trainer.loss: Cont}}
-  - {name: dice,         overrides: {trainer.loss: Dice}}
-  - {name: crossentropy, overrides: {trainer.loss: CrossEntropy}}
-  - {name: iou,          overrides: {trainer.loss: IoU}}
+  - {name: cont,         overrides: {trainer.optimization.loss.name: Cont}}
+  - {name: dice,         overrides: {trainer.optimization.loss.name: Dice}}
+  - {name: crossentropy, overrides: {trainer.optimization.loss.name: CrossEntropy}}
+  - {name: iou,          overrides: {trainer.optimization.loss.name: IoU}}

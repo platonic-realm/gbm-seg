@@ -64,7 +64,7 @@ class Factory:
         self.configs = _configs
         self.root_path = _configs['root_path']
         self.result_path = os.path.join(self.root_path,
-                                        self.configs['trainer']['result_path'])
+                                        self.configs['trainer']['logging']['result_path'])
 
     def createModel(self,
                     _no_of_channles: int,
@@ -92,7 +92,7 @@ class Factory:
             device = torch.device(f'cuda:{local_rank}')
             model = model.to(device)
 
-            if self.configs['trainer'].get('channels_last_3d', False):
+            if self.configs['trainer']['runtime'].get('channels_last_3d', False):
                 try:
                     model = model.to(memory_format=torch.channels_last_3d)
                     logging.info("rank=%d: channels_last_3d enabled",
@@ -105,7 +105,7 @@ class Factory:
 
             # compile-then-DDP-wrap is the documented working order
             # (unlike DP, where the wrap-then-compile dance is required).
-            if self.configs['trainer'].get('compile', False):
+            if self.configs['trainer']['runtime'].get('compile', False):
                 try:
                     model = torch.compile(model)
                     logging.info("rank=%d: torch.compile applied (DDP path)",
@@ -126,10 +126,10 @@ class Factory:
         # because DataParallel's replica scattering bypasses the OptimizedModule
         # attribute proxy. The supported workaround is to DP-wrap first and
         # then compile the inner `.module`. DDP doesn't have this problem.
-        if self.configs['trainer']['dp']:
+        if self.configs['trainer']['runtime']['dp']:
             model = DP(model)
 
-        if self.configs['trainer'].get('compile', False):
+        if self.configs['trainer']['runtime'].get('compile', False):
             try:
                 if isinstance(model, DP):
                     model.module = torch.compile(model.module)
@@ -153,6 +153,7 @@ class Factory:
         the recognised name list — no factory branching beyond.
         """
         params = params or {}
+        loss_cfg = self.configs['trainer']['optimization']['loss']
         if name == 'Dice':
             return DiceLoss(_weights=weights)
         if name == 'IoU':
@@ -161,22 +162,23 @@ class Factory:
             return nn.CrossEntropyLoss(weight=weights)
         if name == 'Cont':
             cont_alpha = params.get('cont_alpha',
-                                    self.configs['trainer'].get('cont_alpha', 0.7))
+                                    loss_cfg.get('cont_alpha', 0.7))
             cont_beta = params.get('cont_beta',
-                                   self.configs['trainer'].get('cont_beta', 0.3))
+                                   loss_cfg.get('cont_beta', 0.3))
             return ContLoss(nn.CrossEntropyLoss(weight=weights),
                             _alpha=cont_alpha, _beta=cont_beta)
         raise NotImplementedError(f"Unknown loss: {name!r}")
 
     def createLoss(self):
-        device = self.configs['trainer']['device']
-        weights = torch.tensor(self.configs['trainer']['loss_weights']).to(device)
+        device = self.configs['trainer']['runtime']['device']
+        loss_cfg = self.configs['trainer']['optimization']['loss']
+        weights = torch.tensor(loss_cfg['weights']).to(device)
 
-        loss_name: str = self.configs['trainer']['loss']
+        loss_name: str = loss_cfg['name']
         logging.info("Training loss: %s", loss_name)
         if loss_name == 'Compound':
             components = []
-            for entry in self.configs['trainer']['compound_loss']:
+            for entry in loss_cfg['compound']:
                 sub_loss = self._build_single_loss(
                     entry['name'], weights, entry.get('params', {}))
                 components.append((sub_loss, float(entry.get('weight', 1.0))))
@@ -189,7 +191,8 @@ class Factory:
         # C1.2: wrap with deep supervision if the model is producing
         # multi-resolution logits. The wrapper degrades transparently when
         # the model returns a single tensor, so wrapping is safe regardless.
-        ds_cfg = self.configs['trainer'].get('deep_supervision', {})
+        ds_cfg = self.configs['trainer']['optimization'].get(
+            'deep_supervision', {})
         if ds_cfg.get('enabled', False):
             ds_weights = ds_cfg.get('weights')  # optional explicit list
             loss = DeepSupervisionLoss(loss, weights=ds_weights)
@@ -207,7 +210,7 @@ class Factory:
         Under DDP the learning rate is scaled for the effective (global)
         batch — see the LR-scaling block below.
         """
-        optim_cfg = self.configs['trainer']['optim']
+        optim_cfg = self.configs['trainer']['optimization']['optim']
         name = optim_cfg['name']
         lr = optim_cfg['lr']
 
@@ -261,7 +264,7 @@ class Factory:
         scheduler defaults to ``reduce_on_plateau`` with the prior
         (mode=max) behaviour.
         """
-        sched_cfg = self.configs['trainer'].get('scheduler', {})
+        sched_cfg = self.configs['trainer']['optimization'].get('scheduler', {})
         # `trainer.scheduler: null` in yaml deserialises to None; treat
         # that as the disabled form (returns None — no scheduler).
         if sched_cfg is None:
@@ -279,8 +282,9 @@ class Factory:
         if name == 'poly_decay':
             # nnU-Net: lr_t = lr_0 * (1 - t/T) ** power. `total_iters`
             # is in scheduler-step units (here: per validation cycle).
-            total_iters = sched_cfg.get('total_iters',
-                                        self.configs['trainer']['epochs'])
+            total_iters = sched_cfg.get(
+                'total_iters',
+                self.configs['trainer']['optimization']['epochs'])
             power = sched_cfg.get('power', 0.9)
             return torch.optim.lr_scheduler.PolynomialLR(
                 _optimizer, total_iters=total_iters, power=power)
@@ -293,7 +297,7 @@ class Factory:
                       _optimizer,
                       _loss):
 
-        if self.configs['trainer']['mixed_precision']:
+        if self.configs['trainer']['runtime']['mixed_precision']:
             return StepperMixedPrecision(_model, _optimizer, _loss)
         else:
             return StepperSimple(_model, _optimizer, _loss)
@@ -301,7 +305,7 @@ class Factory:
     def createSnapper(self):
         snapshot_path = os.path.join(self.root_path,
                                      self.result_path,
-                                     self.configs['trainer']['snapshot_path'])
+                                     self.configs['trainer']['logging']['snapshot_path'])
 
         snapper = Snapper(snapshot_path)
         return snapper
@@ -322,19 +326,19 @@ class Factory:
                       _starting_best_epoch: int | None = None,
                       _starting_best_step: int | None = None):
 
-        metrics_list = self.configs['trainer']['metrics']
-        device = self.configs['trainer']['device']
-        report_freq = self.configs['trainer']['report_freq']
-        epochs = self.configs['trainer']['epochs']
+        metrics_list = self.configs['trainer']['logging']['metrics']
+        device = self.configs['trainer']['runtime']['device']
+        report_freq = self.configs['trainer']['logging']['report_freq']
+        epochs = self.configs['trainer']['optimization']['epochs']
 
         # `gbm.py create` z-upsamples every channel and stacks the label
-        # along Z by ``trainer.z_scale`` (written into the per-experiment
+        # along Z by ``trainer.data.z_scale`` (written into the per-experiment
         # configs.yaml). Validation metrics are masked to slices where
         # Z % z_scale == 0 — i.e. the original-label positions — so the
         # same label voxel isn't counted z_scale times. Default 1 = no
         # interpolation, no masking (every slice is a real label).
         valid_label_stride = int(
-            self.configs['trainer'].get('z_scale', 1) or 1)
+            self.configs['trainer']['data'].get('z_scale', 1) or 1)
 
         # Snapshot restore happens in train.main_train *before* this call,
         # so all state objects (model, optimiser, scheduler, stepper) are
@@ -383,11 +387,11 @@ class Factory:
         """
         root_path = self.configs['root_path']
         training_ds_dir: str = os.path.join(root_path,
-                                            self.configs['trainer']['train_ds']['path'])
-        training_sample_dimension: list = self.configs['trainer']['train_ds']['sample_dimension']
-        training_pixel_stride: list = self.configs['trainer']['train_ds']['pixel_stride']
+                                            self.configs['trainer']['data']['train_ds']['path'])
+        training_sample_dimension: list = self.configs['trainer']['data']['train_ds']['sample_dimension']
+        training_pixel_stride: list = self.configs['trainer']['data']['train_ds']['pixel_stride']
 
-        aug_cfg = self.configs['trainer']['train_ds']['augmentation']
+        aug_cfg = self.configs['trainer']['data']['train_ds']['augmentation']
         training_augmentation_offline = None
         # The offline-aug command builds the cache for methods_offline even
         # when enabled_offline is false (its whole job is to populate it).
@@ -402,7 +406,7 @@ class Factory:
                 _source_directory=training_ds_dir,
                 _sample_dimension=training_sample_dimension,
                 _pixel_per_step=training_pixel_stride,
-                _ignore_stride_mismatch=self.configs['trainer']['train_ds']['ignore_stride_mismatch'],
+                _ignore_stride_mismatch=self.configs['trainer']['data']['train_ds']['ignore_stride_mismatch'],
                 _augmentation_offline=training_augmentation_offline,
                 _augmentation_online=training_augmentation_online,
                 _augmentation_workers=aug_cfg['workers'],
@@ -422,17 +426,17 @@ class Factory:
         """
         root_path = self.configs['root_path']
         training_ds_dir: str = os.path.join(root_path,
-                                            self.configs['trainer']['train_ds']['path'])
-        training_sample_dimension: list = self.configs['trainer']['train_ds']['sample_dimension']
+                                            self.configs['trainer']['data']['train_ds']['path'])
+        training_sample_dimension: list = self.configs['trainer']['data']['train_ds']['sample_dimension']
         # Validation uses a coarser stride (matches the pre-A1 config field
         # `valid_ds.pixel_stride`) — denser stride is for training only.
-        validation_pixel_stride: list = self.configs['trainer']['valid_ds']['pixel_stride']
+        validation_pixel_stride: list = self.configs['trainer']['data']['valid_ds']['pixel_stride']
 
         validation_dataset = GBMDataset(
                 _source_directory=training_ds_dir,
                 _sample_dimension=training_sample_dimension,
                 _pixel_per_step=validation_pixel_stride,
-                _ignore_stride_mismatch=self.configs['trainer']['valid_ds']['ignore_stride_mismatch'],
+                _ignore_stride_mismatch=self.configs['trainer']['data']['valid_ds']['ignore_stride_mismatch'],
                 _augmentation_offline=None,
                 _augmentation_online=None,
                 _augmentation_workers=0,
@@ -443,10 +447,10 @@ class Factory:
 
     def createTrainDataLoader(self, _training_dataset: BaseDataset) -> DataLoader:
 
-        training_batch_size: int = self.configs['trainer']['train_ds']['batch_size']
-        training_shuffle: bool = self.configs['trainer']['train_ds']['shuffle']
-        training_pin_memory: bool = self.configs['trainer']['train_ds']['pin_memory']
-        num_workers = self.configs['trainer']['train_ds']['workers']
+        training_batch_size: int = self.configs['trainer']['data']['train_ds']['batch_size']
+        training_shuffle: bool = self.configs['trainer']['data']['train_ds']['shuffle']
+        training_pin_memory: bool = self.configs['trainer']['data']['train_ds']['pin_memory']
+        num_workers = self.configs['trainer']['data']['train_ds']['workers']
 
         # Under DDP each rank sees a disjoint shard of the dataset; the
         # DistributedSampler enforces the partition and handles per-epoch
@@ -477,10 +481,10 @@ class Factory:
 
     def createValidDataLoader(self, _validation_dataset) -> DataLoader:
 
-        validation_batch_size: int = self.configs['trainer']['train_ds']['batch_size']
+        validation_batch_size: int = self.configs['trainer']['data']['train_ds']['batch_size']
         validation_shuffle: bool = False  # never shuffle the validation set
-        validation_pin_memory: bool = self.configs['trainer']['train_ds']['pin_memory']
-        num_workers = self.configs['trainer']['train_ds']['workers']
+        validation_pin_memory: bool = self.configs['trainer']['data']['train_ds']['pin_memory']
+        num_workers = self.configs['trainer']['data']['train_ds']['workers']
 
         # Under DDP each rank validates a disjoint shard. Set shuffle=False
         # on the sampler so the partition is stable across epochs.
@@ -507,14 +511,15 @@ class Factory:
 
     def createVisualizer(self):
 
-        enabled = self.configs['trainer']['visualization']['enabled']
-        chance = self.configs['trainer']['visualization']['chance']
-        save_as_tif = self.configs['trainer']['visualization']['tif']
-        save_as_gif = self.configs['trainer']['visualization']['gif']
+        vis_cfg = self.configs['trainer']['logging']['visualization']
+        enabled = vis_cfg['enabled']
+        chance = vis_cfg['chance']
+        save_as_tif = vis_cfg['tif']
+        save_as_gif = vis_cfg['gif']
 
         v_path = os.path.join(self.root_path,
                               self.result_path,
-                              self.configs['trainer']['visualization']['path'])
+                              vis_cfg['path'])
 
         gif_painter = GIFPainter3D() if save_as_gif else None
         tif_painter = TIFPainter3D() if save_as_tif else None
@@ -531,7 +536,7 @@ class Factory:
         # E2: optional W&B backend. The wandb run itself is initialised in
         # train.py:maybe_init_wandb so the run config + name are visible from
         # the start; this just creates the per-step log dispatcher.
-        wandb_cfg = self.configs['trainer'].get('wandb', {})
+        wandb_cfg = self.configs['trainer'].get('logging', {}).get('wandb', {})
         metric_wandb = None
         if wandb_cfg.get('enabled', False):
             try:
@@ -539,8 +544,9 @@ class Factory:
                 metric_wandb = MetricWandb()
             except ImportError:
                 logging.warning(
-                    "trainer.wandb.enabled=True but wandb is not installed; "
-                    "skipping W&B logging. `pip install wandb` to enable.")
+                    "trainer.logging.wandb.enabled=True but wandb is not "
+                    "installed; skipping W&B logging. `pip install wandb` "
+                    "to enable.")
 
         return MetricLogger(metric_wandb)
 
@@ -594,7 +600,7 @@ class Factory:
 
     def createMorphModule(self):
         kernel_size = self.configs['inference']['morph']['kernel_ave_size']
-        morph = Morph(_device=self.configs['trainer']['device'],
+        morph = Morph(_device=self.configs['trainer']['runtime']['device'],
                       _ave_kernel_size=kernel_size)
         return morph
 
@@ -629,10 +635,10 @@ class Factory:
         ``configs.inference.stitching``. ``patch_size`` and ``result_shape``
         come from the data_loader's dataset.
         """
-        device = self.configs['trainer']['device']
-        result_path = self.configs['inference']['result_dir']
+        device = self.configs['trainer']['runtime']['device']
+        result_path = self.configs['inference']['result_path']
         snapshot_path = self.configs['inference']['snapshot_path']
-        dp = self.configs['trainer']['dp']
+        dp = self.configs['trainer']['runtime']['dp']
 
         interpolate = self.configs['inference']['interpolate']
         scale_factor = self.configs['inference']['inference_ds']['scale_factor']

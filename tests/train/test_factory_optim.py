@@ -15,35 +15,42 @@ from torch import nn
 from torch.optim.lr_scheduler import PolynomialLR, ReduceLROnPlateau
 
 
-def _factory_with(trainer_overrides: dict):
-    """Build a Factory from a minimal configs dict + the given trainer overrides."""
+def _factory_with(optimization_overrides: dict):
+    """Build a Factory from a minimal configs dict + the given
+    ``trainer.optimization`` overrides (``optim``, ``scheduler``, ``epochs``)."""
     from src.train.factory import Factory
 
     base_configs = {
         'root_path': '/tmp',
         'trainer': {
-            'result_path': 'results-train/',
-            'snapshot_path': 'snapshots/',
+            'logging': {
+                'result_path': 'results-train/',
+                'snapshot_path': 'snapshots/',
+            },
             'model': {
                 'name': 'unet_3d',
-                'encoder_kernel': [3, 3, 3],
-                'decoder_kernel': [3, 3, 3],
-                'feature_maps': [4, 8],
+                'unet_3d': {
+                    'encoder_kernel': [3, 3, 3],
+                    'decoder_kernel': [3, 3, 3],
+                    'feature_maps': [4, 8],
+                },
             },
-            'epochs': 10,
-            'optim': {'name': 'adam', 'lr': 1e-4},
-            'train_ds': {'sample_dimension': [4, 16, 16]},
-            'dp': False,
-            'device': 'cpu',
+            'optimization': {
+                'epochs': 10,
+                'optim': {'name': 'adam', 'lr': 1e-4},
+            },
+            'data': {'train_ds': {'sample_dimension': [4, 16, 16]}},
+            'runtime': {'dp': False, 'device': 'cpu'},
         },
     }
     # Recursive update for the relevant sub-dicts only.
-    for key, value in trainer_overrides.items():
+    optimization = base_configs['trainer']['optimization']
+    for key, value in optimization_overrides.items():
         if isinstance(value, dict):
-            base_configs['trainer'].setdefault(key, {})
-            base_configs['trainer'][key].update(value)
+            optimization.setdefault(key, {})
+            optimization[key].update(value)
         else:
-            base_configs['trainer'][key] = value
+            optimization[key] = value
     return Factory(base_configs)
 
 

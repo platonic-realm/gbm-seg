@@ -142,7 +142,7 @@ def test_consolidate_cv_results_writes_yaml_and_npz(tmp_path):
 
     cfg = {
         'root_path': str(tmp_path),
-        'trainer': {'wandb': {'enabled': False}},
+        'trainer': {'logging': {'wandb': {'enabled': False}}},
     }
     per_fold = [
         {'fold': 0, 'Dice': 0.80, 'Loss': 0.10},

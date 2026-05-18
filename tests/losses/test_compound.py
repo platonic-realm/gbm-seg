@@ -82,14 +82,18 @@ def test_factory_compound_loss_builds_from_config(monkeypatch, tmp_path):
     configs = {
         'root_path': str(tmp_path),
         'trainer': {
-            'result_path': 'results-train/',
-            'device': 'cpu',
-            'loss': 'Compound',
-            'loss_weights': [1.0, 1.0],
-            'compound_loss': [
-                {'name': 'Dice', 'weight': 1.0},
-                {'name': 'CrossEntropy', 'weight': 1.0},
-            ],
+            'logging': {'result_path': 'results-train/'},
+            'runtime': {'device': 'cpu'},
+            'optimization': {
+                'loss': {
+                    'name': 'Compound',
+                    'weights': [1.0, 1.0],
+                    'compound': [
+                        {'name': 'Dice', 'weight': 1.0},
+                        {'name': 'CrossEntropy', 'weight': 1.0},
+                    ],
+                },
+            },
         },
     }
     factory = Factory(configs)
@@ -107,15 +111,19 @@ def test_factory_compound_loss_with_cont_sub_loss(tmp_path):
     configs = {
         'root_path': str(tmp_path),
         'trainer': {
-            'result_path': 'results-train/',
-            'device': 'cpu',
-            'loss': 'Compound',
-            'loss_weights': [1.0, 1.0],
-            'compound_loss': [
-                {'name': 'Dice', 'weight': 1.0},
-                {'name': 'Cont', 'weight': 1.0,
-                 'params': {'cont_alpha': 0.7, 'cont_beta': 0.3}},
-            ],
+            'logging': {'result_path': 'results-train/'},
+            'runtime': {'device': 'cpu'},
+            'optimization': {
+                'loss': {
+                    'name': 'Compound',
+                    'weights': [1.0, 1.0],
+                    'compound': [
+                        {'name': 'Dice', 'weight': 1.0},
+                        {'name': 'Cont', 'weight': 1.0,
+                         'params': {'cont_alpha': 0.7, 'cont_beta': 0.3}},
+                    ],
+                },
+            },
         },
     }
     factory = Factory(configs)

@@ -16,27 +16,27 @@ base_experiment: my_baseline    # an existing experiment with configs.yaml + ds_
 cells:
   - name: dice
     overrides:
-      trainer.loss: Dice
+      trainer.optimization.loss.name: Dice
 
   - name: dice_ce
     overrides:
-      trainer.loss: Compound
-      trainer.compound_loss:
+      trainer.optimization.loss.name: Compound
+      trainer.optimization.loss.compound:
         - {name: Dice, weight: 1.0}
         - {name: CrossEntropy, weight: 1.0}
 
   - name: dice_cont
     overrides:
-      trainer.loss: Compound
-      trainer.compound_loss:
+      trainer.optimization.loss.name: Compound
+      trainer.optimization.loss.compound:
         - {name: Dice, weight: 1.0}
         - {name: Cont, weight: 1.0,
            params: {cont_alpha: 0.7, cont_beta: 0.3}}
 
   - name: dice_ce_continuity_fixed
     overrides:
-      trainer.loss: Compound
-      trainer.compound_loss:
+      trainer.optimization.loss.name: Compound
+      trainer.optimization.loss.compound:
         - {name: Dice, weight: 1.0}
         - {name: CrossEntropy, weight: 1.0}
         # alpha=0 turns off the CE-component inside Cont so the only contribution

@@ -11,12 +11,14 @@ def build(configs, input_channels, num_classes):
     Reads optional SwinUNETR-specific hyperparameters from
     ``configs.trainer.model.swin_unetr.*``; defaults match the original
     paper for a small/medium variant tuned to shallow Z stacks.
-    Deep supervision (C1.2) is opt-in via ``configs.trainer.deep_supervision``.
+    Deep supervision (C1.2) is opt-in via
+    ``configs.trainer.optimization.deep_supervision``.
     """
     model_cfg = configs['trainer']['model']
     swin_cfg = model_cfg.get('swin_unetr', {})
-    sample_dimension = configs['trainer']['train_ds']['sample_dimension'].copy()
-    ds_cfg = configs['trainer'].get('deep_supervision', {})
+    sample_dimension = (
+        configs['trainer']['data']['train_ds']['sample_dimension'].copy())
+    ds_cfg = configs['trainer']['optimization'].get('deep_supervision', {})
 
     return SwinUNETR3D(
         _name=model_cfg['name'],
@@ -32,7 +34,7 @@ def build(configs, input_channels, num_classes):
         _drop_rate=float(swin_cfg.get('drop_rate', 0.0)),
         _attn_drop_rate=float(swin_cfg.get('attn_drop_rate', 0.0)),
         _z_deduction_per_stage=swin_cfg.get('z_deduction_per_stage', 'auto'),
-        _gradient_checkpointing=configs['trainer'].get(
+        _gradient_checkpointing=configs['trainer']['runtime'].get(
             'gradient_checkpointing', 'auto'),
         _deep_supervision=ds_cfg.get('enabled', False),
         _ds_levels=ds_cfg.get('levels', 2),

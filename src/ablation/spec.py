@@ -6,11 +6,11 @@ A spec YAML describes one study:
     base_experiment: my_baseline
     cells:
       - name: dice
-        overrides: {trainer.loss: Dice}
+        overrides: {trainer.optimization.loss.name: Dice}
       - name: cont
         overrides:
-          trainer.loss: Cont
-          trainer.cont_alpha: 0.7
+          trainer.optimization.loss.name: Cont
+          trainer.optimization.loss.cont_alpha: 0.7
     folds: [0]                     # or [0, 1, 2, 3, 4] for the final pass
 
 Each ``(cell, fold)`` pair becomes one experiment named
@@ -18,7 +18,9 @@ Each ``(cell, fold)`` pair becomes one experiment named
 ``experiments.root`` (resolved from ``configs/template.yaml`` at orchestrator
 launch time, so each cell is discoverable by ``gbm.py train <cell_name>``).
 ``overrides`` keys use dotted-paths into the configs dict
-(``trainer.loss`` ≡ ``configs['trainer']['loss']``); values are written verbatim.
+(``trainer.optimization.loss.name`` ≡
+``configs['trainer']['optimization']['loss']['name']``); values are written
+verbatim.
 """
 
 import re
@@ -130,7 +132,8 @@ def parse_spec(spec_path) -> Spec:
 def apply_overrides(configs: dict, overrides: dict[str, Any]) -> dict:
     """Return a deep-copied ``configs`` with the dotted-path overrides applied.
 
-    ``trainer.loss`` writes ``configs['trainer']['loss']``; missing
+    ``trainer.optimization.loss.name`` writes
+    ``configs['trainer']['optimization']['loss']['name']``; missing
     intermediate dicts are created on the way. Existing leaf values are
     overwritten. Returns a fresh dict — the input is not mutated.
     """

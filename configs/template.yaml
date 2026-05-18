@@ -35,7 +35,7 @@ experiments:
   # Channels 0-2 (nephrin, collagen-4, WGA) are trilinear-upsampled along
   # Z; the label channel is np.repeat'd, stacking each manual annotation
   # N times. The same value is written to the per-experiment configs.yaml
-  # as `trainer.z_scale` and read by Factory.createTrainer to mask
+  # as `trainer.data.z_scale` and read by Factory.createTrainer to mask
   # validation metrics down to the *original* label positions only.
   # Set to 1 to disable interpolation entirely.
   default_z_scale: 6
@@ -44,7 +44,7 @@ trainer:
   model:
     # Model architecture. Dispatched via src/models/__init__.py:MODEL_REGISTRY.
     # Supported names:
-    #   unet_3d    — convolutional 3D U-Net. Uses feature_maps + encoder/decoder kernels below.
+    #   unet_3d    — convolutional 3D U-Net. Uses the unet_3d sub-block below.
     #                Default; conv-heavy, benefits from channels_last_3d on Ampere+.
     #   swin_unetr — anisotropic Swin-UNETR (attention + windowed self-attn). Uses the
     #                swin_unetr sub-block below for its own hyperparameters.
@@ -52,21 +52,22 @@ trainer:
     # so swapping the name is enough to switch architectures — no other config changes.
     name: unet_3d
 
-    # Unet3D-specific. feature_maps is the channel count at each encoder depth (and
+    # Unet3D-specific. Only consulted when name=unet_3d.
+    # feature_maps is the channel count at each encoder depth (and
     # determines the decoder mirror). encoder_padding / decoder_padding accept
     # 'same' (output spatial dim = input), 'valid' (no padding; output shrinks), or
     # an int / tuple of ints for explicit per-axis padding.
-    feature_maps: [64, 128, 256, 512]
-    encoder_kernel: [3, 3, 3]
-    encoder_padding: 'same'
-    decoder_kernel: [3, 3, 3]
-    decoder_padding: 'same'
+    unet_3d:
+      feature_maps: [64, 128, 256, 512]
+      encoder_kernel: [3, 3, 3]
+      encoder_padding: 'same'
+      decoder_kernel: [3, 3, 3]
+      decoder_padding: 'same'
 
-    # Anisotropic Z handling. 'auto' derives the per-stage Z deduction from
-    # the Z patch depth (encoder reduces Z to ~half over num_stages-1
-    # merges); an explicit int overrides. The 3D U-Net reads this key;
-    # SwinUNETR reads swin_unetr.z_deduction_per_stage below.
-    z_deduction_per_stage: auto
+      # Anisotropic Z handling. 'auto' derives the per-stage Z deduction from
+      # the Z patch depth (encoder reduces Z to ~half over num_stages-1
+      # merges); an explicit int overrides.
+      z_deduction_per_stage: auto
 
     # SwinUNETR-specific. Only consulted when name=swin_unetr.
     swin_unetr:
@@ -80,230 +81,245 @@ trainer:
       attn_drop_rate: 0.0
       z_deduction_per_stage: auto  # 'auto' derives it from the Z patch depth; or an explicit int
 
-  epochs: 25
+  optimization:
+    epochs: 25
 
-  # Optimiser. Supported names:
-  #   adam — Adam. Fields: lr (required). β1=0.9, β2=0.999 are PyTorch defaults
-  #          and not exposed here (add to the factory if needed). Adaptive
-  #          per-parameter step size makes Adam robust to a wide LR range;
-  #          pairs well with `scheduler: none` for short runs.
-  #   sgd  — SGD with momentum. Fields: lr (required), momentum (default 0.99),
-  #          weight_decay (default 0.0), nesterov (default False). nnU-Net's
-  #          empirical default for medical segmentation; pairs naturally with
-  #          poly_decay scheduler since SGD benefits more from LR scheduling.
-  optim:
-    name: adam
-    lr: 0.0001
+    # Optimiser. Supported names:
+    #   adam — Adam. Fields: lr (required). β1=0.9, β2=0.999 are PyTorch defaults
+    #          and not exposed here (add to the factory if needed). Adaptive
+    #          per-parameter step size makes Adam robust to a wide LR range;
+    #          pairs well with `scheduler: none` for short runs.
+    #   sgd  — SGD with momentum. Fields: lr (required), momentum (default 0.99),
+    #          weight_decay (default 0.0), nesterov (default False). nnU-Net's
+    #          empirical default for medical segmentation; pairs naturally with
+    #          poly_decay scheduler since SGD benefits more from LR scheduling.
+    optim:
+      name: adam
+      lr: 0.0001
 
-  # LR scheduler. Supported names:
-  #   poly_decay         — nnU-Net's polynomial: lr_t = lr_0 * (1 - t/T)^power.
-  #                        Fields: total_iters (default = trainer.epochs), power
-  #                        (default 0.9). Stepped per validation cycle (i.e. once
-  #                        every report_freq training steps), so `total_iters`
-  #                        should be in *cycle* units. Example: 10 epochs at
-  #                        report_freq=500 with ~13000 steps/run ≈ 26 cycles, so
-  #                        total_iters=26 means LR reaches 0 at run end.
-  #                        Proactive: shrinks LR every cycle regardless of loss.
-  #                        Standard medical-segmentation choice.
-  #   reduce_on_plateau  — Adaptive plateau detection. Fields: mode ('max' or
-  #                        'min', default 'max'), factor (default 0.1), patience
-  #                        (default 10). Stepped on validation Dice value.
-  #                        Reactive: only kicks in when training stalls. Patience
-  #                        is in *cycle* units.
-  #   none               — Disable scheduling entirely. Equivalent: `scheduler: null`.
-  #                        Useful when Adam's adaptive step sizing is enough on
-  #                        its own (short runs, well-tuned base LR).
-  # When changing scheduler type across a resume from a snapshot, the old
-  # scheduler's state in the .pt is type-incompatible with the new one —
-  # snapper.load() detects the mismatch and warns + skips the scheduler restore;
-  # the new scheduler starts fresh from its config-driven defaults.
-  scheduler:
-    name: poly_decay
-    power: 0.9
-    # total_iters defaults to trainer.epochs if omitted, but for any non-trivial
-    # run you'll want to set it to (epochs × validation-cycles-per-epoch).
-    # total_iters: 26
+    # LR scheduler. Supported names:
+    #   poly_decay         — nnU-Net's polynomial: lr_t = lr_0 * (1 - t/T)^power.
+    #                        Fields: total_iters (default = trainer.optimization.epochs),
+    #                        power (default 0.9). Stepped per validation cycle (i.e. once
+    #                        every report_freq training steps), so `total_iters`
+    #                        should be in *cycle* units. Example: 10 epochs at
+    #                        report_freq=500 with ~13000 steps/run ≈ 26 cycles, so
+    #                        total_iters=26 means LR reaches 0 at run end.
+    #                        Proactive: shrinks LR every cycle regardless of loss.
+    #                        Standard medical-segmentation choice.
+    #   reduce_on_plateau  — Adaptive plateau detection. Fields: mode ('max' or
+    #                        'min', default 'max'), factor (default 0.1), patience
+    #                        (default 10). Stepped on validation Dice value.
+    #                        Reactive: only kicks in when training stalls. Patience
+    #                        is in *cycle* units.
+    #   none               — Disable scheduling entirely. Equivalent: `scheduler: null`.
+    #                        Useful when Adam's adaptive step sizing is enough on
+    #                        its own (short runs, well-tuned base LR).
+    # When changing scheduler type across a resume from a snapshot, the old
+    # scheduler's state in the .pt is type-incompatible with the new one —
+    # snapper.load() detects the mismatch and warns + skips the scheduler restore;
+    # the new scheduler starts fresh from its config-driven defaults.
+    scheduler:
+      name: poly_decay
+      power: 0.9
+      # total_iters defaults to trainer.optimization.epochs if omitted, but for
+      # any non-trivial run you'll want to set it to
+      # (epochs × validation-cycles-per-epoch).
+      # total_iters: 26
 
-  # Loss function. Supported names (single-loss dispatch in factory._build_single_loss):
-  #   Cont         — Continuity loss: cont_alpha * CE + cont_beta * along-Z continuity
-  #                  penalty. Fields: loss_weights (per-class CE weights), cont_alpha
-  #                  (default 0.7), cont_beta (default 0.3). The active default; the
-  #                  continuity term penalises class-flips between adjacent Z slices.
-  #   CrossEntropy — Plain weighted cross-entropy. Fields: loss_weights.
-  #   Dice         — Soft Dice loss across classes. No extra fields.
-  #   IoU          — Soft IoU (Jaccard) loss. No extra fields.
-  #   Compound     — Weighted sum of multiple single-losses. Reads `compound_loss:`
-  #                  list with entries `{name: <single-loss>, weight: <float>, params: {…}}`.
-  #                  Example:
-  #                    loss: Compound
-  #                    compound_loss:
-  #                      - {name: CrossEntropy, weight: 0.5}
-  #                      - {name: Dice,         weight: 0.5}
-  loss: Cont
-  loss_weights: [3.0, 7.0]
-  # ContLoss-only fields (consulted iff loss=Cont). Defaults approximate the prior
-  # learned-weight initialisation equilibrium.
-  cont_alpha: 0.7
-  cont_beta: 0.3
+    # Loss function. `loss.name` selects the loss; the remaining keys under
+    # `loss` are loss-specific parameters. Supported names (single-loss dispatch
+    # in factory._build_single_loss):
+    #   Cont         — Continuity loss: cont_alpha * CE + cont_beta * along-Z continuity
+    #                  penalty. Fields: weights (per-class CE weights), cont_alpha
+    #                  (default 0.7), cont_beta (default 0.3). The active default; the
+    #                  continuity term penalises class-flips between adjacent Z slices.
+    #   CrossEntropy — Plain weighted cross-entropy. Fields: weights.
+    #   Dice         — Soft Dice loss across classes. No extra fields.
+    #   IoU          — Soft IoU (Jaccard) loss. No extra fields.
+    #   Compound     — Weighted sum of multiple single-losses. Reads the `compound`
+    #                  list with entries `{name: <single-loss>, weight: <float>, params: {…}}`.
+    #                  Example:
+    #                    loss:
+    #                      name: Compound
+    #                      compound:
+    #                        - {name: CrossEntropy, weight: 0.5}
+    #                        - {name: Dice,         weight: 0.5}
+    loss:
+      name: Cont
+      weights: [3.0, 7.0]
+      # ContLoss-only fields (consulted iff name=Cont). Defaults approximate the
+      # prior learned-weight initialisation equilibrium.
+      cont_alpha: 0.7
+      cont_beta: 0.3
 
-  # Weights & Biases experiment tracking (E2). Disabled by default;
-  # enable per-run for cross-experiment comparison. The full configs
-  # dict is logged as wandb.config so every ablation axis is filterable.
-  # Requires `pip install wandb` and a `wandb login` (or WANDB_API_KEY env
-  # var); silently skipped with a warning if wandb is absent.
-  wandb:
-    enabled: True
-    project: gbm-ablation
-    entity: gbm-project  # personal entity is admin-disabled; use team handle
-    run_name: null       # null → wandb auto-generates a name
+    # Deep supervision (C1.2): when enabled, the Unet3D model attaches
+    # `levels` auxiliary 1x1x1 conv heads at decoder mid-levels (deepest
+    # first). The loss is computed at each level against a downsampled
+    # copy of the labels and summed with geometrically-decaying weights.
+    # Disabled by default; enable for an ablation arm. If `weights` is
+    # omitted, defaults to a normalised 0.5^k schedule.
+    deep_supervision:
+      enabled: False
+      levels: 2
+      # weights: [0.571, 0.286, 0.143]   # explicit override (normalised)
 
-  # Deep supervision (C1.2): when enabled, the Unet3D model attaches
-  # `levels` auxiliary 1x1x1 conv heads at decoder mid-levels (deepest
-  # first). The loss is computed at each level against a downsampled
-  # copy of the labels and summed with geometrically-decaying weights.
-  # Disabled by default; enable for an ablation arm. If `weights` is
-  # omitted, defaults to a normalised 0.5^k schedule.
-  deep_supervision:
-    enabled: False
-    levels: 2
-    # weights: [0.571, 0.286, 0.143]   # explicit override (normalised)
+  data:
+    train_ds:
+      path: ./data/gbm_train_ds/
+      batch_size: 8  # overridden at gbm.py create from experiments.default_batch_size
+      sample_dimension: [12, 256, 256] # Z, X, Y
+      # Pixel strides chosen for regularization: with the Z×6 stacking each
+      # original-label voxel already appears in many patches at stride [1,64,64].
+      # Bigger strides → less redundant exposure per training step → slower
+      # overfit on the dataset's high intrinsic redundancy.
+      pixel_stride: [4, 192, 192] # Z, X, Y
+      pin_memory: True
+      shuffle: True
+      ignore_stride_mismatch: True
+      workers: 4
+      augmentation:
+        # Offline aug precomputes _zoom/_twist/_rotate variants to disk; with
+        # the gbm.py create Z×6 stacking each "unique" anatomy is already
+        # replicated 6× in the labels, so precomputed aug compounds redundancy
+        # and pushes the model toward overfitting. Default off; flip on for
+        # ablations where the trade-off is worth measuring.
+        enabled_offline: False
+        workers: 8
+        # Offline aug recipes. Each entry is [<method>, <param>]:
+        #   _zoom <factor>           — affine scale; factor>1 zooms in, <1 zooms out.
+        #   _twist_clock <strength>  — rotational shear along Z (clockwise).
+        #   _twist_reverse <strength> — counter-clockwise twist.
+        #   _rotate_random <prob>    — random in-plane rotation; param ignored
+        #                              (chance handled in the online block).
+        methods_offline: [
+                          ['_zoom', 2],
+                          ['_zoom', 1.7],
+                          ['_zoom', 1.3],
+                          ['_zoom', 0.7],
+                          ['_zoom', 0.5],
+                          ['_twist_clock', '0.5',],
+                          ['_twist_reverse', '0.5'],
+                          ['_rotate_random', '0.2'],
+                         ]
+        enabled_online: True
+        # Online aug — applied per-batch on the fly. `rotate`, `blur`, `crop`,
+        # `channel_drop` are probabilities (0..1) that the augmentation fires
+        # on a given patch.
+        #   rotate         — random rotation about all 3 axes (propagates
+        #                     high-res XY detail into the low-res Z).
+        #   rotate_degrees — max rotation angle; each axis draws a random
+        #                     0..rotate_degrees deg (a count, not a probability).
+        #   blur           — Gaussian blur (sigma=2).
+        #   crop           — random crop + zero-pad.
+        #   channel_drop   — zero-out one of the three input channels.
+        # `scale` is the Z-upsampling factor used during sample selection;
+        # must match `experiments.default_z_scale` set at gbm.py create.
+        methods_online:
+          scale: 6
+          rotate: 0.2
+          rotate_degrees: 45
+          blur: 0.2
+          crop: 0.2
+          channel_drop: 0.3
 
-  report_freq: 1000
-
-  # Metrics logged per validation cycle. Supported names (computed in
-  # src/utils/metrics/clfication.py:Metrics; pick any subset):
-  #   Loss                     — the configured training loss value.
-  #   TruePositiveRate         — TP / (TP + FN) = sensitivity / recall.
-  #   PositivePredictiveValue  — TP / (TP + FP) = precision.
-  #   Dice                     — 2·TP / (2·TP + FP + FN). The canonical CV metric;
-  #                              also what ReduceLROnPlateau steps on.
-  #   JaccardIndex             — TP / (TP + FP + FN) = IoU.
-  metrics: [
-            'Loss',
-            'TruePositiveRate',
-            'PositivePredictiveValue',
-            'Dice',
-            'JaccardIndex',
-           ]
-
-  # Per-class subset for the binary metrics above. Default [1] reports the
-  # foreground (GBM) class only — background numbers are usually trivial.
-  metrics_class_ids: [1]
-
-  snapshot_path: ./snapshots/
-  result_path: ./results-train/
-
-  train_ds:
-    path: ./data/gbm_train_ds/
-    batch_size: 8  # overridden at gbm.py create from experiments.default_batch_size
-    sample_dimension: [12, 256, 256] # Z, X, Y
-    # Pixel strides chosen for regularization: with the Z×6 stacking each
-    # original-label voxel already appears in many patches at stride [1,64,64].
-    # Bigger strides → less redundant exposure per training step → slower
-    # overfit on the dataset's high intrinsic redundancy.
-    pixel_stride: [4, 192, 192] # Z, X, Y
-    pin_memory: True
-    shuffle: True
-    ignore_stride_mismatch: True
-    workers: 4
-    augmentation:
-      # Offline aug precomputes _zoom/_twist/_rotate variants to disk; with
-      # the gbm.py create Z×6 stacking each "unique" anatomy is already
-      # replicated 6× in the labels, so precomputed aug compounds redundancy
-      # and pushes the model toward overfitting. Default off; flip on for
-      # ablations where the trade-off is worth measuring.
-      enabled_offline: False
+    valid_ds:
+      path: ./data/gbm_valid_ds/
+      batch_size: 8
+      sample_dimension: [12, 256, 256] # Z, X, Y
+      # Z stride matches `experiments.default_z_scale` so each z_start anchors
+      # a distinct real-label set (validation metrics are masked to original
+      # Z positions anyway — see Unet3DTrainer._select_real_z). XY stride
+      # equals sample_dim so XY tiles cover the volume once with no overlap.
+      # Trades ~24× validation-time speedup for slightly less spatial coverage.
+      pixel_stride: [6, 256, 256] # Z, X, Y
+      pin_memory: True
+      shuffle: False
+      ignore_stride_mismatch: True
       workers: 8
-      # Offline aug recipes. Each entry is [<method>, <param>]:
-      #   _zoom <factor>           — affine scale; factor>1 zooms in, <1 zooms out.
-      #   _twist_clock <strength>  — rotational shear along Z (clockwise).
-      #   _twist_reverse <strength> — counter-clockwise twist.
-      #   _rotate_random <prob>    — random in-plane rotation; param ignored
-      #                              (chance handled in the online block).
-      methods_offline: [
-                        ['_zoom', 2],
-                        ['_zoom', 1.7],
-                        ['_zoom', 1.3],
-                        ['_zoom', 0.7],
-                        ['_zoom', 0.5],
-                        ['_twist_clock', '0.5',],
-                        ['_twist_reverse', '0.5'],
-                        ['_rotate_random', '0.2'],
-                       ]
-      enabled_online: True
-      # Online aug — applied per-batch on the fly. `rotate`, `blur`, `crop`,
-      # `channel_drop` are probabilities (0..1) that the augmentation fires
-      # on a given patch.
-      #   rotate         — random rotation about all 3 axes (propagates
-      #                     high-res XY detail into the low-res Z).
-      #   rotate_degrees — max rotation angle; each axis draws a random
-      #                     0..rotate_degrees deg (a count, not a probability).
-      #   blur           — Gaussian blur (sigma=2).
-      #   crop           — random crop + zero-pad.
-      #   channel_drop   — zero-out one of the three input channels.
-      # `scale` is the Z-upsampling factor used during sample selection;
-      # must match `experiments.default_z_scale` set at gbm.py create.
-      methods_online:
-        scale: 6
-        rotate: 0.2
-        rotate_degrees: 45
-        blur: 0.2
-        crop: 0.2
-        channel_drop: 0.3
 
-  valid_ds:
-    path: ./data/gbm_valid_ds/
-    batch_size: 8
-    sample_dimension: [12, 256, 256] # Z, X, Y
-    # Z stride matches `experiments.default_z_scale` so each z_start anchors
-    # a distinct real-label set (validation metrics are masked to original
-    # Z positions anyway — see Unet3DTrainer._select_real_z). XY stride
-    # equals sample_dim so XY tiles cover the volume once with no overlap.
-    # Trades ~24× validation-time speedup for slightly less spatial coverage.
-    pixel_stride: [6, 256, 256] # Z, X, Y
-    pin_memory: True
-    shuffle: False
-    ignore_stride_mismatch: True
-    workers: 8
+    # z_scale is NOT set in this template — it is injected into the
+    # per-experiment configs.yaml by `gbm.py create` (the value comes from
+    # `experiments.default_z_scale` or the `--z-scale` CLI flag).
+    # Factory.createTrainer reads it to mask validation metrics to
+    # original-label slices only.
 
-  visualization:
-    enabled: True
-    # The chance for a batch to create visualization
-    chance: 0.30
-    path: ./visuals/
-    gif: True
-    tif: False
+  runtime:
+    dp: False
+    # DistributedDataParallel — opt-in alternative to DP. When True, training
+    # must be launched under `torchrun` (the `sbatch/train_*` DDP launchers
+    # handle this). DDP takes precedence over DP when both flags are set.
+    # Unlike DP, DDP scales near-linearly across the GPUs and supports
+    # torch.compile + cudnn.benchmark. Mutually exclusive with the in-process
+    # all-folds orchestrator — submit one sbatch per fold via
+    # `sbatch/submit_cv_ddp.sh`.
+    ddp: True
+    # Compute device. Supported:
+    #   cuda — GPU (training default). Required for DDP / compile.
+    #   cpu  — useful only for tests or smoke checks; very slow for training.
+    device: cuda
+    mixed_precision: True
+    # SwinUNETR-only: gradient (activation) checkpointing — trades ~25-35%
+    # extra compute for a large drop in activation memory. 'auto' enables it
+    # when the GPU is too small for the un-checkpointed model (40 GB A100 /
+    # 32 GB V100) and leaves it off on the 80 GB A100; 'on'/'off' force it.
+    gradient_checkpointing: auto
+    # cudnn.benchmark trades determinism for ~5-15% throughput; only honoured
+    # under DDP (single-process mode keeps the seed_everything determinism
+    # guarantee).
+    cudnn_benchmark: False
+    # Channels-last 3D memory format. Can help conv-heavy models on Ampere+
+    # GPUs; safe no-op when the model doesn't benefit. DDP-only.
+    channels_last_3d: False
 
-  dp: False
-  # DistributedDataParallel — opt-in alternative to DP. When True, training
-  # must be launched under `torchrun` (the `sbatch/train_*` DDP launchers
-  # handle this). DDP takes precedence over DP when both flags are set.
-  # Unlike DP, DDP scales near-linearly across the GPUs and supports
-  # torch.compile + cudnn.benchmark. Mutually exclusive with the in-process
-  # all-folds orchestrator — submit one sbatch per fold via
-  # `sbatch/submit_cv_ddp.sh`.
-  ddp: True
-  # Compute device. Supported:
-  #   cuda — GPU (training default). Required for DDP / compile.
-  #   cpu  — useful only for tests or smoke checks; very slow for training.
-  device: cuda
-  mixed_precision: True
-  # SwinUNETR-only: gradient (activation) checkpointing — trades ~25-35%
-  # extra compute for a large drop in activation memory. 'auto' enables it
-  # when the GPU is too small for the un-checkpointed model (40 GB A100 /
-  # 32 GB V100) and leaves it off on the 80 GB A100; 'on'/'off' force it.
-  gradient_checkpointing: auto
-  # cudnn.benchmark trades determinism for ~5-15% throughput; only honoured
-  # under DDP (single-process mode keeps the seed_everything determinism
-  # guarantee).
-  cudnn_benchmark: False
-  # Channels-last 3D memory format. Can help conv-heavy models on Ampere+
-  # GPUs; safe no-op when the model doesn't benefit. DDP-only.
-  channels_last_3d: False
+    # JIT-compile the model via torch.compile(). Works cleanly with DDP. With
+    # DataParallel it's wrap-then-compile-the-inner-module (Factory handles).
+    compile: False
 
-  # JIT-compile the model via torch.compile(). Works cleanly with DDP. With
-  # DataParallel it's wrap-then-compile-the-inner-module (Factory handles).
-  compile: False
+  logging:
+    # Weights & Biases experiment tracking (E2). Disabled by default;
+    # enable per-run for cross-experiment comparison. The full configs
+    # dict is logged as wandb.config so every ablation axis is filterable.
+    # Requires `pip install wandb` and a `wandb login` (or WANDB_API_KEY env
+    # var); silently skipped with a warning if wandb is absent.
+    wandb:
+      enabled: True
+      project: gbm-ablation
+      entity: gbm-project  # personal entity is admin-disabled; use team handle
+      run_name: null       # null → wandb auto-generates a name
+
+    report_freq: 1000
+
+    # Metrics logged per validation cycle. Supported names (computed in
+    # src/utils/metrics/clfication.py:Metrics; pick any subset):
+    #   Loss                     — the configured training loss value.
+    #   TruePositiveRate         — TP / (TP + FN) = sensitivity / recall.
+    #   PositivePredictiveValue  — TP / (TP + FP) = precision.
+    #   Dice                     — 2·TP / (2·TP + FP + FN). The canonical CV metric;
+    #                              also what ReduceLROnPlateau steps on.
+    #   JaccardIndex             — TP / (TP + FP + FN) = IoU.
+    metrics: [
+              'Loss',
+              'TruePositiveRate',
+              'PositivePredictiveValue',
+              'Dice',
+              'JaccardIndex',
+             ]
+
+    # Per-class subset for the binary metrics above. Default [1] reports the
+    # foreground (GBM) class only — background numbers are usually trivial.
+    metrics_class_ids: [1]
+
+    snapshot_path: ./snapshots/
+    result_path: ./results-train/
+
+    visualization:
+      enabled: True
+      # The chance for a batch to create visualization
+      chance: 0.30
+      path: ./visuals/
+      gif: True
+      tif: False
 
 inference:
   number_class: 2
@@ -338,7 +354,7 @@ inference:
     # Thickness values above this (nm) are considered unrealistic and clipped to 0 by `gbm.py stats --clipping`.
     thickness_clip_max: 1400
 
-  result_dir: ''
+  result_path: ''
 
   # Whole-glomerulus test set (no labels) — consumed by `gbm.py infer` and the
   # downstream psp/morph/stats pipeline. Populated by `gbm.py create` from

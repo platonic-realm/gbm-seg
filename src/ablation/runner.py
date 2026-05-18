@@ -7,7 +7,7 @@ Per (cell, fold) materialisation:
   - copy ``fold_assignments.yaml``, ``requirements.txt``, and
     ``git_sha.txt`` from the base for provenance
   - write a fresh ``configs.yaml`` = base ⨁ cell overrides, with
-    ``trainer.wandb.run_name`` set to the experiment name so each
+    ``trainer.logging.wandb.run_name`` set to the experiment name so each
     cell shows up as a separate W&B run
 
 Idempotent: if the cell experiment dir already exists, it's left alone
@@ -80,8 +80,10 @@ def _materialise_one(base_path: Path, base_configs: dict,
     # Build the cell's configs.yaml.
     cell_configs = apply_overrides(base_configs, run.cell.overrides)
     # Inject the W&B run name so each cell shows up separately on the UI.
-    # The wandb block may not exist on older base experiments; build defensively.
-    wandb_block = cell_configs['trainer'].setdefault('wandb', {})
+    # The logging/wandb blocks may not exist on older base experiments;
+    # build defensively.
+    logging_block = cell_configs['trainer'].setdefault('logging', {})
+    wandb_block = logging_block.setdefault('wandb', {})
     wandb_block.setdefault('enabled', False)
     wandb_block['run_name'] = run.experiment_name
     # Record the parent study + cell + fold for sanity at runtime.

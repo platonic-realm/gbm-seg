@@ -208,9 +208,11 @@ def test_swin_unetr_buildable_via_factory():
         'trainer': {
             'model': {
                 'name': 'swin_unetr',
-                'encoder_kernel': [3, 3, 3],
-                'decoder_kernel': [3, 3, 3],
-                'feature_maps': [],
+                'unet_3d': {
+                    'encoder_kernel': [3, 3, 3],
+                    'decoder_kernel': [3, 3, 3],
+                    'feature_maps': [],
+                },
                 'swin_unetr': {
                     'feature_size': 12,
                     'depths': [2, 2, 2, 2],
@@ -218,7 +220,9 @@ def test_swin_unetr_buildable_via_factory():
                     'window_size_xy': 4,
                 },
             },
-            'train_ds': {'sample_dimension': [12, 64, 64]},
+            'optimization': {},
+            'data': {'train_ds': {'sample_dimension': [12, 64, 64]}},
+            'runtime': {},
         },
     }
     model = build_model('swin_unetr', configs, 3, 2)

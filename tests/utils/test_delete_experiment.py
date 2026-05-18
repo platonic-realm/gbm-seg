@@ -18,7 +18,8 @@ def _make_experiment(root, name, project='gbm-test', entity='ent'):
     """Create a minimal experiment dir with a configs.yaml."""
     exp = root / name
     exp.mkdir(parents=True)
-    cfg = {'trainer': {'wandb': {'project': project, 'entity': entity}}}
+    cfg = {'trainer': {'logging': {'wandb': {'project': project,
+                                             'entity': entity}}}}
     (exp / 'configs.yaml').write_text(yaml.safe_dump(cfg))
     (exp / 'somefile.txt').write_text('data')
     return exp

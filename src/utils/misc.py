@@ -30,7 +30,7 @@ def configure_logger(_configs: dict, _log_to_file: bool = True) -> None:
     LOG_LEVEL = _configs['logging']['log_level']
     root_path = _configs['root_path']
     log_file = os.path.join(root_path,
-                            _configs['trainer']['result_path'],
+                            _configs['trainer']['logging']['result_path'],
                             _configs['logging']['log_file'])
     log_std = _configs['logging']['log_std']
 
@@ -131,7 +131,7 @@ def _z_interpolate_and_stack(_image: np.ndarray,
       label slice is replicated N times along Z. The "real" labels in the
       output are at Z positions ``i * N`` for the source slice ``i``; the
       N-1 positions after each are exact copies. ``factory.createTrainer``
-      reads ``trainer.z_scale`` so the validation step
+      reads ``trainer.data.z_scale`` so the validation step
       (``_select_real_z``) can mask metric computation to those originals.
 
     Returns a new array of shape ``(Z * N, C, H, W)`` with the same dtype
@@ -173,7 +173,7 @@ def resize_and_copy(_source_dir, _dest_dir, _target_size,
       Z-upsampled (``trilinear`` on channels, ``np.repeat`` on labels) —
       restoring the deleted offline ``interpolate.py`` step as part of
       ``gbm.py create``. The label-stacking sets up the
-      ``trainer.z_scale``-driven validation mask in ``Unet3DTrainer``.
+      ``trainer.data.z_scale``-driven validation mask in ``Unet3DTrainer``.
     """
     source_path = Path(_source_dir)
     tiff_files = list(source_path.glob('*.tif')) + list(source_path.glob('*.tiff'))
@@ -295,21 +295,21 @@ def to_numpy(_gpu_tensor):
 
 
 def sanity_check(_configs: dict) -> dict:
-    assert _configs['trainer']['train_ds']['path'] is not None, \
+    assert _configs['trainer']['data']['train_ds']['path'] is not None, \
         "Please provide path to the training dataset"
 
-    if _configs['trainer']['visualization']['enabled']:
-        assert _configs['trainer']['visualization']['path'] is not None, \
+    if _configs['trainer']['logging']['visualization']['enabled']:
+        assert (_configs['trainer']['logging']['visualization']['path']
+                is not None), \
             "Please provide path to store visualization files"
 
     if torch.cuda.device_count() == 0:
-        _configs['trainer']['device'] = 'cpu'
-        _configs['trainer']['mixed_precision'] = False
+        _configs['trainer']['runtime']['device'] = 'cpu'
+        _configs['trainer']['runtime']['mixed_precision'] = False
         _configs['inference']['device'] = 'cpu'
 
-    if _configs['trainer']['device'] == 'cpu':
-        _configs['trainer']['cudnn_benchmark'] = False
-        _configs['trainer']['nvtx_patching'] = False
+    if _configs['trainer']['runtime']['device'] == 'cpu':
+        _configs['trainer']['runtime']['cudnn_benchmark'] = False
 
     return _configs
 
@@ -325,7 +325,7 @@ REMOVED_CONFIG_KEYS: list[str] = [
     "trainer.tensorboard",
     "trainer.sqlite",
     "trainer.profiling",
-    "trainer.visualization.blender",
+    "trainer.logging.visualization.blender",
 ]
 
 

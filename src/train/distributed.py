@@ -1,12 +1,12 @@
 """DDP plumbing helpers.
 
-DistributedDataParallel is opt-in via ``trainer.ddp: True`` in the
+DistributedDataParallel is opt-in via ``trainer.runtime.ddp: True`` in the
 experiment yaml. When enabled, training must be launched under
 ``torchrun`` (or another launcher that sets ``LOCAL_RANK``/``RANK``/
 ``WORLD_SIZE`` env vars). ``sbatch/train_ddp.sbatch`` wraps this for
 SLURM single-node 4-GPU launches.
 
-DataParallel (``trainer.dp: True``) and DDP are mutually exclusive —
+DataParallel (``trainer.runtime.dp: True``) and DDP are mutually exclusive —
 DDP takes precedence when both flags are set, and the DP path remains
 fully functional for models/runs that aren't ready for DDP yet
 (notably the 3D U-Net continues to use DP).
@@ -27,7 +27,9 @@ import torch.distributed as dist
 
 def ddp_requested(_configs: dict) -> bool:
     """True iff the experiment config asks for DDP."""
-    return bool((_configs.get('trainer', {}) or {}).get('ddp', False))
+    trainer = _configs.get('trainer', {}) or {}
+    runtime = trainer.get('runtime', {}) or {}
+    return bool(runtime.get('ddp', False))
 
 
 def ddp_launchable() -> bool:

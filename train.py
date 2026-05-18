@@ -48,7 +48,7 @@ def seed_everything(_seed: int):
 def maybe_init_wandb(_configs, _fold: int = 0,
                      _resume_run_id: str | None = None,
                      _all_data: bool = False) -> bool:
-    """Initialise a W&B run when ``configs.trainer.wandb.enabled`` is true.
+    """Initialise a W&B run when ``configs.trainer.logging.wandb.enabled`` is true.
 
     The full ``configs`` dict is logged as ``wandb.config`` so every axis
     of the eventual A2 ablation (model.name × loss × inference.stitching
@@ -69,7 +69,7 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     (wandb missing, disabled, or init failed). Failure is logged but
     does not abort training.
     """
-    wandb_cfg = _configs['trainer'].get('wandb', {})
+    wandb_cfg = _configs['trainer'].get('logging', {}).get('wandb', {})
     if not wandb_cfg.get('enabled', False):
         return False
     # Only rank-0 opens a W&B run under DDP. The other ranks would
@@ -101,7 +101,8 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     # eager runs are visually distinguishable on the W&B dashboard. Other
     # axes (model.name, loss, stitching, optimiser) are already filterable
     # via wandb.config — only these two surface as first-class UI labels.
-    compile_on = bool(_configs['trainer'].get('compile', False))
+    compile_on = bool(
+        _configs['trainer'].get('runtime', {}).get('compile', False))
     compile_suffix = '-compile' if compile_on else '-eager'
     split_tag = 'all_data' if _all_data else f"fold-{int(_fold)}"
     tags = ['compile' if compile_on else 'eager', split_tag]
@@ -155,10 +156,11 @@ def main_train(_configs, _fold: int = 0):
     # fold N-1's latest snapshot at fold N's start. Visualization output and
     # log files get the same treatment so artefacts stay separable.
     fold_tag = f"fold_{_fold}"
-    _configs['trainer']['snapshot_path'] = os.path.join(
-        _configs['trainer']['snapshot_path'].rstrip('/'), fold_tag)
-    _configs['trainer']['visualization']['path'] = os.path.join(
-        _configs['trainer']['visualization']['path'].rstrip('/'), fold_tag)
+    trainer_logging = _configs['trainer']['logging']
+    trainer_logging['snapshot_path'] = os.path.join(
+        trainer_logging['snapshot_path'].rstrip('/'), fold_tag)
+    trainer_logging['visualization']['path'] = os.path.join(
+        trainer_logging['visualization']['path'].rstrip('/'), fold_tag)
     _configs['logging']['log_file'] = _configs['logging']['log_file'].replace(
         '.log', f'.{fold_tag}.log')
 
@@ -177,7 +179,7 @@ def main_train(_configs, _fold: int = 0):
 
     seed_everything(SEED)
 
-    if _configs['trainer']['cudnn_benchmark']:
+    if _configs['trainer']['runtime']['cudnn_benchmark']:
         # Benchmark mode picks the fastest cuDNN kernel based on input shapes
         # — non-deterministic but a real throughput win when sample_dim is
         # fixed (it is, in our patch-based training). Under DDP we accept
@@ -231,7 +233,7 @@ def main_train(_configs, _fold: int = 0):
     # + RNGs in-place. Returns the resume info (epoch/step/best/wandb_id)
     # or None for a fresh run. snapper.load is fold-isolated because
     # snapshot_path is already mutated to include `fold_N/` above.
-    device = _configs['trainer']['device']
+    device = _configs['trainer']['runtime']['device']
     resume = snapper.load(model,
                           _device=device,
                           _stepper=stepper,
@@ -326,15 +328,16 @@ def main_train_all_data(_configs, _epochs: int | None = None):
     run resumes from ``…/all_data/continue/*.pt`` like any fold run.
     """
     split_tag = 'all_data'
-    _configs['trainer']['snapshot_path'] = os.path.join(
-        _configs['trainer']['snapshot_path'].rstrip('/'), split_tag)
-    _configs['trainer']['visualization']['path'] = os.path.join(
-        _configs['trainer']['visualization']['path'].rstrip('/'), split_tag)
+    trainer_logging = _configs['trainer']['logging']
+    trainer_logging['snapshot_path'] = os.path.join(
+        trainer_logging['snapshot_path'].rstrip('/'), split_tag)
+    trainer_logging['visualization']['path'] = os.path.join(
+        trainer_logging['visualization']['path'].rstrip('/'), split_tag)
     _configs['logging']['log_file'] = _configs['logging']['log_file'].replace(
         '.log', f'.{split_tag}.log')
 
     if _epochs is not None:
-        _configs['trainer']['epochs'] = int(_epochs)
+        _configs['trainer']['optimization']['epochs'] = int(_epochs)
 
     if _configs['logging']['log_summary'] and is_main_process():
         summerize_configs(_configs)
@@ -350,7 +353,7 @@ def main_train_all_data(_configs, _epochs: int | None = None):
 
     seed_everything(SEED)
 
-    if _configs['trainer']['cudnn_benchmark']:
+    if _configs['trainer']['runtime']['cudnn_benchmark']:
         if is_distributed():
             torch.backends.cudnn.benchmark = True
             torch.use_deterministic_algorithms(False)
@@ -381,7 +384,7 @@ def main_train_all_data(_configs, _epochs: int | None = None):
     stepper = factory.createStepper(model, optimizer, loss_function)
     snapper = factory.createSnapper()
 
-    device = _configs['trainer']['device']
+    device = _configs['trainer']['runtime']['device']
     resume = snapper.load(model,
                           _device=device,
                           _stepper=stepper,
@@ -428,7 +431,7 @@ def main_train_all_data(_configs, _epochs: int | None = None):
         logging.info(
             "All-data training complete (%d epochs). The final snapshot is "
             "the deliverable — there is no best-validation selection.",
-            _configs['trainer']['epochs'])
+            _configs['trainer']['optimization']['epochs'])
         if wandb_active:
             try:
                 import wandb
@@ -526,7 +529,7 @@ def consolidate_cv_results(_per_fold: list,
             np.savez_compressed(npz_path, **arrays)
             logging.info("CV per-fold arrays written to %s", npz_path)
 
-    wandb_cfg = _configs['trainer'].get('wandb', {}) or {}
+    wandb_cfg = _configs['trainer'].get('logging', {}).get('wandb', {}) or {}
     if wandb_cfg.get('enabled', False):
         try:
             import wandb
@@ -585,9 +588,10 @@ def main_train_all_folds(_configs):
     exp_name = Path(root_path).name or 'experiment'
 
     # Set a stable W&B group so per-fold runs show up together.
-    wandb_cfg = _configs['trainer'].get('wandb', {}) or {}
+    trainer_logging = _configs['trainer'].setdefault('logging', {})
+    wandb_cfg = trainer_logging.get('wandb', {}) or {}
     wandb_cfg.setdefault('group', exp_name)
-    _configs['trainer']['wandb'] = wandb_cfg
+    trainer_logging['wandb'] = wandb_cfg
 
     per_fold = []
     for fold_id in range(k):
@@ -613,9 +617,10 @@ def aggregate_cv_from_disk(_configs):
     k = len(fold_assignments)
     exp_name = Path(root_path).name or 'experiment'
 
-    wandb_cfg = _configs['trainer'].get('wandb', {}) or {}
+    trainer_logging = _configs['trainer'].setdefault('logging', {})
+    wandb_cfg = trainer_logging.get('wandb', {}) or {}
     wandb_cfg.setdefault('group', exp_name)
-    _configs['trainer']['wandb'] = wandb_cfg
+    trainer_logging['wandb'] = wandb_cfg
 
     per_fold = _read_per_fold_best(root_path, k)
     return consolidate_cv_results(per_fold, _configs, exp_name)

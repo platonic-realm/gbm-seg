@@ -17,8 +17,9 @@ def test_ddp_requested_reads_trainer_ddp_flag():
     from src.train.distributed import ddp_requested
     assert not ddp_requested({})
     assert not ddp_requested({'trainer': {}})
-    assert not ddp_requested({'trainer': {'ddp': False}})
-    assert ddp_requested({'trainer': {'ddp': True}})
+    assert not ddp_requested({'trainer': {'runtime': {}}})
+    assert not ddp_requested({'trainer': {'runtime': {'ddp': False}}})
+    assert ddp_requested({'trainer': {'runtime': {'ddp': True}}})
 
 
 def test_ddp_launchable_detects_torchrun_envvars(monkeypatch):
@@ -167,7 +168,10 @@ def test_gpu_running_metrics_skips_all_reduce_when_not_distributed():
 def test_main_train_all_folds_refuses_ddp():
     from train import main_train_all_folds
     cfg = {
-        'trainer': {'ddp': True, 'wandb': {'enabled': False}},
+        'trainer': {
+            'runtime': {'ddp': True},
+            'logging': {'wandb': {'enabled': False}},
+        },
         'root_path': '/tmp/x',
     }
     with pytest.raises(RuntimeError, match=r"per-fold|torchrun|sbatch"):
@@ -182,9 +186,11 @@ def test_main_train_refuses_ddp_without_torchrun_env(monkeypatch):
     # Build the most minimal config that gets past the early mutations.
     cfg = {
         'trainer': {
-            'ddp': True,
-            'snapshot_path': './snapshots/',
-            'visualization': {'path': './visuals/', 'enabled': False},
+            'runtime': {'ddp': True},
+            'logging': {
+                'snapshot_path': './snapshots/',
+                'visualization': {'path': './visuals/', 'enabled': False},
+            },
         },
         'logging': {'log_file': 'logs/train.log', 'log_summary': False},
     }

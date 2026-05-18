@@ -146,7 +146,7 @@ def test_snapper_save_skips_upload_when_no_active_run(fake_wandb, tmp_snapshot_d
 def test_maybe_init_wandb_disabled_returns_false():
     from train import maybe_init_wandb
 
-    configs = {'trainer': {'wandb': {'enabled': False}}}
+    configs = {'trainer': {'logging': {'wandb': {'enabled': False}}}}
     assert maybe_init_wandb(configs) is False
 
 
@@ -155,11 +155,13 @@ def test_maybe_init_wandb_enabled_calls_wandb_init(fake_wandb):
 
     configs = {
         'trainer': {
-            'wandb': {
-                'enabled': True,
-                'project': 'gbm-seg',
-                'entity': 'someone',
-                'run_name': 'test-run',
+            'logging': {
+                'wandb': {
+                    'enabled': True,
+                    'project': 'gbm-seg',
+                    'entity': 'someone',
+                    'run_name': 'test-run',
+                },
             },
         },
     }
@@ -172,4 +174,5 @@ def test_maybe_init_wandb_enabled_calls_wandb_init(fake_wandb):
     # The full configs dict (plus fold) is logged as wandb.config so every
     # ablation axis is filterable on the W&B UI.
     assert init_kwargs['config']['fold'] == 2
-    assert init_kwargs['config']['trainer']['wandb']['enabled'] is True
+    assert (init_kwargs['config']['trainer']['logging']['wandb']['enabled']
+            is True)

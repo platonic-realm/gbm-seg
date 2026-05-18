@@ -345,7 +345,7 @@ def infer_experiment(_name: str,
                      'results-train/snapshots/',
                      _snapshot)
 
-    configs['inference']['result_dir'] = inference_result_path
+    configs['inference']['result_path'] = inference_result_path
 
     configs['inference']['inference_ds']['path'] =\
         os.path.join(_root_path,
@@ -365,7 +365,7 @@ def infer_experiment(_name: str,
     configs['inference']['inference_ds']['interpolate'] = _interpolate
 
     configs['inference']['inference_ds']['workers'] =\
-        configs['trainer']['train_ds']['workers']
+        configs['trainer']['data']['train_ds']['workers']
 
     if _stitching is not None:
         configs['inference']['stitching'] = _stitching
@@ -395,7 +395,7 @@ def train_experiment(_name: str,
 
     ``_all_data=True`` runs a Stage-B final model on every ds_train
     subject (no holdout) via :func:`main_train_all_data`; ``_epochs``
-    optionally overrides ``configs.trainer.epochs``.
+    optionally overrides ``configs.trainer.optimization.epochs``.
     ``_fold=None`` (the default for `gbm.py train EXP` without --fold)
     runs the full CV via :func:`main_train_all_folds`. ``_fold=<int>``
     runs a single fold via :func:`main_train`.
@@ -430,11 +430,12 @@ def offline_augment_experiment(_name: str, _root_path: str):
     if not experiment_exists(_root_path, _name):
         raise FileNotFoundError(f"Experiment '{_name}' doesn't exist")
     configs = read_configs(os.path.join(_root_path, _name, 'configs.yaml'))
-    methods = (configs['trainer']['train_ds']['augmentation']
+    methods = (configs['trainer']['data']['train_ds']['augmentation']
                .get('methods_offline'))
     if not methods:
         logging.warning(
-            "Experiment '%s' has no train_ds.augmentation.methods_offline; "
+            "Experiment '%s' has no "
+            "trainer.data.train_ds.augmentation.methods_offline; "
             "nothing to precompute.", _name)
         return
     logging.info("Precomputing offline-augmentation cache for '%s' "
@@ -476,7 +477,9 @@ def _delete_wandb_runs(_name: str, _configs_path: str) -> None:
     try:
         with open(_configs_path, encoding='UTF-8') as f:
             cfg = yaml.safe_load(f) or {}
-        wandb_cfg = (cfg.get('trainer', {}) or {}).get('wandb', {}) or {}
+        trainer_cfg = cfg.get('trainer', {}) or {}
+        logging_cfg = trainer_cfg.get('logging', {}) or {}
+        wandb_cfg = logging_cfg.get('wandb', {}) or {}
         entity = wandb_cfg.get('entity')
         project = wandb_cfg.get('project')
     except Exception as exc:  # pragma: no cover — defensive
@@ -484,8 +487,8 @@ def _delete_wandb_runs(_name: str, _configs_path: str) -> None:
         return
     if not project:
         logging.warning(
-            "No trainer.wandb.project in '%s' config; skipping W&B cleanup.",
-            _name)
+            "No trainer.logging.wandb.project in '%s' config; "
+            "skipping W&B cleanup.", _name)
         return
     try:
         import wandb
@@ -645,22 +648,22 @@ def create_new_experiment(_name: str,
             _batch_size / configs['experiments']['default_batch_size']
 
     if batch_ratio is not None:
-        configs['trainer']['optim']['lr'] =\
-                round(configs['trainer']['optim']['lr'] * math.sqrt(batch_ratio), 5)
-        configs['trainer']['report_freq'] =\
-            configs['trainer']['report_freq'] / batch_ratio
+        optim_cfg = configs['trainer']['optimization']['optim']
+        optim_cfg['lr'] = round(optim_cfg['lr'] * math.sqrt(batch_ratio), 5)
+        configs['trainer']['logging']['report_freq'] =\
+            configs['trainer']['logging']['report_freq'] / batch_ratio
 
     configs['root_path'] = destination_path
 
-    configs['trainer']['train_ds']['path'] = \
+    configs['trainer']['data']['train_ds']['path'] = \
         f"{new_dataset_path}/ds_train/"
 
-    configs['trainer']['train_ds']['batch_size'] = _batch_size
+    configs['trainer']['data']['train_ds']['batch_size'] = _batch_size
 
-    configs['trainer']['valid_ds']['path'] = \
+    configs['trainer']['data']['valid_ds']['path'] = \
         f"{new_dataset_path}/ds_valid/"
 
-    configs['trainer']['valid_ds']['batch_size'] = _batch_size
+    configs['trainer']['data']['valid_ds']['batch_size'] = _batch_size
 
     configs['inference']['inference_ds']['path'] = \
         f"{new_dataset_path}/ds_test_unlabeled/"
@@ -673,8 +676,9 @@ def create_new_experiment(_name: str,
     # Persist the Z-scale used at create time. ``Factory.createTrainer``
     # reads this to mask validation metrics to original-label slices only
     # (positions where Z % z_scale == 0); without it the same label voxel
-    # would be counted z_scale times.
-    configs['trainer']['z_scale'] = int(_z_scale_factor)
+    # would be counted z_scale times. The key is injected here because it
+    # is not present in configs/template.yaml.
+    configs['trainer']['data']['z_scale'] = int(_z_scale_factor)
 
     del configs['experiments']
 
