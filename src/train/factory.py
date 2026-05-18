@@ -173,6 +173,7 @@ class Factory:
         weights = torch.tensor(self.configs['trainer']['loss_weights']).to(device)
 
         loss_name: str = self.configs['trainer']['loss']
+        logging.info("Training loss: %s", loss_name)
         if loss_name == 'Compound':
             components = []
             for entry in self.configs['trainer']['compound_loss']:
