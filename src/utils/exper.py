@@ -640,7 +640,7 @@ def create_new_experiment(_name: str,
 
     batch_ratio = None
     if configs['experiments']['default_batch_size'] != _batch_size\
-       and configs['experiments']['scale_lerning_rate_for_batch_size']:
+       and configs['experiments']['scale_learning_rate_for_batch_size']:
         batch_ratio =\
             _batch_size / configs['experiments']['default_batch_size']
 
