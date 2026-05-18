@@ -3,6 +3,7 @@ from __future__ import annotations
 
 # Library Imports
 import torch
+import torch.distributed as dist
 from torch import nn
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
@@ -226,6 +227,18 @@ class Unet3DTrainer:
             z_start = z_start.to(self.device)
 
         logits, results, loss = self.stepper.step(sample, labels)
+
+        # Visualize the augmented training patches actually fed to the
+        # model. In all-data mode there is no validation cycle, so
+        # trainStep is the only place this data can be captured. Rank 0
+        # only — all DDP ranks share the epoch/batch index space and would
+        # otherwise race on the same visuals/epoch-N/batch-M/ files.
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            self.visualizer.draw(_channels=sample,
+                                 _labels=labels,
+                                 _predictions=results,
+                                 _epoch_id=_epoch_id,
+                                 _batch_id=_batch_id)
 
         metric_pred, metric_target = self._select_real_z(
             results, labels, z_start)
