@@ -187,10 +187,9 @@ class GBMDataset(BaseDataset):
             rotation_chance = self.augmentation_online['rotate']
             if np.random.rand() < rotation_chance:
                 nephrin, collagen4, wga, labels = \
-                        self._rotate_channels(nephrin,
-                                              collagen4,
-                                              wga,
-                                              labels)
+                        self._rotate_channels(
+                            nephrin, collagen4, wga, labels,
+                            self.augmentation_online['rotate_degrees'])
 
             # Cropping
             crop_chance = self.augmentation_online['crop']
@@ -498,13 +497,15 @@ class GBMDataset(BaseDataset):
         return _channel
 
     @staticmethod
-    def _rotate_channels(nephrin, collagen4, wga, label):
+    def _rotate_channels(nephrin, collagen4, wga, label, max_degrees=45):
         # Rotation around all three axes is intentional: rotating content
         # through Z propagates the high-resolution XY information into the
-        # low-resolution Z direction, which smooths the Z output.
-        angle_x = np.random.randint(0, 46)  # rotation around the x-axis
-        angle_y = np.random.randint(0, 46)  # rotation around the y-axis
-        angle_z = np.random.randint(0, 46)  # rotation around the z-axis
+        # low-resolution Z direction, which smooths the Z output. The angle
+        # range is config-driven (methods_online.rotate_degrees); the
+        # default keeps direct/static callers (tests, scripts) working.
+        angle_x = np.random.randint(0, max_degrees + 1)  # around the x-axis
+        angle_y = np.random.randint(0, max_degrees + 1)  # around the y-axis
+        angle_z = np.random.randint(0, max_degrees + 1)  # around the z-axis
 
         def rotate_voxel_space(voxel_space, _order):
             # Rotate around each axis. `_order` is the spline-interpolation

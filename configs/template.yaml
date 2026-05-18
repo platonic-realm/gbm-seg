@@ -231,17 +231,22 @@ trainer:
                         ['_rotate_random', '0.2'],
                        ]
       enabled_online: True
-      # Online aug — applied per-batch on the fly. Each entry except `scale`
-      # is a probability (0..1) that the augmentation fires on a given patch.
-      #   rotate        — 90° in-plane rotation in {0, 90, 180, 270}.
-      #   blur          — Gaussian blur (sigma=2).
-      #   crop          — random crop + zero-pad.
-      #   channel_drop  — zero-out one of the three input channels.
+      # Online aug — applied per-batch on the fly. `rotate`, `blur`, `crop`,
+      # `channel_drop` are probabilities (0..1) that the augmentation fires
+      # on a given patch.
+      #   rotate         — random rotation about all 3 axes (propagates
+      #                     high-res XY detail into the low-res Z).
+      #   rotate_degrees — max rotation angle; each axis draws a random
+      #                     0..rotate_degrees deg (a count, not a probability).
+      #   blur           — Gaussian blur (sigma=2).
+      #   crop           — random crop + zero-pad.
+      #   channel_drop   — zero-out one of the three input channels.
       # `scale` is the Z-upsampling factor used during sample selection;
       # must match `experiments.default_z_scale` set at gbm.py create.
       methods_online:
         scale: 6
         rotate: 0.2
+        rotate_degrees: 45
         blur: 0.2
         crop: 0.2
         channel_drop: 0.3
