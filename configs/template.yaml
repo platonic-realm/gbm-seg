@@ -168,12 +168,12 @@ trainer:
     train_ds:
       path: ./data/gbm_train_ds/
       batch_size: 8  # overridden at gbm.py create from experiments.default_batch_size
-      sample_dimension: [12, 256, 256] # Z, X, Y
+      sample_dimension: [24, 256, 256] # Z, X, Y
       # Pixel strides chosen for regularization: with the Z×6 stacking each
       # original-label voxel already appears in many patches at stride [1,64,64].
       # Bigger strides → less redundant exposure per training step → slower
       # overfit on the dataset's high intrinsic redundancy.
-      pixel_stride: [4, 192, 192] # Z, X, Y
+      pixel_stride: [12, 128, 128] # Z, X, Y
       pin_memory: True
       shuffle: True
       ignore_stride_mismatch: True
@@ -226,13 +226,12 @@ trainer:
     valid_ds:
       path: ./data/gbm_valid_ds/
       batch_size: 8
-      sample_dimension: [12, 256, 256] # Z, X, Y
-      # Z stride matches `experiments.default_z_scale` so each z_start anchors
-      # a distinct real-label set (validation metrics are masked to original
-      # Z positions anyway — see Unet3DTrainer._select_real_z). XY stride
-      # equals sample_dim so XY tiles cover the volume once with no overlap.
-      # Trades ~24× validation-time speedup for slightly less spatial coverage.
-      pixel_stride: [6, 256, 256] # Z, X, Y
+      sample_dimension: [24, 256, 256] # Z, X, Y
+      # Stride equals sample_dimension on every axis, so validation patches
+      # tile the volume exactly once with no overlap — fastest validation
+      # pass. Metrics are masked to original Z positions regardless (see
+      # Unet3DTrainer._select_real_z).
+      pixel_stride: [24, 256, 256] # Z, X, Y
       pin_memory: True
       shuffle: False
       ignore_stride_mismatch: True
