@@ -233,7 +233,12 @@ def export(_name: str,
 
     inference_root_path = Path(inference_root_path)
     inference_result_path = Path(inference_result_path)
-    inference_export_path = inference_root_path / f"{inference_result_path.name}_export"
+    # Anchor the export dir next to the tag dir (.parent), not at the bare
+    # results-infer root: an inference tag carries a fold_N/ or all_data/
+    # prefix, and `.name` alone would drop it — colliding the exports of
+    # different folds (or a fold vs all-data) that share a snapshot stem.
+    inference_export_path = (inference_result_path.parent
+                             / f"{inference_result_path.name}_export")
 
     if os.path.exists(inference_export_path):
         raise FileExistsError(f"The path already exists: {inference_export_path}")
@@ -329,7 +334,10 @@ def infer_experiment(_name: str,
         # race-safe across the concurrently-starting array tasks.
         create_dirs_recursively(os.path.join(inference_result_path, 'dummy'))
 
-    configs['root_path'] = _root_path
+    # The experiment directory, not the bare experiments root — a bare
+    # root makes the factory build trainer paths against it, and
+    # Snapper.__init__ then mkdir's a stray results-train/snapshots/ there.
+    configs['root_path'] = os.path.join(_root_path, _name)
 
     configs['inference']['snapshot_path'] =\
         os.path.join(_root_path,
