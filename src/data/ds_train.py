@@ -502,9 +502,9 @@ class GBMDataset(BaseDataset):
         # Rotation around all three axes is intentional: rotating content
         # through Z propagates the high-resolution XY information into the
         # low-resolution Z direction, which smooths the Z output.
-        angle_x = np.random.randint(0, 20)  # rotation around the x-axis
-        angle_y = np.random.randint(0, 20)  # rotation around the y-axis
-        angle_z = np.random.randint(0, 20)  # rotation around the z-axis
+        angle_x = np.random.randint(0, 46)  # rotation around the x-axis
+        angle_y = np.random.randint(0, 46)  # rotation around the y-axis
+        angle_z = np.random.randint(0, 46)  # rotation around the z-axis
 
         def rotate_voxel_space(voxel_space, _order):
             # Rotate around each axis. `_order` is the spline-interpolation
