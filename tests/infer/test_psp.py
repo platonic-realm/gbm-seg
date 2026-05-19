@@ -111,3 +111,73 @@ def test_3d_removal_handles_many_components(tmp_path):
         assert out[z, y, x] == 0, f"Tiny blob at ({z},{y},{x}) should be gone"
     assert out[3:7, 16:30, 16:30].sum() > 0
 
+
+def _fragmented_mask():
+    """Body + a near fragment (reconnectable) + a detached far fragment.
+
+    The far fragment is large enough to clear `min_3d_size`, so only the
+    reconnect step can remove it. The near fragment sits 4 voxels off the
+    body (bridged by a radius-3 dilation); the far fragment is >2*3 voxels
+    from everything.
+    """
+    pred = np.zeros((6, 80, 80), dtype=np.uint8)
+    pred[:, 10:40, 10:40] = 1          # main body          : 5400 vox
+    pred[:, 15:35, 44:60] = 1          # near fragment, gap 4: 1920 vox
+    pred[:, 55:63, 5:13] = 1           # detached fragment   :  384 vox
+    return pred
+
+
+def test_reconnect_removes_detached_component(tmp_path):
+    """A large-enough-to-survive-min_3d_size component that is detached
+    from the GBM body is dropped by the reconnect step; the body and its
+    near (bridgeable) fragment are kept."""
+    np.savez_compressed(tmp_path / "prediction.npz", arr=_fragmented_mask())
+
+    PSP(_kernel_size=1, _min_2d_size=1, _min_3d_size=10,
+        _reconnect_radius=3).post_processing(
+        tmp_path / "prediction.npz", tmp_path / "prediction_psp.npz")
+    out = np.load(tmp_path / "prediction_psp.npz")['arr']
+
+    assert out[:, 10:40, 10:40].sum() > 0, "body must be kept"
+    assert out[:, 15:35, 44:60].sum() > 0, "near fragment must reconnect and be kept"
+    assert out[:, 55:63, 5:13].sum() == 0, "detached fragment must be removed"
+
+
+def test_reconnect_disabled_by_default(tmp_path):
+    """reconnect_radius defaults to 0 — the step is skipped and the
+    detached component survives, i.e. the old psp behaviour is unchanged."""
+    np.savez_compressed(tmp_path / "prediction.npz", arr=_fragmented_mask())
+
+    PSP(_kernel_size=1, _min_2d_size=1, _min_3d_size=10).post_processing(
+        tmp_path / "prediction.npz", tmp_path / "prediction_psp.npz")
+    out = np.load(tmp_path / "prediction_psp.npz")['arr']
+
+    assert out[:, 55:63, 5:13].sum() > 0, \
+        "with reconnect disabled the detached component must survive"
+
+
+def test_reconnect_keeps_big_secondary(tmp_path):
+    """A detached component large enough (>= keep_fraction of the largest)
+    survives; raising keep_fraction above its relative size drops it."""
+    pred = np.zeros((6, 80, 100), dtype=np.uint8)
+    pred[:, 10:40, 10:40] = 1          # main body          : 5400 vox
+    pred[:, 10:40, 55:80] = 1          # detached secondary : 4500 vox
+    np.savez_compressed(tmp_path / "prediction.npz", arr=pred)
+
+    # 4500 >= 0.2 * 5400 -> the big secondary is kept despite being detached.
+    PSP(_kernel_size=1, _min_2d_size=1, _min_3d_size=10,
+        _reconnect_radius=3, _keep_fraction=0.2).post_processing(
+        tmp_path / "prediction.npz", tmp_path / "keep.npz")
+    kept = np.load(tmp_path / "keep.npz")['arr']
+    assert kept[:, 10:40, 10:40].sum() > 0
+    assert kept[:, 10:40, 55:80].sum() > 0, "big secondary should be kept"
+
+    # 4500 < 0.95 * 5400 -> the secondary now falls below keep_fraction.
+    PSP(_kernel_size=1, _min_2d_size=1, _min_3d_size=10,
+        _reconnect_radius=3, _keep_fraction=0.95).post_processing(
+        tmp_path / "prediction.npz", tmp_path / "strict.npz")
+    strict = np.load(tmp_path / "strict.npz")['arr']
+    assert strict[:, 10:40, 10:40].sum() > 0
+    assert strict[:, 10:40, 55:80].sum() == 0, \
+        "secondary below keep_fraction should be dropped"
+

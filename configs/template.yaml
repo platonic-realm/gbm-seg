@@ -347,6 +347,12 @@ inference:
     # real lumen is never filled.
     max_2d_hole_size: 64   # per-slice pinhole fill (px); 0 = off
     max_3d_hole_size: 0    # 3D cavity fill (voxels); 0 = off
+    # 3D reconnect — drop components detached from the main GBM body.
+    # Dilate by reconnect_radius to bridge the model's fragmentation gaps,
+    # keep the largest reconnected structure plus any component >=
+    # keep_fraction of it, then intersect back. 0 disables it.
+    reconnect_radius: 8    # dilation radius bridging fragmentation gaps; 0 = off
+    keep_fraction: 0.2     # also keep components >= this fraction of the largest
 
   morph:
     kernel_ave_size: 5

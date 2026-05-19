@@ -610,16 +610,21 @@ class Factory:
         kernel_size = post_processing['kernel_size']
         min_2d_size = post_processing['min_2d_size']
         min_3d_size = post_processing['min_3d_size']
-        # Hole-filling is opt-in; .get keeps experiment configs created
-        # before these keys existed working (0 = disabled).
+        # Hole-filling and the 3D reconnect step are opt-in; .get keeps
+        # experiment configs created before these keys existed working
+        # (0 = disabled).
         max_2d_hole_size = post_processing.get('max_2d_hole_size', 0)
         max_3d_hole_size = post_processing.get('max_3d_hole_size', 0)
+        reconnect_radius = post_processing.get('reconnect_radius', 0)
+        keep_fraction = post_processing.get('keep_fraction', 0.2)
 
         psp = PSP(kernel_size,
                   min_2d_size,
                   min_3d_size,
                   max_2d_hole_size,
-                  max_3d_hole_size)
+                  max_3d_hole_size,
+                  reconnect_radius,
+                  keep_fraction)
 
         return psp
 

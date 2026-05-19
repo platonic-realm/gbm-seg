@@ -7,6 +7,7 @@ from pathlib import Path
 # Library Imports
 import imageio
 import numpy as np
+from scipy import ndimage
 from skimage import measure, morphology
 
 # Local Imports
@@ -17,6 +18,10 @@ class PSP:
 
     3D pass:  (optional) fill small enclosed cavities -> drop 3D connected
               components below ``min_3d_size`` voxels.
+    3D reconnect (opt-in, ``reconnect_radius`` > 0): dilate to bridge the
+              model's fragmentation gaps, keep the largest reconnected
+              structure plus any component >= ``keep_fraction`` of it,
+              intersect back. Drops components detached from the GBM body.
     2D pass (per Z-slice): (optional) fill small holes -> erode -> drop 2D
               components below ``min_2d_size`` px -> *opening by
               reconstruction*.
@@ -46,13 +51,18 @@ class PSP:
                  _min_2d_size: int,
                  _min_3d_size: int,
                  _max_2d_hole_size: int = 0,
-                 _max_3d_hole_size: int = 0):
+                 _max_3d_hole_size: int = 0,
+                 _reconnect_radius: int = 0,
+                 _keep_fraction: float = 0.2):
 
         self.kernel_size: int = _kernel_size
         self.min_2d_size: int = _min_2d_size
         self.min_3d_size: int = _min_3d_size
         self.max_2d_hole_size: int = _max_2d_hole_size
         self.max_3d_hole_size: int = _max_3d_hole_size
+        # 3D reconnect step — opt-in (radius 0 disables it).
+        self.reconnect_radius: int = _reconnect_radius
+        self.keep_fraction: float = _keep_fraction
 
     def parallel_post_processing(self,
                                  _results_path: str,
@@ -98,6 +108,37 @@ class PSP:
         mask = morphology.remove_small_objects(
             mask, min_size=self.min_3d_size, connectivity=3)
         logging.info("Process %d: 3D post processing finished", PID)
+
+        # --- 3D reconnect: drop components detached from the main body ---
+        # The model fragments the GBM — the largest component is only
+        # ~80% of the membrane, with genuine pieces a few voxels off it,
+        # while false-positive clumps sit hundreds of voxels away. Dilating
+        # by `reconnect_radius` bridges the genuine fragmentation gaps (gaps
+        # up to ~2R) so real pieces merge into one labelled body; isolated
+        # junk stays its own, smaller component. Keep the largest
+        # reconnected group plus any group whose real (pre-dilation) voxel
+        # count is at least `keep_fraction` of the largest's — a safety net
+        # for a GBM genuinely split into separate large halves — then
+        # intersect back with the pre-dilation mask: the dilation only
+        # defines connectivity, it never thickens the saved membrane.
+        # Opt-in; radius 0 disables it and leaves the surrounding 3D/2D
+        # steps untouched.
+        if self.reconnect_radius > 0:
+            logging.info("Process %d: 3D reconnect, radius=%d keep_fraction=%.2f",
+                         PID, self.reconnect_radius, self.keep_fraction)
+            structure = np.ones((3, 3, 3), dtype=bool)
+            dilated = ndimage.binary_dilation(
+                mask, structure=structure, iterations=self.reconnect_radius)
+            labels = ndimage.label(dilated, structure=structure)[0]
+            # Group size = original mask voxels under each dilated label,
+            # so keep_fraction compares real structure sizes, not balloons.
+            sizes = np.bincount(labels[mask].ravel(),
+                                minlength=labels.max() + 1)
+            sizes[0] = 0  # background label
+            keep = sizes >= self.keep_fraction * sizes.max()
+            keep[0] = False
+            mask &= keep[labels]
+            logging.info("Process %d: 3D reconnect finished", PID)
 
         # --- 2D pass: per-slice opening by reconstruction ---
         logging.info("Process %d: removing 2D objects smaller than %d",
