@@ -379,6 +379,11 @@ class Morph(nn.Module):
                     distance_tesnor[0][0][z][x][:] = shortest_distance
                     self.empty_cache()
 
+            # points_tensor is only used inside the loop above — free it (a
+            # full (..., 3) volume) before the memory-heavy PSF correction.
+            del points_tensor
+            self.empty_cache()
+
             distance_tesnor[distance_tesnor.isinf()] = 0
             distance_tesnor[surface_mask <= 0] = 0
             distance_tesnor = distance_tesnor[0][0]
@@ -389,6 +394,8 @@ class Morph(nn.Module):
                 slope_tensor=slope_tensor.squeeze(0).squeeze(0),
                 surface_mask=surface_mask.squeeze(0).squeeze(0),
                 distance_tensor=distance_tesnor)
+            del slope_tensor  # not used past the PSF step
+            self.empty_cache()
 
             x_slope_std = self.calculate_patched_std(x_slope, surface_mask)
             self.empty_cache()
@@ -559,10 +566,14 @@ class Morph(nn.Module):
             corrected_tensor: Distance tensor with PSF corrections
         """
 
-        # Put all tensors to the same device
-        slope_tensor = slope_tensor.to(self.device)
-        surface_mask = surface_mask.to(self.device)
-        distance_tensor = distance_tensor.to(self.device)
+        # PSF correction is a purely element-wise, per-voxel computation, so
+        # the GPU buys it nothing. On a large volume the dozen-odd full-volume
+        # intermediates below overflow GPU memory (a ~600M-voxel test volume
+        # needs ~50 GB). Run it on CPU — the morph node has ample RAM — and
+        # free each intermediate as soon as it is consumed to bound the peak.
+        slope_tensor = slope_tensor.to('cpu')
+        surface_mask = surface_mask.to('cpu')
+        distance_tensor = distance_tensor.to('cpu')
 
         # Extract slope vectors for surface voxels only
         surface_slopes = slope_tensor * surface_mask.unsqueeze(-1)
@@ -577,6 +588,7 @@ class Morph(nn.Module):
 
         # Normalize slope vectors to unit vectors
         unit_slopes = surface_slopes / slope_magnitude
+        del surface_slopes, slope_magnitude
 
         # Z-axis unit vector [0, 0, 1] - note: adjusted order to match your coordinate system
         z_unit = torch.tensor([0, 0, 1], device=slope_tensor.device, dtype=slope_tensor.dtype)
@@ -584,6 +596,7 @@ class Morph(nn.Module):
         # Calculate cos(beta) = dot product of unit slope vector with Z-axis unit vector
         # This gives us the cosine of the angle between the slope and Z-axis
         cos_beta = torch.sum(unit_slopes * z_unit, dim=-1, keepdim=True)
+        del unit_slopes
 
         # Clamp to avoid numerical issues
         cos_beta = torch.clamp(cos_beta, -1.0, 1.0)
@@ -594,15 +607,13 @@ class Morph(nn.Module):
         # Since alpha = π/2 - beta, we have:
         # cos(alpha) = cos(π/2 - beta) = sin(beta)
         # sin(alpha) = sin(π/2 - beta) = cos(beta)
-        cos_alpha = sin_beta
-        sin_alpha = cos_beta
-
-        # Remove the extra dimension
-        cos_alpha = cos_alpha.squeeze(-1)
-        sin_alpha = sin_alpha.squeeze(-1)
+        # Remove the extra dimension at the same time.
+        cos_alpha = sin_beta.squeeze(-1)
+        sin_alpha = cos_beta.squeeze(-1)
 
         # Calculate PSF term: PSF_Lateral^2 * cos^2(alpha) + PSF_Axial^2 * sin^2(alpha)
         psf_term = (PSFLateral**2 * cos_alpha**2 + PSFAxial**2 * sin_alpha**2)
+        del cos_alpha, sin_alpha, cos_beta, sin_beta
 
         # Calculate corrected thickness: sqrt(measured^2 - PSF_term)
         measured_squared = distance_tensor**2
@@ -616,6 +627,7 @@ class Morph(nn.Module):
         clamp_bool = (measured_squared < psf_term) & surface_bool
         clamp_count = int(clamp_bool.sum().item())
         surface_count = int(surface_bool.sum().item())
+        del clamp_bool, surface_bool
         clamp_percentage = (100.0 * clamp_count / surface_count) if surface_count > 0 else 0.0
         logging.info(
             "PSF clamp activated on %d/%d surface voxels (%.2f%%) — "
@@ -631,7 +643,9 @@ class Morph(nn.Module):
 
         # Ensure we don't take square root of negative values
         corrected_squared = torch.clamp(measured_squared - psf_term, min=0)
+        del measured_squared, psf_term
         corrected_tensor = torch.sqrt(corrected_squared)
+        del corrected_squared
 
         return corrected_tensor, clamp_info
 

@@ -47,7 +47,7 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
 
     # Submit a job array with DIR_NAMES properly passed and individual log files
     ARRAY_JID=$(sbatch --parsable \
-        -p train -c 8 --mem=64G --gres=gpu:1 --time=7-00:00:00 \
+        -p train -c 8 --mem=128G --gres=gpu:1 --time=7-00:00:00 \
         --array=1-${N} \
         --output=/home/afatehi/logs/gbm/morph/job_%A_%a.log \
         --error=/home/afatehi/logs/gbm/morph/job_%A_%a.log \
