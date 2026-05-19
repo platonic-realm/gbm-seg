@@ -285,10 +285,15 @@ class GBMDataset(BaseDataset):
                                                             image,
                                                             _method[1],
                                                             self.aug_workers)
+                    # BigTIFF, not ImageJ format: the ImageJ TIFF spec is
+                    # capped at 4 GB by its 32-bit offsets, which a
+                    # Z-upscaled, zoomed 4-channel volume overruns. This
+                    # cache is written and read back only by tifffile
+                    # (asarray, above), so it needs no ImageJ metadata.
                     tifffile.imwrite(cached_file_path,
                                      image,
                                      shape=image.shape,
-                                     imagej=True,
+                                     bigtiff=True,
                                      compression="lzw")
                 else:
                     # Training must NOT compute offline aug: under DDP every
