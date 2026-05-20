@@ -98,20 +98,13 @@ trainer:
       lr: 0.0001
 
     # LR scheduler. Supported names:
-    #   poly_decay         — nnU-Net's polynomial: lr_t = lr_0 * (1 - t/T)^power.
-    #                        Fields: total_iters (default = trainer.optimization.epochs),
-    #                        power (default 0.9). Stepped per validation cycle (i.e. once
-    #                        every report_freq training steps), so `total_iters`
-    #                        should be in *cycle* units. Example: 10 epochs at
-    #                        report_freq=500 with ~13000 steps/run ≈ 26 cycles, so
-    #                        total_iters=26 means LR reaches 0 at run end.
-    #                        Proactive: shrinks LR every cycle regardless of loss.
-    #                        Standard medical-segmentation choice.
-    #   reduce_on_plateau  — Adaptive plateau detection. Fields: mode ('max' or
-    #                        'min', default 'max'), factor (default 0.1), patience
-    #                        (default 10). Stepped on validation Dice value.
-    #                        Reactive: only kicks in when training stalls. Patience
-    #                        is in *cycle* units.
+    #   poly_decay         — nnU-Net's polynomial: lr_t = lr_0 * (1 - t/T)^power
+    #                        (default). Fields: total_iters (default =
+    #                        trainer.optimization.epochs), power (default 0.9).
+    #                        Stepped once per epoch at the end of trainEpoch in
+    #                        both all-data and k-fold CV modes, so `total_iters`
+    #                        is in *epoch* units. Standard medical-segmentation
+    #                        choice.
     #   none               — Disable scheduling entirely. Equivalent: `scheduler: null`.
     #                        Useful when Adam's adaptive step sizing is enough on
     #                        its own (short runs, well-tuned base LR).
@@ -291,8 +284,7 @@ trainer:
     #   Loss                     — the configured training loss value.
     #   TruePositiveRate         — TP / (TP + FN) = sensitivity / recall.
     #   PositivePredictiveValue  — TP / (TP + FP) = precision.
-    #   Dice                     — 2·TP / (2·TP + FP + FN). The canonical CV metric;
-    #                              also what ReduceLROnPlateau steps on.
+    #   Dice                     — 2·TP / (2·TP + FP + FN). The canonical CV metric.
     #   JaccardIndex             — TP / (TP + FP + FN) = IoU.
     metrics: [
               'Loss',

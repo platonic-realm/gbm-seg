@@ -1,7 +1,7 @@
-"""Optimiser + scheduler factory regression. Locks in §C1.1.
+"""Optimiser + scheduler factory regression.
 
-The factory now dispatches on ``configs.trainer.optim.name`` (adam / sgd)
-and ``configs.trainer.scheduler.name`` (reduce_on_plateau / poly_decay).
+The factory dispatches on ``configs.trainer.optim.name`` (adam / sgd)
+and ``configs.trainer.scheduler.name`` (``poly_decay`` / ``none``).
 Tests exercise both paths plus default-fallback behaviour and the
 unknown-name error path.
 """
@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 import torch
 from torch import nn
-from torch.optim.lr_scheduler import PolynomialLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import PolynomialLR
 
 
 def _factory_with(optimization_overrides: dict):
@@ -93,28 +93,37 @@ def test_optim_unknown_name_raises():
         factory.createOptimizer(_TinyNet(), None)
 
 
-def test_scheduler_default_is_reduce_on_plateau():
-    """If `trainer.scheduler` is missing entirely, default to ReduceLROnPlateau
-    with the prior behaviour (mode=max). Backwards-compat for old experiments."""
-    factory = _factory_with({'optim': {'name': 'adam', 'lr': 1e-4}})
-    opt = factory.createOptimizer(_TinyNet(), None)
-    sched = factory.createScheduler(opt)
-    assert isinstance(sched, ReduceLROnPlateau)
-    assert sched.mode == 'max'
-
-
-def test_scheduler_reduce_on_plateau_explicit_fields():
+def test_scheduler_default_is_poly_decay():
+    """If `trainer.scheduler.name` is missing, default to poly_decay
+    with total_iters = trainer.optimization.epochs."""
     factory = _factory_with({
         'optim': {'name': 'adam', 'lr': 1e-4},
-        'scheduler': {'name': 'reduce_on_plateau', 'mode': 'min',
-                      'factor': 0.5, 'patience': 5},
+        'scheduler': {},
     })
     opt = factory.createOptimizer(_TinyNet(), None)
     sched = factory.createScheduler(opt)
-    assert isinstance(sched, ReduceLROnPlateau)
-    assert sched.mode == 'min'
-    assert sched.factor == 0.5
-    assert sched.patience == 5
+    assert isinstance(sched, PolynomialLR)
+    assert sched.total_iters == 10  # epochs in the minimal config
+
+
+def test_scheduler_none_returns_none():
+    """`scheduler: null` (parsed to None) disables scheduling."""
+    factory = _factory_with({
+        'optim': {'name': 'adam', 'lr': 1e-4},
+        'scheduler': None,
+    })
+    opt = factory.createOptimizer(_TinyNet(), None)
+    assert factory.createScheduler(opt) is None
+
+
+def test_scheduler_named_none_returns_none():
+    """``scheduler: {name: none}`` also disables scheduling."""
+    factory = _factory_with({
+        'optim': {'name': 'adam', 'lr': 1e-4},
+        'scheduler': {'name': 'none'},
+    })
+    opt = factory.createOptimizer(_TinyNet(), None)
+    assert factory.createScheduler(opt) is None
 
 
 def test_scheduler_poly_decay_returns_polynomial_lr():

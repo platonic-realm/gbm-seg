@@ -13,7 +13,6 @@ import torch
 from torch import nn
 from torch.nn.parallel import DataParallel as DP
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
@@ -251,38 +250,30 @@ class Factory:
             f"Unknown optimiser: {name!r}. Supported: 'adam', 'sgd'.")
 
     def createScheduler(self, _optimizer):
-        """Build the LR scheduler from ``configs.trainer.scheduler``.
+        """Build the LR scheduler from ``configs.trainer.optimization.scheduler``.
 
-        Supports ``reduce_on_plateau`` (default, existing), ``poly_decay``
-        (nnU-Net's ``(1 - t/T)^power``), and the disabled form — set
-        ``trainer.scheduler: null`` or ``trainer.scheduler: {name: none}``
-        to skip LR scheduling entirely (the trainer guards None internally).
+        Supports ``poly_decay`` (nnU-Net's ``(1 - t/T)^power``, default)
+        and the disabled form — set ``scheduler: null`` or
+        ``scheduler: {name: none}`` to skip LR scheduling entirely. The
+        trainer guards a None scheduler internally.
 
-        The trainer dispatches its ``.step()`` call accordingly — see
-        :class:`Unet3DTrainer.trainEpoch`.
-
-        For backwards compatibility, if ``trainer.scheduler`` is absent the
-        scheduler defaults to ``reduce_on_plateau`` with the prior
-        (mode=max) behaviour.
+        The trainer steps the scheduler once at the end of every epoch
+        (see :class:`Unet3DTrainer.trainEpoch`), so ``total_iters`` is in
+        epoch units.
         """
         sched_cfg = self.configs['trainer']['optimization'].get('scheduler', {})
         # `trainer.scheduler: null` in yaml deserialises to None; treat
         # that as the disabled form (returns None — no scheduler).
         if sched_cfg is None:
             return None
-        name = sched_cfg.get('name', 'reduce_on_plateau')
+        name = sched_cfg.get('name', 'poly_decay')
 
         if name == 'none':
             return None
-        if name == 'reduce_on_plateau':
-            mode = sched_cfg.get('mode', 'max')
-            factor = sched_cfg.get('factor', 0.1)
-            patience = sched_cfg.get('patience', 10)
-            return ReduceLROnPlateau(_optimizer, mode=mode,
-                                     factor=factor, patience=patience)
         if name == 'poly_decay':
             # nnU-Net: lr_t = lr_0 * (1 - t/T) ** power. `total_iters`
-            # is in scheduler-step units (here: per validation cycle).
+            # is in scheduler-step units; the trainer steps once per
+            # epoch, so this is in epoch units.
             total_iters = sched_cfg.get(
                 'total_iters',
                 self.configs['trainer']['optimization']['epochs'])
@@ -290,8 +281,7 @@ class Factory:
             return torch.optim.lr_scheduler.PolynomialLR(
                 _optimizer, total_iters=total_iters, power=power)
         raise NotImplementedError(
-            f"Unknown scheduler: {name!r}. Supported: "
-            "'reduce_on_plateau', 'poly_decay'.")
+            f"Unknown scheduler: {name!r}. Supported: 'poly_decay', 'none'.")
 
     def createStepper(self,
                       _model: nn.Module,
@@ -318,7 +308,7 @@ class Factory:
                       _snapper: Snapper,
                       _visualizer: TrainVisualizer,
                       _metric_logger: MetricLogger,
-                      _lr_scheduler: ReduceLROnPlateau,
+                      _lr_scheduler,
                       _training_loader: DataLoader,
                       _validation_loader: DataLoader,
                       _no_of_classes: int,

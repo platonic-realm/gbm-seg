@@ -68,7 +68,7 @@ Key tunable sections of the template:
 - `trainer.model.name` — dispatched through a registry; defaults to `unet_3d`. New models register in `src/models/__init__.py`.
 - `trainer.loss` — one of `Dice`, `IoU`, `CrossEntropy`, `Cont`, or `Compound` (weighted sum of other losses; see Ablation Studies below).
 - `trainer.optim.name` — `adam` (default) or `sgd` (with momentum / Nesterov / weight-decay fields).
-- `trainer.scheduler.name` — `reduce_on_plateau` (default) or `poly_decay`. Omit the block entirely to keep the prior behaviour.
+- `trainer.scheduler.name` — `poly_decay` (default) or `none`. Set `scheduler: null` or omit `name` to keep the default. Stepped once per epoch.
 - `trainer.deep_supervision.enabled` — toggle decoder mid-level auxiliary heads (off by default).
 - `trainer.wandb.{enabled, project, entity, run_name}` — opt-in Weights & Biases experiment tracking.
 - `inference.stitching` — sliding-window stitching mode (`gaussian` / `hann` / `sum_logits` / `flat_softmax`).

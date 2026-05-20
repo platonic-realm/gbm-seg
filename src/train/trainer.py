@@ -5,7 +5,6 @@ from __future__ import annotations
 import torch
 import torch.distributed as dist
 from torch import nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
 from src.train.snapper import Snapper
@@ -20,7 +19,9 @@ from src.utils.visual.training import TrainVisualizer
 
 class Unet3DTrainer:
     """Standard 3D U-Net trainer. Validation runs every ``report_freq`` steps
-    (not every epoch); ``ReduceLROnPlateau`` steps on validation Dice."""
+    (not every epoch). Epoch-driven LR schedulers (``poly_decay``) advance
+    once per epoch at the end of ``trainEpoch`` — see ``createScheduler``
+    for the full list and ``_validate`` for the validation cycle."""
 
     def __init__(self,
                  _model: nn.Module,
@@ -29,7 +30,7 @@ class Unet3DTrainer:
                  _snapper: Snapper,
                  _visualizer: TrainVisualizer,
                  _metric_logger: MetricLogger,
-                 _lr_scheduler: ReduceLROnPlateau,
+                 _lr_scheduler,
                  _training_loader: DataLoader,
                  _validation_loader: DataLoader,
                  _no_of_classes: int,
@@ -157,15 +158,11 @@ class Unet3DTrainer:
                 if self.validation_loader is not None:
                     self._validate(_epoch)
 
-        # Epoch-driven schedulers (poly_decay and anything that isn't
-        # ReduceLROnPlateau) advance once per epoch at the end of every
-        # trainEpoch — same behaviour in all-data mode and in k-fold CV.
-        # The total_iters of poly_decay is set in epoch units in both
-        # modes. ReduceLROnPlateau is metric-driven and steps inside
-        # _validate when validation runs.
-        if (self.scheduler is not None
-                and not isinstance(self.scheduler, ReduceLROnPlateau)
-                and _epoch > 0):
+        # Epoch-driven schedulers (poly_decay, etc.) advance once per
+        # epoch at the end of every trainEpoch — same behaviour in
+        # all-data mode and in k-fold CV. The _epoch > 0 guard keeps the
+        # first epoch at the base LR (matches the previous behaviour).
+        if self.scheduler is not None and _epoch > 0:
             self.scheduler.step()
 
     def _validate(self, _epoch: int) -> None:
@@ -186,15 +183,10 @@ class Unet3DTrainer:
 
         metrics = valid_running_metrics.calculate()
 
-        # Only ReduceLROnPlateau steps inside _validate — it's metric-driven
-        # and needs the validation Dice to decide whether to decay. Other
-        # schedulers (poly_decay, etc.) are epoch-driven and step once at
-        # the end of trainEpoch in both modes, so both branches advance the
-        # LR identically across the run.
-        if (_epoch > 0
-                and self.scheduler is not None
-                and isinstance(self.scheduler, ReduceLROnPlateau)):
-            self.scheduler.step(metrics['Dice'])
+        # No scheduler step here — all supported schedulers are epoch-driven
+        # and advance at the end of trainEpoch. _validate's only side
+        # effects on training state are the metric log and the best-valid
+        # tracker below.
 
         self.metric_logger.log(_epoch,
                                self.stepper.getSteps(),
@@ -202,8 +194,8 @@ class Unet3DTrainer:
                                metrics)
 
         # Update best-valid tracking. Dice is the canonical CV
-        # metric (also drives ReduceLROnPlateau); break ties by
-        # later epoch since training generally improves.
+        # metric; break ties by later epoch since training generally
+        # improves.
         current_dice = float(metrics.get('Dice', float('-inf')))
         prior_best = (float('-inf')
                       if self.best_valid_metrics is None
