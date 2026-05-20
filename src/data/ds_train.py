@@ -356,18 +356,28 @@ class GBMDataset(BaseDataset):
         del image
 
     def _load_image(self, path):
-        """Read a TIFF from disk as float32. Called once per __getitem__.
+        """Read a TIFF from disk as float32. Cached for the LAST path read.
 
-        Pure lazy — no cross-call cache. With random-shuffled training,
-        adjacent indices rarely hit the same volume, so an LRU would
-        mostly evict-and-reload and only inflate RAM. The OS page cache
-        amortises some repeated reads within a short window. If profiling
-        ever shows this read is the bottleneck, add a small worker-local
-        LRU here.
+        Single-entry per-worker cache — when the sampler keeps same-file
+        indices contiguous (see src/data/samplers.py:FileBlockRandomSampler),
+        consecutive __getitem__ calls for one file are cache hits and the
+        per-file disk read happens once. When the next file appears, the
+        previous one is evicted (this attribute is overwritten), so peak
+        RAM is bounded to ~one volume per DataLoader worker.
+
+        Per-worker because the DataLoader forks workers from the main
+        process and each worker mutates its OWN copy of _last_path /
+        _last_image via copy-on-write. A larger LRU would help only if
+        the sampler interleaves files within a worker.
         """
+        if getattr(self, '_last_path', None) == path:
+            return self._last_image
         with tifffile.TiffFile(path) as tiff:
             image = tiff.asarray()
-        return np.asarray(image, dtype=np.float32)
+        image = np.asarray(image, dtype=np.float32)
+        self._last_path = path
+        self._last_image = image
+        return image
 
     def _intensity_shift(self, _sample):
         random_shift = (torch.rand(1) * 0.1)

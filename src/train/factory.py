@@ -20,6 +20,7 @@ from torch.utils.data.distributed import DistributedSampler
 from src.data.ds_base import BaseDataset
 from src.data.ds_infer import InferenceDataset
 from src.data.ds_train import GBMDataset
+from src.data.samplers import FileBlockRandomSampler
 from src.infer.inference import Inference
 from src.infer.morph import Morph
 from src.infer.psp import PSP
@@ -452,20 +453,31 @@ class Factory:
         training_pin_memory: bool = self.configs['trainer']['data']['train_ds']['pin_memory']
         num_workers = self.configs['trainer']['data']['train_ds']['workers']
 
-        # Under DDP each rank sees a disjoint shard of the dataset; the
-        # DistributedSampler enforces the partition and handles per-epoch
-        # shuffling. Loader's own `shuffle=` must be False when a sampler
-        # is supplied. Single-process (or DP) path keeps the original
-        # behaviour.
+        # File-block sampler when shuffling: keeps same-file indices
+        # contiguous within each rank so the dataset's lazy _load_image
+        # + single-entry cache combo reads each file once per worker per
+        # epoch instead of ~once per sample. See src/data/samplers.py.
+        # When `shuffle=False`, the dataset's natural index order is
+        # already file-grouped — fall back to DistributedSampler under
+        # DDP (or no sampler single-process).
         sampler = None
-        if is_distributed():
+        if training_shuffle:
+            sampler = FileBlockRandomSampler(
+                _training_dataset,
+                num_replicas=(get_world_size() if is_distributed() else 1),
+                rank=(get_rank() if is_distributed() else 0),
+                shuffle=True)
+            training_shuffle = False
+        elif is_distributed():
+            # No-shuffle DDP path: DistributedSampler still needed for
+            # rank partitioning, but with shuffle=False it gives each
+            # rank a contiguous flat-index slice → already file-grouped.
             sampler = DistributedSampler(
                 _training_dataset,
                 num_replicas=get_world_size(),
                 rank=get_rank(),
-                shuffle=training_shuffle,
+                shuffle=False,
                 drop_last=False)
-            training_shuffle = False
 
         training_loader = DataLoader(
             _training_dataset,
