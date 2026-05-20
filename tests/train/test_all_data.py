@@ -59,6 +59,59 @@ def test_train_epoch_none_validation_epoch0_no_scheduler_step():
     assert trainer.scheduler.last_epoch == before
 
 
+def test_train_epoch_with_validation_steps_scheduler_per_epoch():
+    """CV mode (validation_loader != None) now steps an epoch-driven
+    scheduler exactly once per trainEpoch — same as the all-data branch.
+
+    Pre-change, poly_decay only advanced inside _validate, which fires
+    every report_freq steps; the LR therefore decayed at a per-step pace
+    instead of per-epoch. The fix moves all epoch-driven stepping into
+    trainEpoch and leaves _validate handling only metric-driven schedulers
+    (ReduceLROnPlateau). This test passes with the new behaviour and
+    would have failed with the old (which gated the end-of-epoch step
+    on `validation_loader is None`).
+    """
+    trainer = _make_trainer(validation_loader=[], epochs=3)
+    before = trainer.scheduler.last_epoch
+    trainer.trainEpoch(1)            # _epoch > 0 → scheduler steps once
+    assert trainer.scheduler.last_epoch == before + 1
+
+
+def test_validate_does_not_step_non_rop_scheduler():
+    """_validate now only steps ReduceLROnPlateau (metric-driven). Other
+    schedulers — poly_decay etc. — advance once per epoch in trainEpoch,
+    NOT every validation cycle. Calling _validate directly with an
+    epoch-driven scheduler should leave its counter untouched."""
+    trainer = _make_trainer(validation_loader=None, epochs=3)
+
+    # Minimal stubs for the bits _validate touches when the validation
+    # loop has zero batches. The scheduler step decision happens before
+    # any metric-dict access for non-RoP schedulers, so empty metrics
+    # don't matter for the assertion below.
+    class _DS:
+        def setIsValid(self, _is_valid): pass
+
+    class _Loader:
+        dataset = _DS()
+        def __iter__(self): return iter([])
+
+    class _Logger:
+        def log(self, *args, **kwargs): pass
+
+    class _Stepper:
+        def getSteps(self): return 0
+
+    trainer.validation_loader = _Loader()
+    trainer.metric_logger = _Logger()
+    trainer.stepper = _Stepper()
+
+    before = trainer.scheduler.last_epoch
+    trainer._validate(_epoch=1)
+    assert trainer.scheduler.last_epoch == before, (
+        "_validate must not step a non-RoP scheduler — that's the "
+        "per-step-decay bug we're fixing")
+
+
 def test_train_epoch_none_scheduler_does_not_crash():
     """scheduler=None (disabled) + no validation must not crash trying to
     step a None scheduler."""

@@ -157,13 +157,13 @@ class Unet3DTrainer:
                 if self.validation_loader is not None:
                     self._validate(_epoch)
 
-        # In all-data mode an epoch-driven scheduler (poly_decay) can't step
-        # inside a validation cycle because there isn't one — advance it
-        # once per epoch instead. The all-data config sets poly_decay's
-        # total_iters in epoch units to match. ReduceLROnPlateau is
-        # metric-driven and simply cannot run without validation.
-        if (self.validation_loader is None
-                and self.scheduler is not None
+        # Epoch-driven schedulers (poly_decay and anything that isn't
+        # ReduceLROnPlateau) advance once per epoch at the end of every
+        # trainEpoch — same behaviour in all-data mode and in k-fold CV.
+        # The total_iters of poly_decay is set in epoch units in both
+        # modes. ReduceLROnPlateau is metric-driven and steps inside
+        # _validate when validation runs.
+        if (self.scheduler is not None
                 and not isinstance(self.scheduler, ReduceLROnPlateau)
                 and _epoch > 0):
             self.scheduler.step()
@@ -186,16 +186,15 @@ class Unet3DTrainer:
 
         metrics = valid_running_metrics.calculate()
 
-        # C1.1: the scheduler is now config-selectable.
-        # ReduceLROnPlateau is metric-driven; PolynomialLR (and any
-        # future epoch-driven scheduler) takes no argument. None
-        # means scheduler disabled (configs.trainer.scheduler null
-        # / .name == 'none') — skip the step entirely.
-        if _epoch > 0 and self.scheduler is not None:
-            if isinstance(self.scheduler, ReduceLROnPlateau):
-                self.scheduler.step(metrics['Dice'])
-            else:
-                self.scheduler.step()
+        # Only ReduceLROnPlateau steps inside _validate — it's metric-driven
+        # and needs the validation Dice to decide whether to decay. Other
+        # schedulers (poly_decay, etc.) are epoch-driven and step once at
+        # the end of trainEpoch in both modes, so both branches advance the
+        # LR identically across the run.
+        if (_epoch > 0
+                and self.scheduler is not None
+                and isinstance(self.scheduler, ReduceLROnPlateau)):
+            self.scheduler.step(metrics['Dice'])
 
         self.metric_logger.log(_epoch,
                                self.stepper.getSteps(),
