@@ -222,6 +222,30 @@ def stats(_name: str,
                     _clipping,
                     thickness_clip_max)
 
+    # Opportunistically run the expert comparison: if a labeled-inference
+    # output exists at the same tag (results-infer-labeled/<tag>/) and
+    # the experiment has annotator subdirs under datasets/ds_test_labeled/,
+    # compare model predictions to each annotator + measure inter-rater
+    # agreement. Outputs go into the same stats_dir but in their own
+    # files (expert_comparison.yaml + expert_comparison_summary.yaml +
+    # expert_comparison.png) so the morph stats and the comparison
+    # report stay independent.
+    labeled_inference_root = os.path.join(_root_path, _name,
+                                          'results-infer-labeled')
+    labeled_inference_path = os.path.join(labeled_inference_root, _inference_tag)
+    ds_test_labeled_path = os.path.join(_root_path, _name,
+                                        'datasets', 'ds_test_labeled')
+    if os.path.isdir(labeled_inference_path) and os.path.isdir(ds_test_labeled_path):
+        from src.infer.expert_comparison import calculate_expert_comparison
+        calculate_expert_comparison(Path(labeled_inference_path),
+                                    Path(ds_test_labeled_path),
+                                    stats_dir)
+    else:
+        logging.info(
+            "Skipping expert comparison: no labeled-inference output at "
+            "%s, or no ds_test_labeled at %s.",
+            labeled_inference_path, ds_test_labeled_path)
+
 
 def export(_name: str,
            _root_path: str,
