@@ -46,14 +46,26 @@ class GBMDataset(BaseDataset):
                          _label_correction_function)
 
         self.source_directory = _source_directory
+        self.cache_directory = os.path.join(self.source_directory, "cache/")
+        if not os.path.exists(self.cache_directory):
+            os.makedirs(self.cache_directory)
 
+        # image_list holds the absolute file paths the dataset will sample
+        # from — one entry per original, plus one extra entry per (original,
+        # offline-aug method). Volumes are NOT preloaded at __init__:
+        # __getitem__ reads the relevant file on demand. The pre-refactor
+        # code preloaded everything into self.images, which for any
+        # moderately-sized offline-aug regime exhausted host RAM (lg10 OOM
+        # at 1 h, 4 ranks × ~120 GB resident each). image_shapes is
+        # recorded here so coordinate math + length don't re-open files.
         self.image_list = []
+        self.image_shapes = []
         self.samples_per_image = []
-        self.images = {}
-        self.images_metadata = {}
+
         self.augmentation_online = _augmentation_online
         self.augmentation_offline = _augmentation_offline
         self.is_valid = _is_valid
+        self.aug_workers = _augmentation_workers
         # When True (the `gbm.py offline-aug` command) the offline-aug
         # cache is computed + written. When False (training) the cache
         # is read-only — a missing entry raises rather than recomputing,
@@ -76,20 +88,20 @@ class GBMDataset(BaseDataset):
                     f"_file_filter selected no files from {self.source_directory}; "
                     f"filter was {sorted(allowed)}")
 
-        self._prepare_images(directory_content)
+        # Originals first — one entry per file pointing at source_directory.
+        for base_name in directory_content:
+            self._register_file(base_name, _method=None)
 
-        self.cache_directory = os.path.join(self.source_directory,
-                                            "cache/")
-        if not os.path.exists(self.cache_directory):
-            os.makedirs(self.cache_directory)
-        self.cache_content = os.listdir(self.cache_directory)
-
-        self.aug_workers = _augmentation_workers
+        # Then each augmented variant — one MORE entry per (file, method)
+        # pointing at its cache file. This is the post-refactor fix that
+        # makes variants actually reachable: the pre-refactor code stored
+        # variants under a suffixed key in self.images but appended only
+        # the BASE name to image_list, so __getitem__ never returned them.
         if _augmentation_offline is not None:
             for method in _augmentation_offline:
-                self._prepare_images(directory_content, method)
+                for base_name in directory_content:
+                    self._register_file(base_name, _method=method)
 
-        # Cumulative sum of number of samples per image
         self.cumulative_sum = np.cumsum(self.samples_per_image)
 
     def __len__(self):
@@ -100,14 +112,25 @@ class GBMDataset(BaseDataset):
         # Index of the image in image_list
         image_id = np.min(np.where(self.cumulative_sum > index)[0])
 
-        file_name = self.image_list[image_id]
+        # Lazy load — read the registered file from disk every call. The
+        # pre-refactor code preloaded every original + every aug variant
+        # into self.images at __init__ (and never actually used the
+        # variants); now image_list[i] is the exact file to read and we
+        # only hold one volume in RAM per __getitem__ call.
+        image = self._load_image(self.image_list[image_id])
 
-        nephrin = self.images[file_name][:, 0, :, :]
-        collagen4 = self.images[file_name][:, 1, :, :]
-        wga = self.images[file_name][:, 2, :, :]
+        nephrin = image[:, 0, :, :]
+        collagen4 = image[:, 1, :, :]
+        wga = image[:, 2, :, :]
 
         if self.dataset_type == DatasetType.Supervised:
-            labels = self.images[file_name][:, 3, :, :]
+            # Label correction (binarise to {0, 1}). Was applied once at
+            # __init__ to the cached image; now done per-call on a fresh
+            # copy so the underlying file (and any future LRU cache) stays
+            # uncontaminated. astype creates a copy; the threshold mutates
+            # only that copy.
+            labels = image[:, 3, :, :].astype(int)
+            labels[labels > 0] = 1
 
         image_shape = nephrin.shape
         # Sample dimention is like (Z, X, Y)
@@ -236,117 +259,115 @@ class GBMDataset(BaseDataset):
         return len(self.image_list)
 
     def getNumberOfClasses(self):
-        labels = self.images[self.image_list[0]][:, 3, :, :]
-        unique_labels = np.unique(labels)
-        return len(unique_labels)
+        # Loads the first registered file once at trainer-setup time.
+        image = self._load_image(self.image_list[0])
+        labels = image[:, 3, :, :].astype(int)
+        labels[labels > 0] = 1
+        return len(np.unique(labels))
 
     def getNumberOfChannels(self):
-        # Channels are the second axis, -1 is for the labels
-        return self.images[self.image_list[0]].shape[1] - 1
+        # Channels are the second axis, -1 is for the labels.
+        # Cheap: just the shape, recorded at register time.
+        return self.image_shapes[0][1] - 1
 
     def setIsValid(self, _is_valid: bool):
         self.is_valid = _is_valid
 
-    def _prepare_images(self,
-                        _directory,
-                        _method=None):
+    def _register_file(self, base_name, _method=None):
+        """Add one entry to image_list / image_shapes / samples_per_image
+        for either an original (``_method=None``) or an offline-aug
+        variant. Does NOT load the image data into memory.
 
-        for file_name in _directory:
-            self.image_list.append(file_name)
-
-            image_path = os.path.join(self.source_directory, file_name)
-
-            if _method is not None:
-                file_name = f"{file_name}{_method[0]}_{_method[1]}.tiff"
-
-            with tifffile.TiffFile(image_path) as tiff:
-                image = tiff.asarray()
-                self.images_metadata[file_name] = self.get_tiff_tags(tiff)
-
-            image_shape = image.shape
-            self.check_image_shape_compatibility(image_shape,
-                                                 file_name)
-
-            image = np.array(image)
-            image = image.astype(np.float32)
-
-            if _method is not None:
-                cached_file_path = os.path.join(self.cache_directory,
-                                                file_name)
-                if os.path.exists(cached_file_path):
-                    # Cache hit — read the precomputed augmented volume.
-                    # (os.path.exists, not the stale self.cache_content
-                    # snapshot, so a cache written after __init__ is seen.)
-                    with tifffile.TiffFile(cached_file_path) as tiff:
-                        image = tiff.asarray()
-                elif self.offline_precompute:
-                    # `gbm.py offline-aug` mode: compute + write the cache.
-                    image = getattr(GBMDataset, _method[0])(self,
-                                                            image,
-                                                            _method[1],
-                                                            self.aug_workers)
-                    # BigTIFF, not ImageJ format: the ImageJ TIFF spec is
-                    # capped at 4 GB by its 32-bit offsets, which a
-                    # Z-upscaled, zoomed 4-channel volume overruns. This
-                    # cache is written and read back only by tifffile
-                    # (asarray, above), so it needs no ImageJ metadata.
-                    tifffile.imwrite(cached_file_path,
-                                     image,
-                                     shape=image.shape,
-                                     bigtiff=True,
-                                     compression="lzw")
+        For variants under ``_offline_precompute=True`` (the
+        ``gbm.py offline-aug`` command), the cache file is built here on
+        the fly — same logic as before, just isolated from the data-keeping.
+        """
+        if _method is None:
+            path = os.path.join(self.source_directory, base_name)
+        else:
+            variant_name = f"{base_name}{_method[0]}_{_method[1]}.tiff"
+            path = os.path.join(self.cache_directory, variant_name)
+            if not os.path.exists(path):
+                if self.offline_precompute:
+                    self._build_variant_cache(base_name, _method, path)
                 else:
-                    # Training must NOT compute offline aug: under DDP every
-                    # rank would recompute the same volumes simultaneously
-                    # (Nx CPU + Nx RAM -> swap death). The cache is built
-                    # once, ahead of time, by `gbm.py offline-aug`.
+                    # Training must NOT compute offline aug: under DDP
+                    # every rank would recompute the same volumes
+                    # simultaneously (N x CPU + N x RAM -> swap death).
+                    # The cache is built once, ahead of time, by
+                    # `gbm.py offline-aug`.
                     raise FileNotFoundError(
                         f"Offline-augmentation cache missing for "
-                        f"'{file_name}'. Run `gbm.py offline-aug "
+                        f"'{variant_name}'. Run `gbm.py offline-aug "
                         f"<experiment>` once before training with "
                         f"train_ds.augmentation.enabled_offline: true.")
 
-            def label_correction_function(_labels):
-                _labels = _labels.astype(int)
-                _labels[_labels > 0] = 1
-                # _labels[_labels == 1] = 2
-                # _labels[_labels == 0] = 1
-                # _labels[_labels == 2] = 0
-                return _labels
+        # Shape comes from tifffile's metadata parse — no asarray, no
+        # decompression, so this is cheap even for big BigTIFF variants.
+        with tifffile.TiffFile(path) as tiff:
+            shape = tuple(tiff.series[0].shape)
 
-            image[:, 3, :, :] = \
-                label_correction_function(image[:, 3, :, :])
+        # Image's dimensionality order is (Z, C, H, W).
+        # Sample dimensionality order is (Z, X, Y).
+        # Guard against TIFFs smaller than the patch sample on any axis.
+        # The pre-fix code silently produced negative step counts via
+        # floor-division (e.g. (102-256)//64+1 = -3), which scrambled
+        # ``cumulative_sum`` and let ``__getitem__`` slice out-of-bounds,
+        # surfacing later as a cryptic collate-time shape mismatch.
+        self.check_image_shape_compatibility(shape, base_name)
+        if (shape[0] < self.sample_dimension[0]
+                or shape[2] < self.sample_dimension[1]
+                or shape[3] < self.sample_dimension[2]):
+            raise ValueError(
+                f"File '{path}' is smaller than sample_dimension on at "
+                f"least one axis: image (Z,H,W) = "
+                f"({shape[0]}, {shape[2]}, {shape[3]}) "
+                f"vs sample_dimension (Z,X,Y) = "
+                f"{tuple(self.sample_dimension)}. Either drop the file "
+                f"from ds_train/, pad it, or shrink sample_dimension.")
 
-            self.images[file_name] = image
+        steps_per_z = int((shape[0] - self.sample_dimension[0]) //
+                          self.pixel_per_step_z) + 1
+        steps_per_y = int((shape[2] - self.sample_dimension[2]) //
+                          self.pixel_per_step_y) + 1
+        steps_per_x = int((shape[3] - self.sample_dimension[1]) //
+                          self.pixel_per_step_x) + 1
 
-            # Image's dimentionality order is like (Z, C, Y, X)
-            # Sample dimentionality order is like (Z, X, Y)
-            # Guard against TIFFs smaller than the patch sample on any axis.
-            # The pre-fix code silently produced negative step counts via
-            # floor-division (e.g. (102-256)//64+1 = -3), which scrambled
-            # ``cumulative_sum`` and let ``__getitem__`` slice out-of-bounds,
-            # surfacing later as a cryptic collate-time shape mismatch.
-            if (image_shape[0] < self.sample_dimension[0]
-                    or image_shape[2] < self.sample_dimension[1]
-                    or image_shape[3] < self.sample_dimension[2]):
-                raise ValueError(
-                    f"File '{file_name}' is smaller than sample_dimension on "
-                    f"at least one axis: image (Z,H,W) = "
-                    f"({image_shape[0]}, {image_shape[2]}, {image_shape[3]}) "
-                    f"vs sample_dimension (Z,X,Y) = "
-                    f"{tuple(self.sample_dimension)}. Either drop the file "
-                    f"from ds_train/, pad it, or shrink sample_dimension.")
+        self.image_list.append(path)
+        self.image_shapes.append(shape)
+        self.samples_per_image.append(steps_per_z * steps_per_x * steps_per_y)
 
-            steps_per_z = int((image_shape[0] - self.sample_dimension[0]) //
-                              self.pixel_per_step_z) + 1
-            steps_per_y = int((image_shape[2] - self.sample_dimension[2]) //
-                              self.pixel_per_step_y) + 1
-            steps_per_x = int((image_shape[3] - self.sample_dimension[1]) //
-                              self.pixel_per_step_x) + 1
+    def _build_variant_cache(self, base_name, _method, dest_path):
+        """`gbm.py offline-aug` path: load the original, apply the
+        augmentation method, save the result as a BigTIFF cache.
 
-            self.samples_per_image.append(steps_per_z *
-                                          steps_per_x *
-                                          steps_per_y)
+        BigTIFF, not ImageJ format: the ImageJ TIFF spec is capped at 4 GB
+        by its 32-bit offsets, which a Z-upscaled, zoomed 4-channel volume
+        overruns. The cache is written and read back only by tifffile, so
+        it needs no ImageJ metadata. (See commit 3217be6.)
+        """
+        source = os.path.join(self.source_directory, base_name)
+        with tifffile.TiffFile(source) as tiff:
+            image = np.asarray(tiff.asarray(), dtype=np.float32)
+        image = getattr(GBMDataset, _method[0])(self, image, _method[1],
+                                                 self.aug_workers)
+        tifffile.imwrite(dest_path, image,
+                         shape=image.shape, bigtiff=True, compression="lzw")
+        del image
+
+    def _load_image(self, path):
+        """Read a TIFF from disk as float32. Called once per __getitem__.
+
+        Pure lazy — no cross-call cache. With random-shuffled training,
+        adjacent indices rarely hit the same volume, so an LRU would
+        mostly evict-and-reload and only inflate RAM. The OS page cache
+        amortises some repeated reads within a short window. If profiling
+        ever shows this read is the bottleneck, add a small worker-local
+        LRU here.
+        """
+        with tifffile.TiffFile(path) as tiff:
+            image = tiff.asarray()
+        return np.asarray(image, dtype=np.float32)
 
     def _intensity_shift(self, _sample):
         random_shift = (torch.rand(1) * 0.1)

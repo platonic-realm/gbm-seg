@@ -14,6 +14,7 @@ import os
 import numpy as np
 import pytest
 import tifffile
+import torch
 
 from src.data.ds_train import GBMDataset
 
@@ -68,3 +69,39 @@ def test_training_raises_when_cache_missing(tmp_path):
     d = _make_ds_train(tmp_path)
     with pytest.raises(FileNotFoundError, match="offline-aug"):
         _build(d, _precompute=False)
+
+
+def test_offline_aug_variants_are_actually_used(tmp_path):
+    """Regression for the pre-refactor bug where offline-aug variants were
+    loaded into self.images under a suffixed key but never returned by
+    __getitem__ — because image_list got the BASE filename, so the variant
+    indices' file_name lookup hit the original volume's entry. The fix is
+    in src/data/ds_train.py: image_list now stores the actual file path
+    (original OR cache file), and __getitem__ lazy-loads that path.
+
+    This test exercises both index ranges and asserts the returned
+    patches differ (they would have been bit-identical under the bug).
+    """
+    d = _make_ds_train(tmp_path, _n=1)
+    _build(d, _precompute=True)                # populate the twist cache
+    ds = GBMDataset(                           # training mode, no online aug
+        _source_directory=d,
+        _sample_dimension=SAMPLE_DIM,
+        _pixel_per_step=STRIDE,
+        _ignore_stride_mismatch=True,
+        _augmentation_offline=OFFLINE,
+        _augmentation_workers=1,
+        _offline_precompute=False)             # _augmentation_online=None by default
+    # Two entries: original (indices 0..N-1) + twist variant (N..2N-1).
+    # twist preserves shape, so samples_per_image is identical for both.
+    n_per = ds.samples_per_image[0]
+    assert ds.samples_per_image[1] == n_per
+    orig = ds[0]['sample']
+    variant = ds[n_per]['sample']
+    # _twist_clock rotates each Z slice by a per-slice angle (~±4° here on
+    # a 16-deep volume with step 0.5°), which perturbs pixel values almost
+    # everywhere on the random-valued test images. If the variant were
+    # silently returning the original (the pre-fix bug), these would be
+    # bit-identical and torch.equal would return True.
+    assert not torch.equal(orig, variant), \
+        "variant-range index should yield augmented data, not the original"
