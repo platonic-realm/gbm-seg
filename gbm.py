@@ -90,7 +90,8 @@ def _do_infer(args, configs):
                            _force=args.force,
                            _stitching=args.stitching,
                            _output_name=args.output_name,
-                           _sample_name=args.sample_name)
+                           _sample_name=args.sample_name,
+                           _labeled=args.labeled)
 
 
 def _do_psp(args, configs):
@@ -98,7 +99,8 @@ def _do_psp(args, configs):
     exper.post_processing(args.name,
                           configs['experiments']['root'],
                           args.inference_tag,
-                          int(args.max_concurrent))
+                          int(args.max_concurrent),
+                          _labeled=args.labeled)
 
 
 def _do_morph(args, configs):

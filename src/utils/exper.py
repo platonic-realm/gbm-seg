@@ -100,7 +100,8 @@ def visualize_results(_name: str,
 def post_processing(_name: str,
                     _root_path: str,
                     _inference_tag: str,
-                    _max_concurrent: int):
+                    _max_concurrent: int,
+                    _labeled: bool = False):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
@@ -109,7 +110,12 @@ def post_processing(_name: str,
     configs_path = os.path.join(_root_path, _name, 'configs.yaml')
     configs = read_configs(configs_path)
 
-    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+    # `_labeled` swaps the output root from results-infer/ to
+    # results-infer-labeled/ — pair with `gbm.py infer --labeled`. The
+    # two streams are kept separate on disk so morph (unlabeled volumes)
+    # and expert comparison (labeled crops) never collide.
+    sub = 'results-infer-labeled' if _labeled else 'results-infer'
+    inference_root_path = os.path.join(_root_path, _name, sub)
     inference_result_path = os.path.join(inference_root_path, _inference_tag)
 
     if not os.path.exists(inference_result_path):
@@ -289,7 +295,8 @@ def infer_experiment(_name: str,
                      _force: bool = False,
                      _stitching: str = None,
                      _output_name: str = None,
-                     _sample_name: str = None):
+                     _sample_name: str = None,
+                     _labeled: bool = False):
 
     if not experiment_exists(_root_path, _name):
         message = f"Experiment '{_name}' doesn't exist"
@@ -298,7 +305,16 @@ def infer_experiment(_name: str,
     configs_path = os.path.join(_root_path, _name, 'configs.yaml')
     configs = read_configs(configs_path)
 
-    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
+    # `_labeled` swaps the output root + the source dataset:
+    # results-infer-labeled/ <- ds_test_labeled/<first annotator>/.
+    # The crops are identical across annotators (only channel-3 labels
+    # differ), so we read whichever annotator subdir sorts first
+    # alphabetically and the per-expert labels are picked up at
+    # stats-comparison time. results-infer-labeled stays separate from
+    # results-infer so the morph (full-volume) and expert-comparison
+    # (crop) streams never collide.
+    sub = 'results-infer-labeled' if _labeled else 'results-infer'
+    inference_root_path = os.path.join(_root_path, _name, sub)
     create_dirs_recursively(os.path.join(inference_root_path, 'dummy'))
 
     # `--output-name` overrides the auto-derived tag so inference-axis
@@ -347,11 +363,28 @@ def infer_experiment(_name: str,
 
     configs['inference']['result_path'] = inference_result_path
 
-    configs['inference']['inference_ds']['path'] =\
-        os.path.join(_root_path,
-                     _name,
-                     'datasets/',
-                     'ds_test_unlabeled/')
+    if _labeled:
+        # ds_test_labeled/ has per-annotator subdirs (e.g. Chris, David,
+        # Robin) with the SAME crops; the model only reads channels 0-2
+        # (the image), so any annotator works — pick the first alphabetic.
+        labeled_root = os.path.join(_root_path, _name,
+                                    'datasets', 'ds_test_labeled')
+        annotators = sorted(
+            d for d in os.listdir(labeled_root)
+            if os.path.isdir(os.path.join(labeled_root, d)))
+        if not annotators:
+            raise FileNotFoundError(
+                f"No annotator subdirs under {labeled_root}. Expected "
+                f"e.g. Chris/, David/, Robin/.")
+        configs['inference']['inference_ds']['path'] = (
+            os.path.join(labeled_root, annotators[0]) + '/')
+        logging.info("Labeled inference reading crops from annotator "
+                     "subdir '%s' (channel-3 labels from every annotator "
+                     "are picked up at stats time).", annotators[0])
+    else:
+        configs['inference']['inference_ds']['path'] = \
+            os.path.join(_root_path, _name,
+                         'datasets', 'ds_test_unlabeled') + '/'
 
     configs['inference']['inference_ds']['batch_size'] = _batch_size
 

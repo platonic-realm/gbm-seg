@@ -218,6 +218,21 @@ def parse_exper() -> None:
                                    'inference runs share all CLI params but '
                                    'differ on a non-CLI knob like --stitching.')
 
+    infer_parser.add_argument('--labeled',
+                              action='store_true',
+                              help='infer on ds_test_labeled (the expert-'
+                                   'annotated crops) instead of '
+                                   'ds_test_unlabeled (the full glomerular '
+                                   'volumes used for morphometry). Output '
+                                   'lives in <exp>/results-infer-labeled/ '
+                                   'so the two streams never collide. The '
+                                   'crops are identical across annotators '
+                                   '(only channel 3 differs), so inference '
+                                   'reads the first annotator subdir '
+                                   'alphabetically and the per-expert labels '
+                                   'are picked up at stats time by '
+                                   '`gbm.py stats`.')
+
     # Define a subparser for the 'infer-ablate' action — inference-axis
     # ablation. Reads an inference spec YAML and emits one `gbm.py infer`
     # command per cell (optionally sbatch-wrapped).
@@ -258,6 +273,14 @@ def parse_exper() -> None:
                               action='store',
                               required=True,
                               help='number of worker processes for post processing')
+
+    infer_parser.add_argument('--labeled',
+                              action='store_true',
+                              help='process the labeled-inference output at '
+                                   '<exp>/results-infer-labeled/<tag>/ '
+                                   'instead of the default '
+                                   '<exp>/results-infer/<tag>/. Pair with '
+                                   '`gbm.py infer --labeled`.')
 
     # Define a subparser for the 'morph' action
     infer_parser = \
