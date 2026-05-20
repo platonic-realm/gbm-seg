@@ -50,7 +50,7 @@ trainer:
     #                swin_unetr sub-block below for its own hyperparameters.
     # Both models are interface-compatible (same forward signature: (logits, results)),
     # so swapping the name is enough to switch architectures — no other config changes.
-    name: swin_unetr
+    name: unet_3d
 
     # Unet3D-specific. Only consulted when name=unet_3d.
     # feature_maps is the channel count at each encoder depth (and
@@ -167,7 +167,7 @@ trainer:
   data:
     train_ds:
       path: ./data/gbm_train_ds/
-      batch_size: 8  # overridden at gbm.py create from experiments.default_batch_size
+      batch_size: 2  # overridden at gbm.py create from experiments.default_batch_size
       sample_dimension: [24, 256, 256] # Z, X, Y
       # Pixel strides chosen for regularization: with the Z×6 stacking each
       # original-label voxel already appears in many patches at stride [1,64,64].
