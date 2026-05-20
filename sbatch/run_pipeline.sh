@@ -80,34 +80,60 @@ echo "Inference tag           : ${TAG}"
 echo
 
 # --- Chain the stages ---
+#
+# Two parallel inference branches, joined at stats:
+#
+#   unlabeled branch (whole glomerular volumes, for morphometry):
+#     infer ─→ psp ─→ morph ─┬→ blender ─→ render ─→ export
+#                            └→ stats
+#
+#   labeled branch (expert-annotated crops, for expert comparison):
+#     infer --labeled ─→ psp --labeled ─→ stats
+#
+# stats depends on BOTH morph (for the unlabeled-side morph aggregation)
+# AND psp_labeled (for the expert comparison the new
+# src/infer/expert_comparison module runs against ds_test_labeled).
+#
 # $8 (OUTPUT_NAME) is forwarded to infer.sbatch; empty => auto-derived tag.
+# The 9th positional on infer.sbatch is the labeled flag (true/false).
+
 J_INFER=$(sbatch --parsable sbatch/infer.sbatch \
-    "$EXP" "$SNAP" "$BS" "$SD" "$ST" "$SCALE" "$INTERP" "$OUTPUT_NAME")
-echo "infer    : $J_INFER"
+    "$EXP" "$SNAP" "$BS" "$SD" "$ST" "$SCALE" "$INTERP" "$OUTPUT_NAME" "false")
+echo "infer            : $J_INFER"
 
 J_PSP=$(sbatch --parsable --dependency=afterok:"$J_INFER" \
-    sbatch/psp.sbatch "$EXP" "$TAG")
-echo "psp      : $J_PSP   (afterok $J_INFER)"
+    sbatch/psp.sbatch "$EXP" "$TAG" "false")
+echo "psp              : $J_PSP   (afterok $J_INFER)"
 
 J_MORPH=$(sbatch --parsable --dependency=afterok:"$J_PSP" \
     sbatch/morph.sbatch "$EXP" "$TAG")
-echo "morph    : $J_MORPH   (afterok $J_PSP)"
+echo "morph            : $J_MORPH   (afterok $J_PSP)"
 
-J_STATS=$(sbatch --parsable --dependency=afterok:"$J_MORPH" \
+# Labeled branch — fires in parallel from the start.
+J_INFER_LBL=$(sbatch --parsable sbatch/infer.sbatch \
+    "$EXP" "$SNAP" "$BS" "$SD" "$ST" "$SCALE" "$INTERP" "$OUTPUT_NAME" "true")
+echo "infer-labeled    : $J_INFER_LBL"
+
+J_PSP_LBL=$(sbatch --parsable --dependency=afterok:"$J_INFER_LBL" \
+    sbatch/psp.sbatch "$EXP" "$TAG" "true")
+echo "psp-labeled      : $J_PSP_LBL   (afterok $J_INFER_LBL)"
+
+# stats joins the two branches — morph AND psp-labeled must both succeed.
+J_STATS=$(sbatch --parsable --dependency=afterok:"$J_MORPH":"$J_PSP_LBL" \
     sbatch/stats.sbatch "$EXP" "$TAG" "$CLIP")
-echo "stats    : $J_STATS   (afterok $J_MORPH)"
+echo "stats            : $J_STATS   (afterok $J_MORPH + $J_PSP_LBL)"
 
 J_BLENDER=$(sbatch --parsable --dependency=afterok:"$J_MORPH" \
     sbatch/blender.sbatch "$EXP" "$TAG")
-echo "blender  : $J_BLENDER   (afterok $J_MORPH)"
+echo "blender          : $J_BLENDER   (afterok $J_MORPH)"
 
 J_RENDER=$(sbatch --parsable --dependency=afterok:"$J_BLENDER" \
     sbatch/render.sbatch "$EXP" "$TAG")
-echo "render   : $J_RENDER   (afterok $J_BLENDER)"
+echo "render           : $J_RENDER   (afterok $J_BLENDER)"
 
 J_EXPORT=$(sbatch --parsable --dependency=afterok:"$J_RENDER" \
     sbatch/export.sbatch "$EXP" "$TAG")
-echo "export   : $J_EXPORT   (afterok $J_RENDER)"
+echo "export           : $J_EXPORT   (afterok $J_RENDER)"
 
 echo
 echo "Submitted. Monitor with:  squeue -u $USER"

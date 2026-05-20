@@ -13,17 +13,35 @@
 #
 # Args: $1 exp  $2 snapshot  $3 batch  $4 sample_dim  $5 stride
 #       $6 scale_factor  $7 interpolation (true/false)
-#       $8 output_name (optional) — overrides the auto-derived inference
-#          tag so an isolated run can sit alongside an existing one.
+#       $8 output_name (optional, may be "") — overrides the auto-derived
+#          inference tag so an isolated run can sit alongside an existing one.
+#       $9 labeled (optional, "true"/"false", default "false") — when "true"
+#          route through ds_test_labeled/<first-annotator>/ + write into
+#          results-infer-labeled/ instead of results-infer/.
 
 mkdir -p /home/afatehi/logs/gbm/
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
+
+LABELED="${9:-false}"
 
 if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
     # --- Parent phase: enumerate the volumes, submit the array ---
     # venv + cd already done above so the python yaml read below works.
     ROOT_PATH=$(python -c "import yaml; print(yaml.safe_load(open('./configs/template.yaml'))['experiments']['root'])")
-    DS_DIR="${ROOT_PATH}/$1/datasets/ds_test_unlabeled"
+    if [ "$LABELED" = "true" ]; then
+        # ds_test_labeled/ has per-annotator subdirs (Chris, David, Robin).
+        # The crops are identical across annotators; pick whichever sorts
+        # first as the source of file names — gbm.py infer reads the same
+        # subdir at run time, so the two stay consistent. The per-expert
+        # labels are picked up at stats time.
+        LABELED_ROOT="${ROOT_PATH}/$1/datasets/ds_test_labeled"
+        FIRST_ANNOTATOR=$(find "$LABELED_ROOT" -mindepth 1 -maxdepth 1 \
+                              -type d -print0 2>/dev/null \
+                              | sort -z | head -z -n 1 | tr -d '\0')
+        DS_DIR="$FIRST_ANNOTATOR"
+    else
+        DS_DIR="${ROOT_PATH}/$1/datasets/ds_test_unlabeled"
+    fi
     if [ ! -d "$DS_DIR" ]; then
         echo "Error: inference set $DS_DIR does not exist"
         exit 1
@@ -81,9 +99,14 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 echo "Array task $SLURM_ARRAY_TASK_ID inferring volume: $VOL"
 
 # Optional $8 overrides the inference tag (results-infer/<tag>/ dir).
+# Optional $9=true routes the per-volume infer through ds_test_labeled +
+# results-infer-labeled/ (see the parent-phase block above for context).
 EXTRA=()
 if [ -n "${8:-}" ]; then
     EXTRA+=(--output-name "$8")
+fi
+if [ "$LABELED" = "true" ]; then
+    EXTRA+=(--labeled)
 fi
 
 # -sn picks the single volume; -f makes infer non-interactive. $7 must be

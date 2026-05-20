@@ -11,4 +11,12 @@
 mkdir -p /home/afatehi/logs/gbm/
 
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
-./gbm.py psp $1 -it $2 -mc 64
+
+# $3 (optional, "true"/"false") routes psp through results-infer-labeled/
+# instead of results-infer/. Pair with `gbm.py infer --labeled`.
+LABELED_FLAG=""
+if [ "${3:-false}" = "true" ]; then
+    LABELED_FLAG="--labeled"
+fi
+
+./gbm.py psp $1 -it $2 -mc 64 $LABELED_FLAG
