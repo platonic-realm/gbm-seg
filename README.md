@@ -147,6 +147,7 @@ Options:
 - `-st STRIDE`, `--stride STRIDE`: Set the stride for inference (default: `'1, 64, 64'`).
 - `-sf SCALE_FACTOR`, `--scale-factor SCALE_FACTOR`: Set the Z-axis interpolation scale (default: 1).
 - `-f`, `--force`: Overwrite an existing inference output directory.
+- `--labeled`: Run inference on `ds_test_labeled/<first-annotator>/` (expert-annotated crops) instead of `ds_test_unlabeled/` (whole glomerular volumes). Writes into `<exp>/results-infer-labeled/<tag>/` so the two streams never collide. The per-expert labels are picked up later by `gbm.py stats`, which auto-runs the expert comparison when both directories exist.
 
 The stitching mode used by inference is read from the experiment's `configs.yaml` (`inference.stitching`). New experiments default to `gaussian`; existing experiments preserve their original behaviour (`sum_logits` if absent).
 
@@ -155,12 +156,13 @@ The stitching mode used by inference is read from the experiment's `configs.yaml
 Perform post-processing to remove noise and artifacts from inference results.
 
 ```bash
-python gbm.py psp <name> -it INFERENCE_TAG -mc MAX_CONCURRENT
+python gbm.py psp <name> -it INFERENCE_TAG -mc MAX_CONCURRENT [--labeled]
 ```
 
 Options:
 - `-it INFERENCE_TAG`, `--inference-tag INFERENCE_TAG`: Tag of the inference session to process.
 - `-mc MAX_CONCURRENT`, `--max-concurrent MAX_CONCURRENT`: Number of concurrent processes for post-processing.
+- `--labeled`: Process the labeled-inference output at `<exp>/results-infer-labeled/<tag>/` instead of the default `<exp>/results-infer/<tag>/`. Pair with `gbm.py infer --labeled`.
 
 #### Morphometric Analysis
 
@@ -219,6 +221,13 @@ python gbm.py stats <name> -it INFERENCE_TAG [--clipping]
 Options:
 - `-it INFERENCE_TAG`, `--inference-tag INFERENCE_TAG`: Tag of the inference session.
 - `--clipping`: Discard thickness values above `inference.morph.thickness_clip_max` (default 1400 nm) before computing the histograms. Useful for visually pathological samples; the rate of clamped voxels also appears per-sample in `metadata.txt` regardless of this flag.
+
+**Expert comparison (auto-run).** When `results-infer-labeled/<tag>/` exists alongside `results-infer/<tag>/` (produced by `gbm.py infer --labeled` + `gbm.py psp --labeled`) and the experiment has annotator sub-dirs under `datasets/ds_test_labeled/`, `stats` additionally compares the model's predictions to each expert's annotation and computes inter-rater agreement between every pair of annotators. Per crop, per pair: Dice / IoU / TPR / PPV / specificity + the full per-class confusion (TP/FP/FN/TN). Outputs land alongside the morph stats but in their own files:
+- `expert_comparison.yaml` — per-crop + aggregate (mean / std / min / max).
+- `expert_comparison_summary.yaml` — aggregate only.
+- `expert_comparison.png` — box plot per metric, one box per pair.
+
+The pairwise structure for *N* annotators is *N* model-vs-expert pairs plus *C(N, 2)* inter-rater pairs. For the mouse dataset's three annotators (Chris, David, Robin), that's 3 + 3 = 6 pairs per crop.
 
 #### Examples for Local Execution
 
