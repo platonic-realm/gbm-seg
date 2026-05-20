@@ -30,7 +30,7 @@
 #
 # Options:
 #   --epochs N      override trainer.optimization.epochs at train time
-#   --cpus N        per-task CPU count   (default: min(free CPUs across pool))
+#   --cpus N        per-task CPU count   (default: 8 × gpus-per-node, capped at min free)
 #   --mem N[G|M]    memory per node      (default: 90% of min(free mem) across pool)
 #   --partition P   SLURM partition      (default: train)
 #   --dry-run       print the sbatch command and exit without submitting
@@ -195,7 +195,11 @@ for n in "${POOL[@]}"; do
 done
 
 if [ -z "$CPT" ]; then
-    CPT="$MIN_FREE_CPU"
+    # Default: 8 cpus per GPU (matches train_all_data*.sbatch's 32/4-GPU and
+    # 64/8-GPU convention — enough for the DataLoader workers + Python
+    # overhead, no more). Capped at min-free so we don't oversubscribe.
+    CPT=$(( GPUS_PER_NODE * 8 ))
+    [ "$CPT" -gt "$MIN_FREE_CPU" ] && CPT="$MIN_FREE_CPU"
     [ "$CPT" -lt 1 ] && CPT=1
 fi
 if [ -z "$MEM" ]; then
