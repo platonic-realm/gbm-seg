@@ -280,9 +280,49 @@ sbatch ./sbatch/infer.sbatch <name> <snapshot> <batch_size> "<sample_dimension>"
 ```
 Refer to the specific `.sbatch` files for their required arguments and usage.
 
+#### Create as a SLURM job
+
+`gbm.py create` copies the source tree, resizes every default-dataset TIFF, and snapshots pip+git state — too heavy for the login node. Run it on the cpu partition:
+
+```bash
+sbatch sbatch/create.sbatch <name>
+```
+
+#### Multi-node DDP Training
+
+`sbatch/launch_multi_node.sh` discovers the right nodes and fires a multi-node DDP training job spanning them. Two modes:
+
+**Explicit** — you specify the pool:
+
+```bash
+sbatch/launch_multi_node.sh <name> --nodes lyn-gpu-03,lyn-gpu-05 --gpus 4
+sbatch/launch_multi_node.sh <name> --nodes lyn-gpu-07,lyn-gpu-08 --gpus 2
+```
+
+**Auto-arch** — pick whichever pool currently has the most free GPUs:
+
+```bash
+sbatch/launch_multi_node.sh <name> --arch A100        # explicit arch
+sbatch/launch_multi_node.sh <name> --arch V100
+sbatch/launch_multi_node.sh <name> --arch auto        # picks A100 vs V100 by free count
+```
+
+Options (defaults shown):
+- `--epochs N` — override `trainer.optimization.epochs`.
+- `--cpus N` — per-task CPU count (default: `8 × gpus-per-node`, capped at min-free across the pool).
+- `--mem N[G|M]` — memory per node (default: 90% of min-free).
+- `--partition P` — SLURM partition (default: `train`). For other clusters.
+- `--dry-run` — show the would-be `sbatch` command and exit.
+
+The launcher reads each node's *free* CPU/mem/GPU via `scontrol show node` and sizes per-task resources accordingly — avoids the "request larger than the smallest-free node can grant, queue indefinitely" trap. The arch-auto mode also automatically excludes nodes with 0 free GPUs from the pool.
+
+Per-rank work stays uniform across the pool (`min(free GPUs)` per node). For an 8-GPU lg6-only run use `sbatch/train_all_data_lg6.sbatch` — the multi-node launcher would cap lg6 at 4 GPUs to match smaller A100 peers in the pool.
+
+The two arch pools are mutually exclusive (A100 nodes vs V100 nodes), so two of these can run concurrently — a future ablation campaign can compare arches in parallel.
+
 ## Ablation Studies
 
-The `ablate` subcommand materialises one experiment per cell of a study, ready to submit. See `ablation_specs/` for working templates (`loss_pilot.yaml`, `optim_pilot.yaml`, `ds_pilot.yaml`).
+The `ablate` subcommand materialises one experiment per cell of a study, ready to submit. See `ablation_specs/` for working templates (`loss_pilot.yaml`, `ds_pilot.yaml`).
 
 A spec describes one study as a list of cells (each varying some axes via dotted-path config overrides) plus the folds to run:
 
@@ -332,6 +372,8 @@ The recommended workflow is **sequential pinning**: pilot each axis (loss → op
 
 Setting `trainer.wandb.enabled: true` in `configs.yaml` enables per-step metric logging + snapshot artifact uploads to a W&B run. The full `configs` dict is logged as `wandb.config` so every ablation axis (model × loss × stitching × optimiser × fold) is filterable on the W&B UI.
 
+**The chart x-axis is `samples`, not raw step count.** `trainer.logging.report_freq` is interpreted at a reference effective batch of 8 — internally the actual step interval scales by `8 / effective_batch_size` so the number of samples between reports stays constant. So `report_freq: 1000` always means "report every 8000 samples" regardless of `batch_size × world_size`. Curves from runs with different effective batches line up directly on the W&B UI (same applies to the local console logs: `train, Epoch: 1, Samples: 8000, Metrics: {...}`). See `Factory._scaled_freq_steps` and the `wandb.define_metric` calls in `train.py:maybe_init_wandb`.
+
 Authentication options:
 
 ```bash
@@ -346,6 +388,20 @@ export WANDB_MODE=offline
 ```
 
 If wandb isn't installed, the training pipeline logs a warning and continues without it — never aborts.
+
+## Internals Worth Knowing
+
+A few non-obvious design choices that surface when debugging slow training or comparing runs:
+
+- **Volumes are lazy-loaded.** `GBMDataset.__init__` does NOT pre-read every training file + augmented variant into RAM (the pre-refactor design did, which OOM'd on V100 nodes with offline aug enabled). Each `__getitem__` reads the relevant TIFF from disk on demand. A single-entry per-worker cache (`_load_image`) keeps the just-loaded file resident so consecutive accesses to the same file hit the cache. See `src/data/ds_train.py`.
+
+- **`shuffle: true` uses a file-block-random sampler.** Combined with the lazy load + single-entry cache, this means each worker reads each of its assigned files exactly once per epoch — instead of ~N reads per file under fully-random shuffling. Files are shuffled, patches within each file are shuffled, but the iteration emits one file's patches contiguously before moving on. Under DDP the files (not flat indices) are partitioned across ranks, so the block structure is preserved within each rank. See `src/data/samplers.py:FileBlockRandomSampler`.
+
+- **The LR scheduler is poly_decay only.** `ReduceLROnPlateau` was removed (it was the source of CV mode silently decaying per-step instead of per-epoch). `poly_decay` advances once per epoch at the end of `trainEpoch`, in both all-data and CV modes. Set `trainer.optimization.scheduler: null` (or `{name: none}`) to disable LR scheduling entirely.
+
+- **DDP LR scaling is automatic.** `Factory.createOptimizer` scales the base LR by `√world_size` for Adam and by `world_size` for SGD before the optimizer is constructed — going from 4 GPUs to 16 GPUs just works without a config change.
+
+- **Offline aug must be precomputed.** With `enabled_offline: true`, `gbm.py offline-aug <name>` must run once before training; the cache lives at `<exp>/datasets/ds_train/cache/`. Training itself never recomputes the cache (DDP would have every rank recompute simultaneously → swap death). For a new experiment that should reuse an existing cache: `cp -al <src>/datasets/ds_train/cache <dst>/datasets/ds_train/cache` (hardlinks, same filesystem, instant).
 
 ## Reproducibility
 
