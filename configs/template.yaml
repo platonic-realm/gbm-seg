@@ -277,7 +277,14 @@ trainer:
       entity: gbm-project  # personal entity is admin-disabled; use team handle
       run_name: null       # null → wandb auto-generates a name
 
-    report_freq: 1000
+    # Interval between metric reports (train log + W&B log + snapshot save).
+    # Interpreted at a REFERENCE effective batch of 8 — internally the
+    # actual step interval is scaled by 8 / effective_batch_size so the
+    # number of SAMPLES between reports is constant regardless of
+    # batch_size × world_size. Console + W&B both use "samples" as the
+    # x-axis (not raw step count) so curves from runs with different
+    # batch sizes line up directly. See Factory._scaled_freq_steps.
+    report_freq: 1000      # at reference batch 8: 1000 steps = 8000 samples
 
     # Metrics logged per validation cycle. Supported names (computed in
     # src/utils/metrics/clfication.py:Metrics; pick any subset):

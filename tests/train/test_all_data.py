@@ -29,7 +29,8 @@ def _make_trainer(validation_loader, epochs=3, starting_epoch=0):
     return Unet3DTrainer(
         model, None, None, None, None, None, scheduler,
         train_loader, validation_loader, 2, ['Dice'], 'cpu',
-        _freq=1, _epochs=epochs, _starting_epoch=starting_epoch)
+        _freq=1, _effective_batch_size=8, _epochs=epochs,
+        _starting_epoch=starting_epoch)
 
 
 def test_trainer_accepts_no_validation_loader():

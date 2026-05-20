@@ -160,6 +160,45 @@ def test_scheduler_unknown_name_raises():
         factory.createScheduler(opt)
 
 
+def test_scaled_freq_steps_keeps_samples_constant():
+    """``Factory._scaled_freq_steps`` interprets report_freq at the
+    reference effective batch (8) and scales the actual step interval so
+    the number of SAMPLES between reports is constant. Combined with the
+    samples-based x-axis on the logs, curves from runs with different
+    batch sizes are comparable.
+    """
+    from src.train.factory import REFERENCE_EFFECTIVE_BATCH, Factory
+    # Sanity: the constant the user picked.
+    assert REFERENCE_EFFECTIVE_BATCH == 8
+
+    # At the reference batch, report_freq is the raw step interval.
+    assert Factory._scaled_freq_steps(1000, 8) == 1000
+    # Halve the effective batch → twice as many steps per report.
+    assert Factory._scaled_freq_steps(1000, 4) == 2000
+    # Double the effective batch → half as many steps per report.
+    assert Factory._scaled_freq_steps(1000, 16) == 500
+    # 4x the batch.
+    assert Factory._scaled_freq_steps(1000, 32) == 250
+    # In every case, samples_between_reports is within one effective_batch
+    # of the target (floor division loses up to that much at batch sizes
+    # that don't divide the target evenly — e.g. eff=128 gives 62 steps =
+    # 7936 samples, missing the 8000 target by 64).
+    target = 1000 * REFERENCE_EFFECTIVE_BATCH
+    for eff in (1, 2, 4, 8, 16, 32, 64, 128):
+        freq_steps = Factory._scaled_freq_steps(1000, eff)
+        samples_between = freq_steps * eff
+        assert target - eff < samples_between <= target, (
+            f"eff_batch={eff}: target={target}, got {samples_between}")
+
+
+def test_scaled_freq_steps_floor_is_one():
+    """Floor: never below 1 step per report (a degenerate huge batch
+    shouldn't yield freq_steps=0, which would log every batch)."""
+    from src.train.factory import Factory
+    # eff_batch > samples_per_report would yield 0 without the floor.
+    assert Factory._scaled_freq_steps(report_freq=1, effective_batch_size=10_000) == 1
+
+
 def test_poly_decay_lr_actually_decays():
     """End-to-end: stepping the PolynomialLR scheduler reduces the LR per
     nnU-Net's (1 - t/T)^power. After half the iterations, LR should be

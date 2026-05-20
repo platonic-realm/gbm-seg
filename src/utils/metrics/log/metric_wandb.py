@@ -23,7 +23,7 @@ class MetricWandb:
         import wandb  # lazy
         self.wandb = wandb
 
-    def log(self, _epoch: int, _step: int, _tag: str,
+    def log(self, _epoch: int, _samples: int, _tag: str,
             _metrics: dict) -> None:
         if self.wandb.run is None:
             # No active run; surface as a warning rather than crash so a
@@ -31,23 +31,22 @@ class MetricWandb:
             logging.warning("MetricWandb.log called with no active wandb run.")
             return
 
+        # The x-axis is SAMPLES (single-sample data units processed)
+        # instead of raw optimiser-step count, so curves from runs with
+        # different effective batch sizes line up directly. `samples` is
+        # also added to the payload as a named metric so the W&B UI shows
+        # it on the axis label (see the define_metric calls in
+        # train.py:maybe_init_wandb).
+        #
+        # Passing samples as `step=` keeps wandb's internal step counter
+        # monotonic for resume (after wandb.init(resume="must") the prior
+        # value is much smaller than the new samples count, so explicit
+        # step is always ahead of wandb's ~1/sec auto-step — no risk of
+        # the historical "step value behind auto-step" drop.
         payload = {f"{_tag}/{name}": _to_python_scalar(value)
                    for name, value in _metrics.items()}
-        # Pass step= explicitly so the W&B chart x-axis matches our
-        # global step counter (stepper.getSteps()). Critical for resume:
-        # after wandb.init(resume="must"), the run reattaches and our
-        # next log fires at e.g. step=13500 (warm-started counter), which
-        # produces a continuous x-axis across the original + resumed
-        # phases. Without an explicit step, wandb's auto-step would
-        # increment by 1 from the prior run's terminal value (e.g. 26)
-        # and the chart x-axis would be discontinuous.
-        #
-        # The historical "wandb 0.26 drops explicit step values that fall
-        # behind auto-step" failure mode does NOT apply here because our
-        # step counter (one per training batch) advances much faster than
-        # wandb's system-metric auto-step (~1/sec), so explicit step is
-        # always ahead.
-        self.wandb.log(payload, step=int(_step))
+        payload["samples"] = int(_samples)
+        self.wandb.log(payload, step=int(_samples))
 
 
 def _to_python_scalar(value):

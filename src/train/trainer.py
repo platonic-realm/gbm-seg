@@ -37,6 +37,7 @@ class Unet3DTrainer:
                  _metric_list: list,
                  _device: str,
                  _freq: int,
+                 _effective_batch_size: int,
                  _epochs: int,
                  _valid_label_stride: int = 1,
                  _starting_epoch: int = 0,
@@ -59,6 +60,10 @@ class Unet3DTrainer:
         self.metric_list = _metric_list
         self.device = _device
         self.freq = _freq
+        # See factory.REFERENCE_EFFECTIVE_BATCH / _scaled_freq_steps: log
+        # cadence is in samples so curves are comparable across batch
+        # sizes. samples = stepper.getSteps() * effective_batch_size.
+        self.effective_batch_size = _effective_batch_size
         self.epochs = _epochs
 
         # >1 means the dataset has labels replicated every N slices along Z
@@ -130,8 +135,9 @@ class Unet3DTrainer:
             train_running_metrics.add(results)
 
             if self.stepper.getSteps() % self.freq == 0:
+                samples = self.stepper.getSteps() * self.effective_batch_size
                 self.metric_logger.log(_epoch,
-                                       self.stepper.getSteps(),
+                                       samples,
                                        'train',
                                        train_running_metrics.calculate())
 
@@ -188,8 +194,9 @@ class Unet3DTrainer:
         # effects on training state are the metric log and the best-valid
         # tracker below.
 
+        samples = self.stepper.getSteps() * self.effective_batch_size
         self.metric_logger.log(_epoch,
-                               self.stepper.getSteps(),
+                               samples,
                                'valid',
                                metrics)
 

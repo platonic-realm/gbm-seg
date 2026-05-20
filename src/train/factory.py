@@ -45,6 +45,14 @@ from src.utils.metrics.log.metric_logger import MetricLogger
 from src.utils.visual.painter import GIFPainter3D, TIFPainter3D
 from src.utils.visual.training import TrainVisualizer
 
+# `report_freq` in the per-experiment config is interpreted in units of
+# "steps at this reference effective batch size." Internally the actual
+# step interval is scaled so the SAMPLES between reports is constant
+# regardless of per_rank batch × world_size, and W&B / console logs use
+# samples as the x-axis. With this constant set to 8, a config of
+# `report_freq: 1000` always means "report every 8000 samples."
+REFERENCE_EFFECTIVE_BATCH = 8
+
 
 def _worker_init_fn(worker_id: int):
     # Each worker forks with the parent's RNG state; reseed numpy/random with
@@ -301,6 +309,32 @@ class Factory:
         snapper = Snapper(snapshot_path)
         return snapper
 
+    @staticmethod
+    def _effective_batch_size(configs: dict) -> int:
+        """Global batch each optimiser.step() consumes.
+
+        DDP: world_size ranks each pull `train_ds.batch_size` per step,
+        all_reduce gradients → effective batch = per_rank × world_size.
+        DataParallel: a single process scatters `batch_size` across GPUs,
+        so the global batch IS the per-rank value.
+        Single-process: same.
+        """
+        per_rank = configs['trainer']['data']['train_ds']['batch_size']
+        return per_rank * get_world_size() if is_distributed() else per_rank
+
+    @staticmethod
+    def _scaled_freq_steps(report_freq: int, effective_batch_size: int) -> int:
+        """Scale the config report_freq so the SAMPLES between reports is
+        constant regardless of the effective batch.
+
+        The config value is interpreted at the reference effective batch
+        (``REFERENCE_EFFECTIVE_BATCH``); at any other batch the step
+        interval is scaled accordingly so the W&B + console x-axis
+        (samples) is comparable across runs.
+        """
+        samples_per_report = REFERENCE_EFFECTIVE_BATCH * report_freq
+        return max(1, samples_per_report // effective_batch_size)
+
     def createTrainer(self,
                       _model: nn.Module,
                       _loss_function,
@@ -321,6 +355,19 @@ class Factory:
         device = self.configs['trainer']['runtime']['device']
         report_freq = self.configs['trainer']['logging']['report_freq']
         epochs = self.configs['trainer']['optimization']['epochs']
+
+        # Compute the actual step interval from the config report_freq +
+        # current effective batch (see _scaled_freq_steps). Logs use
+        # samples = step × effective_batch as the x-axis instead of raw
+        # step count so curves are comparable across batch sizes.
+        effective_batch = self._effective_batch_size(self.configs)
+        freq_steps = self._scaled_freq_steps(report_freq, effective_batch)
+        logging.info(
+            "Reporting cadence: report_freq=%d (at reference batch %d) "
+            "→ effective batch %d → step interval %d "
+            "(samples between reports: %d)",
+            report_freq, REFERENCE_EFFECTIVE_BATCH, effective_batch,
+            freq_steps, freq_steps * effective_batch)
 
         # `gbm.py create` z-upsamples every channel and stacks the label
         # along Z by ``trainer.data.z_scale`` (written into the per-experiment
@@ -352,7 +399,8 @@ class Factory:
                                 _no_of_classes,
                                 metrics_list,
                                 device,
-                                report_freq,
+                                freq_steps,
+                                effective_batch,
                                 epochs,
                                 valid_label_stride,
                                 _starting_epoch,

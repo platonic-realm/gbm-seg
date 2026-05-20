@@ -129,6 +129,14 @@ def maybe_init_wandb(_configs, _fold: int = 0,
 
     try:
         wandb.init(**init_kwargs)
+        # Tell W&B that the chart x-axis for train/* and valid/* metrics
+        # is `samples` (single-sample data units processed by the model),
+        # NOT W&B's default internal step. The trainer logs samples
+        # = optimiser_step × effective_batch_size so curves from runs
+        # with different batch sizes line up directly on the UI.
+        wandb.define_metric("samples")
+        wandb.define_metric("train/*", step_metric="samples")
+        wandb.define_metric("valid/*", step_metric="samples")
         if _resume_run_id:
             logging.info("W&B run resumed: id=%s", _resume_run_id)
         return True

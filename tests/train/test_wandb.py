@@ -31,6 +31,7 @@ def fake_wandb(monkeypatch):
     fake.init = MagicMock()
     fake.save = MagicMock()
     fake.finish = MagicMock()
+    fake.define_metric = MagicMock()
     fake.run = None  # callers set this to a truthy mock when a run is "active"
     monkeypatch.setitem(sys.modules, 'wandb', fake)
     yield fake
@@ -43,21 +44,21 @@ def test_metric_wandb_log_namespaces_metrics_by_tag(fake_wandb):
 
     from src.utils.metrics.log.metric_wandb import MetricWandb
     backend = MetricWandb()
-    backend.log(_epoch=3, _step=42,
+    backend.log(_epoch=3, _samples=42,
                 _tag='train', _metrics={'Loss': 0.5, 'Dice': 0.8})
 
     fake_wandb.log.assert_called_once()
     payload, kwargs = fake_wandb.log.call_args
+    # Payload carries the namespaced metrics AND a `samples` field — the
+    # latter is the named metric W&B uses as the x-axis for train/* and
+    # valid/* (see define_metric in maybe_init_wandb).
     assert payload[0] == {
         'train/Loss': 0.5,
         'train/Dice': 0.8,
+        'samples': 42,
     }
-    # No `epoch` or `step` in the payload — both would create a useless
-    # monotonic chart against wandb's internal _step axis.
-    # step= IS passed explicitly though, so the W&B chart x-axis lines up
-    # with our global step counter — critical for resumed runs where the
-    # original run's terminal _step would otherwise be where the resumed
-    # log emissions start, breaking x-axis continuity.
+    # step=samples keeps W&B's internal step counter monotonic across
+    # resumes (samples count is always large + monotonic).
     assert kwargs == {'step': 42}
 
 
@@ -66,7 +67,7 @@ def test_metric_wandb_log_warns_with_no_active_run(fake_wandb, caplog):
 
     from src.utils.metrics.log.metric_wandb import MetricWandb
     backend = MetricWandb()
-    backend.log(_epoch=0, _step=1,
+    backend.log(_epoch=0, _samples=1,
                 _tag='train', _metrics={'Loss': 0.5})
 
     assert not fake_wandb.log.called
@@ -78,7 +79,7 @@ def test_metric_wandb_log_coerces_torch_tensors(fake_wandb):
 
     from src.utils.metrics.log.metric_wandb import MetricWandb
     backend = MetricWandb()
-    backend.log(_epoch=0, _step=1,
+    backend.log(_epoch=0, _samples=1,
                 _tag='valid', _metrics={'Dice': torch.tensor(0.42)})
 
     payload = fake_wandb.log.call_args[0][0]
@@ -97,7 +98,7 @@ def test_metric_logger_forwards_to_wandb_when_provided(fake_wandb):
 
     wb = MetricWandb()
     logger = MetricLogger(wb)
-    logger.log(_epoch=1, _step=10, _tag='train', _metrics={'Loss': 0.1})
+    logger.log(_epoch=1, _samples=10, _tag='train', _metrics={'Loss': 0.1})
 
     assert fake_wandb.log.called
 
@@ -108,7 +109,7 @@ def test_metric_logger_works_without_wandb_backend():
 
     logger = MetricLogger()
     # Should not raise.
-    logger.log(_epoch=0, _step=1, _tag='train', _metrics={'Loss': 0.5})
+    logger.log(_epoch=0, _samples=1, _tag='train', _metrics={'Loss': 0.5})
 
 
 # --- Snapper artifact upload ----------------------------------------------

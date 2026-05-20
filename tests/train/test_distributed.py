@@ -74,11 +74,11 @@ def test_metric_logger_skips_when_not_main_process():
     logger = MetricLogger(fake_backend)
 
     with patch('src.train.distributed.is_main_process', return_value=False):
-        logger.log(_epoch=0, _step=100, _tag='train', _metrics={'Dice': 0.5})
+        logger.log(_epoch=0, _samples=100, _tag='train', _metrics={'Dice': 0.5})
     assert not fake_backend.log.called
 
     with patch('src.train.distributed.is_main_process', return_value=True):
-        logger.log(_epoch=0, _step=100, _tag='train', _metrics={'Dice': 0.5})
+        logger.log(_epoch=0, _samples=100, _tag='train', _metrics={'Dice': 0.5})
     assert fake_backend.log.called
 
 

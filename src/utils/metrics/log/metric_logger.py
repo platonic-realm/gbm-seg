@@ -18,7 +18,7 @@ class MetricLogger:
 
     def log(self,
             _epoch: int,
-            _step: int,
+            _samples: int,
             _tag: str,
             _metrics: dict) -> None:
         # Lazy import to avoid forcing distributed init at module-load time.
@@ -26,11 +26,16 @@ class MetricLogger:
         if not is_main_process():
             return
 
-        logging.info("%s, Epoch: %d, Step: %d, Metrics: %s",
+        # `_samples` is the cumulative count of single-sample data units
+        # the model has processed (== optimiser-step count × effective
+        # batch size). Logging samples instead of raw steps makes the
+        # console output and W&B curves comparable across runs with
+        # different batch sizes — see Factory._scaled_freq_steps.
+        logging.info("%s, Epoch: %d, Samples: %d, Metrics: %s",
                      _tag,
                      _epoch,
-                     _step,
+                     _samples,
                      _metrics)
 
         if self.metric_wandb is not None:
-            self.metric_wandb.log(_epoch, _step, _tag, _metrics)
+            self.metric_wandb.log(_epoch, _samples, _tag, _metrics)
