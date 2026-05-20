@@ -4,7 +4,7 @@
 #SBATCH --error=/home/afatehi/logs/gbm/stats.log
 #SBATCH --time=1-00:00:00   # Adjust time as needed
 #SBATCH --partition=cpu     # Adjust partition based on available resources
-#SBATCH --mem=16GB         # Adjust memory as needed
+#SBATCH --mem=128GB        # large test volumes load full-volume thickness arrays
 #SBATCH --cpus-per-task=8  # Adjust CPU cores as needed
 
 # Create log directory if it doesn't exist
