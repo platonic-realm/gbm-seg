@@ -23,6 +23,7 @@ independent:
 from __future__ import annotations
 
 import logging
+import re
 from itertools import combinations
 from pathlib import Path
 
@@ -35,6 +36,20 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 
 METRIC_NAMES = ('Dice', 'IoU', 'TPR', 'PPV', 'specificity')
+
+# Annotator-specific tokens that separate the volume-identifying "stem"
+# (e.g. `NCWM.AUY380.Series004`) from the per-annotator name fragment in a
+# crop's filename (e.g. `.Test.Chris_corrected_order.tiff`,
+# `.ForAnnotation_DUJ.tiff`, `.Test.Robin.tiff`). The match is on dotted
+# segments so a bare `Test` inside another word doesn't trigger.
+_ANNOTATOR_TOKEN_RE = re.compile(
+    # `\b` is wrong here because `_` is a word character: it wouldn't
+    # break between `ForAnnotation` and `_DUJ`. An explicit lookahead
+    # for `.`, `_`, or end-of-string covers every observed tail
+    # (`.Test.Chris.tiff`, `.ForAnnotation_DUJ.tiff`, `.Test.Robin_corrected_order.tiff`).
+    r'\.(?:Test|For_?Annotation|Annotated|Chris|David|Robin)(?=[._]|$)',
+    re.IGNORECASE,
+)
 
 
 def _binarise(arr) -> np.ndarray:
@@ -124,16 +139,90 @@ def _load_expert_label(tiff_path: Path) -> np.ndarray:
     return _binarise(arr[:, 3, :, :])
 
 
+def _subsample_pred_to_label_z(model_pred: np.ndarray,
+                               label_z: int,
+                               crop_name: str) -> np.ndarray | None:
+    """Subsample a Z-upsampled prediction down to the label's native Z.
+
+    Inference z-upsamples its input (``inference.inference_ds.scale_factor``
+    via trilinear interpolation in ds_base.py:64) so the model sees data
+    at training-time Z spacing. The expert-annotated crops in
+    ``ds_test_labeled`` stay at the native microscope Z — so a Z=6 label
+    will face a Z=label_z*scale prediction.
+
+    Mirror the training-validation rule (factory.py:372-379, "Validation
+    metrics are masked to slices where Z % z_scale == 0 — i.e. the
+    original-label positions"): keep only ``prediction[::z_scale]``,
+    starting at index 0. The same label voxel was otherwise represented
+    at ``z_scale`` adjacent upsampled positions; this picks one
+    representative per original slice.
+
+    Returns the subsampled prediction, or ``None`` (with a logged
+    warning) if pred-Z isn't an exact integer multiple of label-Z —
+    that points at a Z-axis configuration error worth surfacing rather
+    than silently rescaling.
+    """
+    pred_z = model_pred.shape[0]
+    if pred_z == label_z:
+        return model_pred
+    if label_z == 0 or pred_z % label_z != 0:
+        logging.warning(
+            "Cannot align prediction Z=%d to label Z=%d for crop %s "
+            "(non-integer ratio); skipping this crop.",
+            pred_z, label_z, crop_name)
+        return None
+    z_scale = pred_z // label_z
+    return model_pred[::z_scale, :, :]
+
+
+def _crop_stem(crop_name: str) -> str:
+    """Extract the volume-identifying stem from a crop filename, dropping
+    the annotator-specific tail.
+
+    The expert dirs use different filename suffixes for the same crop —
+    e.g. all three of these describe the same volume:
+      Chris/  NCWM.AUY380.Series004.Test.Chris_corrected_order.tiff
+      David/  NCWM.AUY380.Series004.Test.ForAnnotation_DUJ.tiff
+      Robin/  NCWM.AUY380.Series004.Test.Robin_corrected_order.tiff
+    The shared identity is the leading `NCWM.AUY380.Series004` portion.
+    This strips everything from the first annotator-token onward, plus
+    the file extension.
+
+    Falls back to ``crop_name`` minus the extension if no token matches —
+    callers can still exact/glob-match on that.
+    """
+    no_ext = re.sub(r'\.tiff?$', '', crop_name, flags=re.IGNORECASE)
+    m = _ANNOTATOR_TOKEN_RE.search(no_ext)
+    return no_ext[:m.start()] if m else no_ext
+
+
 def _find_crop_match(annotator_dir: Path, crop_name: str) -> Path | None:
-    """Find the annotator's TIFF matching `crop_name` (results-infer-labeled
-    drops the .tiff extension on its subdir names; the annotator dirs
-    keep the original .tiff)."""
+    """Find the annotator's TIFF matching ``crop_name``.
+
+    Tries in order: (1) an exact filename match, (2) a glob with
+    ``crop_name`` as prefix (handles the case where results-infer-labeled
+    dropped a `.tiff` extension), (3) a stem-based glob that ignores the
+    per-annotator filename tail. The stem match is what lets a
+    Chris-derived crop name find David's and Robin's versions of the
+    same volume — see :func:`_crop_stem` for the token list.
+    """
     exact = annotator_dir / crop_name
     if exact.exists():
         return exact
+    # Tier 2: prefix glob (cheap, common case).
     candidates = sorted(annotator_dir.glob(crop_name + '*'))
     if candidates:
         return candidates[0]
+    # Tier 3: stem glob — strip the annotator-specific tail and match the
+    # volume identity. Required for cross-annotator lookups.
+    stem = _crop_stem(crop_name)
+    if stem and stem != crop_name:
+        candidates = sorted(annotator_dir.glob(stem + '*'))
+        # Keep only real TIFFs to avoid stray matches.
+        candidates = [c for c in candidates
+                      if c.suffix.lower() in ('.tif', '.tiff')]
+        if candidates:
+            return candidates[0]
     return None
 
 
@@ -199,9 +288,9 @@ def calculate_expert_comparison(
                     "for this crop.", crop_name, annotator_dir)
                 continue
             label = _load_expert_label(tiff_path)
-            if label.shape != model_pred.shape:
+            if label.shape[1:] != model_pred.shape[1:]:
                 logging.warning(
-                    "Shape mismatch for crop %s vs annotator %s: "
+                    "XY mismatch for crop %s vs annotator %s: "
                     "prediction %s, label %s — skipping this pair.",
                     crop_name, annotator_dir.name,
                     model_pred.shape, label.shape)
@@ -213,7 +302,19 @@ def calculate_expert_comparison(
                 "No usable annotator labels for crop %s; skipping.",
                 crop_name)
             continue
-        per_crop[crop_name] = compare_crop(model_pred, expert_labels)
+
+        # Mirror the training-validation rule for Z-upsampled inference
+        # (factory.py: "validation metrics are masked to slices where
+        # Z % z_scale == 0"): keep only the prediction slices at the
+        # original-label positions. All annotators of the same crop
+        # share Z, so subsample once. ``aligned_pred`` is what gets fed
+        # to the metric calls instead of ``model_pred``.
+        label_z = next(iter(expert_labels.values())).shape[0]
+        aligned_pred = _subsample_pred_to_label_z(
+            model_pred, label_z, crop_name)
+        if aligned_pred is None:
+            continue
+        per_crop[crop_name] = compare_crop(aligned_pred, expert_labels)
 
     if not per_crop:
         logging.warning("No crops produced comparable pairs; nothing to "
