@@ -132,7 +132,15 @@ class InferenceDataset(BaseDataset):
         return self.no_of_classes
 
     def getNumberOfChannels(self):
-        return self.image.shape[1]
+        # __getitem__ unconditionally concatenates the first three channels
+        # (nephrin, collagen-4, WGA) into the model input, regardless of
+        # whether the TIFF carries an additional label channel. So the
+        # model's in_channels must reflect what the loader actually emits,
+        # not the raw file shape — otherwise loading a 3-channel-trained
+        # snapshot against a 4-channel-built model fails with a
+        # patch_embed.proj.weight size mismatch (see ds_test_labeled
+        # crops, which include the annotator's label in channel 3).
+        return 3
 
     def getResultShape(self):
         image_shape = self.image_shape

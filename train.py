@@ -5,6 +5,7 @@ import copy
 import logging
 import os
 import random
+import warnings
 from pathlib import Path
 
 # Must be set before `import torch` (cuBLAS reads it once at first CUDA init).
@@ -43,6 +44,22 @@ def seed_everything(_seed: int):
     # `warn_only=True` so ops without a deterministic implementation log
     # a warning rather than raise — flip to False for strict mode.
     torch.use_deterministic_algorithms(True, warn_only=True)
+    # Silence the routine "does not have a deterministic implementation"
+    # warnings that fire on every loss / pooling step (nll_loss2d,
+    # max_pool3d_backward, memory-efficient attention, …). We keep
+    # `warn_only=True` above so a *new* non-deterministic op still fails
+    # loudly in strict mode if we ever flip it; this filter only suppresses
+    # the chat from the already-known ones.
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*does not have a deterministic implementation.*",
+        category=UserWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*defaults to a non-deterministic algorithm.*",
+        category=UserWarning,
+    )
 
 
 def maybe_init_wandb(_configs, _fold: int = 0,
