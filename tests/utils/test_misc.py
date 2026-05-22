@@ -225,6 +225,58 @@ def test_resize_and_copy_z_scale_pipeline(tmp_path):
     np.testing.assert_array_equal(label_z, expected)
 
 
+def test_resize_and_copy_parallel_matches_serial(tmp_path):
+    """The multiprocessing Pool path must produce exactly the same resized
+    volumes as the serial path — parallelism is an optimisation, never a
+    behaviour change. Volumes of differing Z-depth give the workers uneven
+    tasks so out-of-order completion is genuinely exercised."""
+    src = tmp_path / "ds_src"
+    src.mkdir()
+    rng = np.random.default_rng(0)
+    for idx, depth in enumerate((3, 5, 4, 2)):
+        arr = np.zeros((depth, 4, 24, 24), dtype=np.float32)
+        for z in range(depth):
+            arr[z, :3] = rng.integers(0, 200, size=(3, 24, 24))
+            arr[z, 3] = 255.0 if z % 2 else 0.0
+        tifffile.imwrite(src / f"vol_{idx}.tiff", arr,
+                         shape=arr.shape, imagej=True,
+                         resolution=(20.0, 20.0))
+
+    dest_serial = tmp_path / "serial"
+    dest_parallel = tmp_path / "parallel"
+    dest_serial.mkdir()
+    dest_parallel.mkdir()
+
+    resize_and_copy(str(src), str(dest_serial),
+                    _target_size=[0.05, 0.05, 0.3],
+                    _z_scale_factor=3, _workers=1)
+    resize_and_copy(str(src), str(dest_parallel),
+                    _target_size=[0.05, 0.05, 0.3],
+                    _z_scale_factor=3, _workers=4)
+
+    serial_files = sorted(p.name for p in dest_serial.glob("*.tiff"))
+    parallel_files = sorted(p.name for p in dest_parallel.glob("*.tiff"))
+    assert serial_files == parallel_files
+    assert len(serial_files) == 4
+    for name in serial_files:
+        a = tifffile.imread(dest_serial / name)
+        b = tifffile.imread(dest_parallel / name)
+        np.testing.assert_array_equal(
+            a, b, err_msg=f"{name} differs between serial and parallel resize")
+
+
+def test_resize_and_copy_empty_source_is_noop(tmp_path):
+    """A source dir with no TIFFs must not raise (e.g. an absent optional
+    split) — the Pool branch should never be entered on an empty task list."""
+    src = tmp_path / "empty"
+    dest = tmp_path / "dest"
+    src.mkdir()
+    dest.mkdir()
+    resize_and_copy(str(src), str(dest), _target_size=[0.05, 0.05, 0.3],
+                    _z_scale_factor=3)
+    assert list(dest.iterdir()) == []
+
+
 def test_create_new_experiment_three_way_dataset_split(tmp_path):
     """create_new_experiment produces a 3-way dataset split:
 

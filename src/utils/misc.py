@@ -4,6 +4,7 @@
 
 # Python Imports
 import logging
+import multiprocessing
 import os
 import shutil
 import sys
@@ -163,8 +164,109 @@ def _z_interpolate_and_stack(_image: np.ndarray,
     return out
 
 
+def _resize_one_tiff(_task):
+    """Resize + copy a single TIFF — the unit of work fanned out by
+    :func:`resize_and_copy` across a multiprocessing Pool.
+
+    ``_task`` is the tuple ``(file, dest_dir, target_size, z_scale_factor)``.
+    A tuple (rather than separate args) keeps it trivially picklable for
+    ``Pool.imap_unordered``; the function is module-level for the same
+    reason — a nested function or lambda can't be pickled to a worker.
+    """
+    file, _dest_dir, _target_size, _z_scale_factor = _task
+    file_name = file.stem
+    with tifffile.TiffFile(file) as tiff:
+        voxel_space = tiff.asarray()
+        # Soft fallback for TIFFs missing X/YResolution metadata: assume
+        # the source is already at the target voxel size (zoom_factor=1.0)
+        # rather than silently shrinking 95%. The TODO in get_voxel_size
+        # tracks the affected files.
+        voxel_size = get_voxel_size(tiff, _path=file, _default=_target_size)
+        metadata = tiff.imagej_metadata or tiff.metadata
+
+        has_labels = voxel_space.shape[1] == 4
+
+        zoom_factors = (_target_size[0] / voxel_size[0],
+                        _target_size[1] / voxel_size[1])
+        nephrin_stack = voxel_space[:, 0, :, :]
+        collagen4_stack = voxel_space[:, 1, :, :]
+        wga_stack = voxel_space[:, 2, :, :]
+
+        if has_labels:
+            labels_stack = voxel_space[:, 3, :, :]
+
+        resized_nephrin_stack = None
+        resized_collagen4_stack = None
+        resized_wga_stack = None
+        resized_labels_stack = None
+
+        for i in range(voxel_space.shape[0]):
+            nephrin = nephrin_stack[i, :, :]
+            collagen4 = collagen4_stack[i, :, :]
+            wga = wga_stack[i, :, :]
+
+            if has_labels:
+                labels = labels_stack[i, :, :]
+
+            nephrin = zoom(nephrin, zoom_factors, order=1, prefilter=False)
+            collagen4 = zoom(collagen4, zoom_factors, order=1, prefilter=False)
+            wga = zoom(wga, zoom_factors, order=1, prefilter=False)
+
+            if has_labels:
+                labels = zoom(labels, zoom_factors, order=1, prefilter=False)
+                threshold = 0.5
+                labels[labels >= threshold] = 255
+                labels[labels < threshold] = 0
+
+            if resized_nephrin_stack is None:
+                resized_shape = (voxel_space.shape[0],
+                                 nephrin.shape[0],
+                                 nephrin.shape[1])
+                resized_nephrin_stack = np.zeros(resized_shape, dtype=np.float32)
+                resized_collagen4_stack = np.zeros(resized_shape, dtype=np.float32)
+                resized_wga_stack = np.zeros(resized_shape, dtype=np.float32)
+                if has_labels:
+                    resized_labels_stack = np.zeros(resized_shape, dtype=np.float32)
+
+            resized_nephrin_stack[i, :, :] = nephrin
+            resized_collagen4_stack[i, :, :] = collagen4
+            resized_wga_stack[i, :, :] = wga
+            if has_labels:
+                resized_labels_stack[i, :, :] = labels
+
+        if has_labels:
+            image_data = np.stack([resized_nephrin_stack,
+                                   resized_collagen4_stack,
+                                   resized_wga_stack,
+                                   resized_labels_stack], axis=1)
+        else:
+            image_data = np.stack([resized_nephrin_stack,
+                                   resized_collagen4_stack,
+                                   resized_wga_stack], axis=1)
+
+        if _z_scale_factor > 1:
+            image_data = _z_interpolate_and_stack(
+                image_data, _z_scale_factor, has_labels)
+            # Update ImageJ spacing so downstream tools (and an eventual
+            # re-load by `get_voxel_size`) see the new, finer Z step.
+            if isinstance(metadata, dict) and metadata.get('spacing'):
+                try:
+                    metadata['spacing'] = (float(metadata['spacing'])
+                                           / _z_scale_factor)
+                except (TypeError, ValueError):
+                    pass
+
+    file_path = Path(_dest_dir) / f"{file_name}.tiff"
+    tifffile.imwrite(file_path,
+                     image_data,
+                     shape=image_data.shape,
+                     imagej=True,
+                     metadata=metadata,
+                     compression='lzw')
+
+
 def resize_and_copy(_source_dir, _dest_dir, _target_size,
-                    _z_scale_factor: int = 1):
+                    _z_scale_factor: int = 1, _workers=None):
     """Copy every TIFF from ``_source_dir`` to ``_dest_dir``.
 
     * XY axes are zoomed to match ``_target_size[0..1]`` µm/pixel (per-slice
@@ -174,99 +276,48 @@ def resize_and_copy(_source_dir, _dest_dir, _target_size,
       restoring the deleted offline ``interpolate.py`` step as part of
       ``gbm.py create``. The label-stacking sets up the
       ``trainer.data.z_scale``-driven validation mask in ``Unet3DTrainer``.
+
+    Every TIFF resizes independently, so the files are fanned out across a
+    multiprocessing Pool — the resize is CPU-bound and a serial loop left
+    all but one core of a ``gbm.py create`` node idle. ``_workers`` is the
+    Pool size: ``None`` (the default) picks the process's allocated CPU
+    count (``os.sched_getaffinity`` so a SLURM ``--cpus-per-task`` cap is
+    honoured), capped at 8 because each worker holds a full upsampled
+    volume in RAM. ``_workers=1`` forces the serial path — used by the
+    regression test that asserts parallel output equals serial output.
     """
     source_path = Path(_source_dir)
-    tiff_files = list(source_path.glob('*.tif')) + list(source_path.glob('*.tiff'))
-    for file in tiff_files:
-        file_name = file.stem
-        with tifffile.TiffFile(file) as tiff:
-            voxel_space = tiff.asarray()
-            # Soft fallback for TIFFs missing X/YResolution metadata: assume
-            # the source is already at the target voxel size (zoom_factor=1.0)
-            # rather than silently shrinking 95%. The TODO in get_voxel_size
-            # tracks the affected files.
-            voxel_size = get_voxel_size(tiff, _path=file, _default=_target_size)
-            metadata = tiff.imagej_metadata or tiff.metadata
+    tiff_files = sorted(list(source_path.glob('*.tif'))
+                        + list(source_path.glob('*.tiff')))
+    if not tiff_files:
+        return
 
-            has_labels = voxel_space.shape[1] == 4
+    if _workers is None:
+        try:
+            available = len(os.sched_getaffinity(0))
+        except AttributeError:        # sched_getaffinity is Linux-only
+            available = os.cpu_count() or 1
+        # Cap the default: each worker holds a full upsampled volume in
+        # RAM (a few GB for the larger glomerular stacks). 8 keeps peak
+        # memory well within the create job's allocation while still
+        # cutting the ~10 min serial resize to ~1-2 min.
+        _workers = min(available, 8)
+    _workers = max(1, min(_workers, len(tiff_files)))
 
-            zoom_factors = (_target_size[0] / voxel_size[0],
-                            _target_size[1] / voxel_size[1])
-            nephrin_stack = voxel_space[:, 0, :, :]
-            collagen4_stack = voxel_space[:, 1, :, :]
-            wga_stack = voxel_space[:, 2, :, :]
+    tasks = [(file, _dest_dir, _target_size, _z_scale_factor)
+             for file in tiff_files]
 
-            if has_labels:
-                labels_stack = voxel_space[:, 3, :, :]
+    if _workers == 1:
+        for task in tasks:
+            _resize_one_tiff(task)
+        return
 
-            resized_nephrin_stack = None
-            resized_collagen4_stack = None
-            resized_wga_stack = None
-            resized_labels_stack = None
-
-            for i in range(voxel_space.shape[0]):
-                nephrin = nephrin_stack[i, :, :]
-                collagen4 = collagen4_stack[i, :, :]
-                wga = wga_stack[i, :, :]
-
-                if has_labels:
-                    labels = labels_stack[i, :, :]
-
-                nephrin = zoom(nephrin, zoom_factors, order=1, prefilter=False)
-                collagen4 = zoom(collagen4, zoom_factors, order=1, prefilter=False)
-                wga = zoom(wga, zoom_factors, order=1, prefilter=False)
-
-                if has_labels:
-                    labels = zoom(labels, zoom_factors, order=1, prefilter=False)
-                    threshold = 0.5
-                    labels[labels >= threshold] = 255
-                    labels[labels < threshold] = 0
-
-                if resized_nephrin_stack is None:
-                    resized_shape = (voxel_space.shape[0],
-                                     nephrin.shape[0],
-                                     nephrin.shape[1])
-                    resized_nephrin_stack = np.zeros(resized_shape, dtype=np.float32)
-                    resized_collagen4_stack = np.zeros(resized_shape, dtype=np.float32)
-                    resized_wga_stack = np.zeros(resized_shape, dtype=np.float32)
-                    if has_labels:
-                        resized_labels_stack = np.zeros(resized_shape, dtype=np.float32)
-
-                resized_nephrin_stack[i, :, :] = nephrin
-                resized_collagen4_stack[i, :, :] = collagen4
-                resized_wga_stack[i, :, :] = wga
-                if has_labels:
-                    resized_labels_stack[i, :, :] = labels
-
-            if has_labels:
-                image_data = np.stack([resized_nephrin_stack,
-                                       resized_collagen4_stack,
-                                       resized_wga_stack,
-                                       resized_labels_stack], axis=1)
-            else:
-                image_data = np.stack([resized_nephrin_stack,
-                                       resized_collagen4_stack,
-                                       resized_wga_stack], axis=1)
-
-            if _z_scale_factor > 1:
-                image_data = _z_interpolate_and_stack(
-                    image_data, _z_scale_factor, has_labels)
-                # Update ImageJ spacing so downstream tools (and an eventual
-                # re-load by `get_voxel_size`) see the new, finer Z step.
-                if isinstance(metadata, dict) and metadata.get('spacing'):
-                    try:
-                        metadata['spacing'] = (float(metadata['spacing'])
-                                               / _z_scale_factor)
-                    except (TypeError, ValueError):
-                        pass
-
-        file_path = Path(_dest_dir) / f"{file_name}.tiff"
-        tifffile.imwrite(file_path,
-                         image_data,
-                         shape=image_data.shape,
-                         imagej=True,
-                         metadata=metadata,
-                         compression='lzw')
+    # imap_unordered: the results are unused (each worker writes its own
+    # output TIFF), and unordered lets a finished worker pick up the next
+    # file without waiting on slower siblings.
+    with multiprocessing.Pool(_workers) as pool:
+        for _ in pool.imap_unordered(_resize_one_tiff, tasks):
+            pass
 
 
 def copy_directory(_source_dir, _dest_dir, _exclude_list: list):
