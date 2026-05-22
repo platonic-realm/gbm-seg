@@ -284,7 +284,7 @@ trainer:
     # batch_size × world_size. Console + W&B both use "samples" as the
     # x-axis (not raw step count) so curves from runs with different
     # batch sizes line up directly. See Factory._scaled_freq_steps.
-    report_freq: 1000      # at reference batch 8: 1000 steps = 8000 samples
+    report_freq: 2000      # at reference batch 8: 2000 steps = 16000 samples
 
     # Metrics logged per validation cycle. Supported names (computed in
     # src/utils/metrics/clfication.py:Metrics; pick any subset):
