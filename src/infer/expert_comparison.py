@@ -135,7 +135,9 @@ def _load_expert_label(tiff_path: Path) -> np.ndarray:
     """Read channel-3 (label) from a 4-channel ZCYX TIFF as bool."""
     with tifffile.TiffFile(str(tiff_path)) as tiff:
         arr = tiff.asarray()
-    # 4-channel TIFF: (Z, C, H, W) per CLAUDE.md, channel 3 = label.
+    # 4-channel labelled TIFF: axes (Z, C, H, W); channels 0..2 are
+    # nephrin / collagen-4 / WGA intensity and channel 3 is the binary
+    # annotator label. See src/data/ds_base.py for the input convention.
     return _binarise(arr[:, 3, :, :])
 
 

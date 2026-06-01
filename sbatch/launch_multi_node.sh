@@ -20,9 +20,8 @@
 #     sbatch/launch_multi_node.sh <exp> --arch A100|V100|auto [options]
 #
 # Per-rank work stays uniform across the pool in both modes — heterogeneous
-# DDP batches stall on the sync barrier and bias the gradient mean (see
-# CLAUDE.md). Arch matching is a substring test, so future arches need no
-# code change.
+# DDP batches stall on the sync barrier and bias the gradient mean. Arch
+# matching is a substring test, so future arches need no code change.
 #
 # CPU/mem are auto-sized from the smallest FREE-resource node in the pool
 # (queried via `scontrol show node`), with a 10% safety margin on memory.
