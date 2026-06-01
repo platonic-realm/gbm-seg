@@ -139,7 +139,8 @@ class WindowAttention3D(nn.Module):
 
     def __init__(self, dim: int, window_size: Sequence[int], num_heads: int,
                  qkv_bias: bool = True, attn_drop: float = 0.0,
-                 proj_drop: float = 0.0):
+                 proj_drop: float = 0.0,
+                 use_relative_pos_bias: bool = True):
         super().__init__()
         self.dim = dim
         self.window_size = tuple(window_size)
@@ -147,34 +148,44 @@ class WindowAttention3D(nn.Module):
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
 
-        # Relative position bias table indexed by (Δz, Δh, Δw). Range of each
-        # delta is [-(win-1), win-1], so the table has (2*win-1)^3 entries
-        # per head.
-        win_z, win_h, win_w = self.window_size
-        self.relative_position_bias_table = nn.Parameter(torch.zeros(
-            (2 * win_z - 1) * (2 * win_h - 1) * (2 * win_w - 1), num_heads))
-        nn.init.trunc_normal_(self.relative_position_bias_table, std=0.02)
+        self.use_relative_pos_bias = bool(use_relative_pos_bias)
+        if self.use_relative_pos_bias:
+            # Relative position bias table indexed by (Δz, Δh, Δw). Range of
+            # each delta is [-(win-1), win-1], so the table has (2*win-1)^3
+            # entries per head.
+            win_z, win_h, win_w = self.window_size
+            self.relative_position_bias_table = nn.Parameter(torch.zeros(
+                (2 * win_z - 1) * (2 * win_h - 1) * (2 * win_w - 1),
+                num_heads))
+            nn.init.trunc_normal_(self.relative_position_bias_table, std=0.02)
 
-        # Precompute the flat index into the bias table for every pair (i, j)
-        # of tokens within a window.
-        coords_z = torch.arange(win_z)
-        coords_h = torch.arange(win_h)
-        coords_w = torch.arange(win_w)
-        coords = torch.stack(torch.meshgrid(
-            coords_z, coords_h, coords_w, indexing='ij'))  # (3, win_z, win_h, win_w)
-        coords_flat = coords.flatten(1)  # (3, N)
-        relative_coords = coords_flat[:, :, None] - coords_flat[:, None, :]  # (3, N, N)
-        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # (N, N, 3)
-        # Shift to start from 0 in each dim.
-        relative_coords[:, :, 0] += win_z - 1
-        relative_coords[:, :, 1] += win_h - 1
-        relative_coords[:, :, 2] += win_w - 1
-        # Flatten into a 1D index.
-        relative_coords[:, :, 0] *= (2 * win_h - 1) * (2 * win_w - 1)
-        relative_coords[:, :, 1] *= (2 * win_w - 1)
-        self.register_buffer(
-            'relative_position_index',
-            relative_coords.sum(-1).long())  # (N, N)
+            # Precompute the flat index into the bias table for every pair
+            # (i, j) of tokens within a window.
+            coords_z = torch.arange(win_z)
+            coords_h = torch.arange(win_h)
+            coords_w = torch.arange(win_w)
+            coords = torch.stack(torch.meshgrid(
+                coords_z, coords_h, coords_w, indexing='ij'))  # (3, win_z, win_h, win_w)
+            coords_flat = coords.flatten(1)  # (3, N)
+            relative_coords = coords_flat[:, :, None] - coords_flat[:, None, :]  # (3, N, N)
+            relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # (N, N, 3)
+            # Shift to start from 0 in each dim.
+            relative_coords[:, :, 0] += win_z - 1
+            relative_coords[:, :, 1] += win_h - 1
+            relative_coords[:, :, 2] += win_w - 1
+            # Flatten into a 1D index.
+            relative_coords[:, :, 0] *= (2 * win_h - 1) * (2 * win_w - 1)
+            relative_coords[:, :, 1] *= (2 * win_w - 1)
+            self.register_buffer(
+                'relative_position_index',
+                relative_coords.sum(-1).long())  # (N, N)
+        else:
+            # Ablation: no learned position bias and no precomputed index.
+            # The model still attends across the window (Q·Kᵀ → softmax → V),
+            # it just loses the per-(Δz,Δh,Δw) scalar — see the v4 swin
+            # ablation plan and `SwinUNETR3D.__init__` for context.
+            self.register_parameter('relative_position_bias_table', None)
+            self.register_buffer('relative_position_index', None)
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         # Attention dropout is applied inside scaled_dot_product_attention
@@ -200,29 +211,39 @@ class WindowAttention3D(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]   # each (B_, heads, N, head_dim)
 
         # Relative position bias — additive on the scores: (heads, N, N).
-        bias = self.relative_position_bias_table[
-            self.relative_position_index.view(-1)
-        ].view(N, N, self.num_heads).permute(2, 0, 1).contiguous()
+        # `None` when the v4 ablation disables the bias entirely.
+        if self.use_relative_pos_bias:
+            bias = self.relative_position_bias_table[
+                self.relative_position_index.view(-1)
+            ].view(N, N, self.num_heads).permute(2, 0, 1).contiguous()
+        else:
+            bias = None
 
         dropout_p = self.attn_drop_p if self.training else 0.0
 
         if mask is None:
-            # attn_mask broadcasts over the batch dim B_.
+            # attn_mask broadcasts over the batch dim B_; passing `None`
+            # skips the additive bias entirely.
+            attn_mask = bias.unsqueeze(0) if bias is not None else None
             out = F.scaled_dot_product_attention(
-                q, k, v, attn_mask=bias.unsqueeze(0),
+                q, k, v, attn_mask=attn_mask,
                 dropout_p=dropout_p, scale=self.scale)
         else:
             # Shifted windows: the additive mask depends on the window
             # index. Split B_ = B * nW and broadcast the (nW, N, N) mask
             # and (heads, N, N) bias rather than materialising the full
-            # (B_, heads, N, N) score-shaped tensor.
+            # (B_, heads, N, N) score-shaped tensor. With bias disabled,
+            # the mask alone is the attn_mask.
             nW = mask.shape[0]
             B = B_ // nW
             q = q.view(B, nW, self.num_heads, N, -1)
             k = k.view(B, nW, self.num_heads, N, -1)
             v = v.view(B, nW, self.num_heads, N, -1)
-            attn_mask = (bias.view(1, 1, self.num_heads, N, N)
-                         + mask.view(1, nW, 1, N, N))
+            if bias is not None:
+                attn_mask = (bias.view(1, 1, self.num_heads, N, N)
+                             + mask.view(1, nW, 1, N, N))
+            else:
+                attn_mask = mask.view(1, nW, 1, N, N)
             out = F.scaled_dot_product_attention(
                 q, k, v, attn_mask=attn_mask,
                 dropout_p=dropout_p, scale=self.scale)
@@ -248,7 +269,8 @@ class SwinTransformerBlock3D(nn.Module):
                  window_size: Sequence[int],
                  shift_size: Sequence[int] = (0, 0, 0),
                  mlp_ratio: float = 4.0, qkv_bias: bool = True,
-                 drop: float = 0.0, attn_drop: float = 0.0):
+                 drop: float = 0.0, attn_drop: float = 0.0,
+                 use_relative_pos_bias: bool = True):
         super().__init__()
         self.dim = dim
         self.window_size = tuple(window_size)
@@ -260,9 +282,11 @@ class SwinTransformerBlock3D(nn.Module):
                 f"{self.window_size} in every dim.")
 
         self.norm1 = nn.LayerNorm(dim)
-        self.attn = WindowAttention3D(dim, window_size=self.window_size,
-                                       num_heads=num_heads, qkv_bias=qkv_bias,
-                                       attn_drop=attn_drop, proj_drop=drop)
+        self.attn = WindowAttention3D(
+            dim, window_size=self.window_size,
+            num_heads=num_heads, qkv_bias=qkv_bias,
+            attn_drop=attn_drop, proj_drop=drop,
+            use_relative_pos_bias=use_relative_pos_bias)
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = Mlp(dim, int(dim * mlp_ratio), drop=drop)
 
@@ -410,7 +434,8 @@ class BasicLayer3D(nn.Module):
                  mlp_ratio: float = 4.0, qkv_bias: bool = True,
                  drop: float = 0.0, attn_drop: float = 0.0,
                  downsample: bool = False,
-                 z_deduction: int = 2):
+                 z_deduction: int = 2,
+                 use_relative_pos_bias: bool = True):
         super().__init__()
         win_z, win_h, win_w = window_size
         # Z is full-window, so no Z shift. XY shifts by half the window.
@@ -423,7 +448,8 @@ class BasicLayer3D(nn.Module):
                 window_size=window_size,
                 shift_size=shift if (i % 2 == 1) else (0, 0, 0),
                 mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
-                drop=drop, attn_drop=attn_drop))
+                drop=drop, attn_drop=attn_drop,
+                use_relative_pos_bias=use_relative_pos_bias))
         self.blocks = nn.ModuleList(blocks)
         # `z_deduction` must reach PatchMerging3D — otherwise the merge
         # always deducts the default 2 while the model's window sizes and

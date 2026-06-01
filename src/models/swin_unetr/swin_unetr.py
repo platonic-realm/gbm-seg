@@ -90,6 +90,7 @@ class SwinUNETR3D(nn.Module):
             _drop_rate: float = 0.0,
             _attn_drop_rate: float = 0.0,
             _z_deduction_per_stage='auto',
+            _use_relative_pos_bias: bool = True,
             _gradient_checkpointing='auto',
             _deep_supervision: bool = False,
             _ds_levels: int = 2):
@@ -120,6 +121,13 @@ class SwinUNETR3D(nn.Module):
         else:
             self.z_deduction = int(_z_deduction_per_stage)
         self.window_size_xy = int(_window_size_xy)
+        # `use_relative_pos_bias=False` ablates the learned relative-position
+        # bias inside every window attention — the model still attends across
+        # the window, it just loses the per-(Δz,Δh,Δw) scalar that lets it
+        # memorise position-specific patterns (including the Z-stacked-label
+        # period that produces jagged segmentation along Z). See the swin v4
+        # ablation plan.
+        self.use_relative_pos_bias = bool(_use_relative_pos_bias)
         # Gradient checkpointing of the encoder stages (memory down,
         # compute up). 'auto' turns it on when the GPU is too small to
         # hold the un-checkpointed activations (40 GB A100 / 32 GB V100)
@@ -154,7 +162,8 @@ class SwinUNETR3D(nn.Module):
                 drop=_drop_rate,
                 attn_drop=_attn_drop_rate,
                 downsample=(k < num_stages - 1),
-                z_deduction=self.z_deduction))
+                z_deduction=self.z_deduction,
+                use_relative_pos_bias=self.use_relative_pos_bias))
 
         # --- Decoder: mirror of the encoder ---
         # For each non-bottleneck encoder stage k (0..num_stages-2), there is

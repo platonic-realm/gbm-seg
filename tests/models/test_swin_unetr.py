@@ -389,3 +389,100 @@ def test_window_attention_sdpa_matches_reference_with_mask():
         assert torch.allclose(attn(x, mask=mask),
                               _reference_window_attention(attn, x, mask),
                               atol=1e-4)
+
+
+# --- use_relative_pos_bias ablation (v4 plan) ---------------------------------
+
+def test_window_attention_no_bias_skips_table():
+    """With use_relative_pos_bias=False the table parameter and the
+    precomputed index buffer are both gone — not just zeroed."""
+    attn = WindowAttention3D(
+        dim=12, window_size=(4, 3, 3), num_heads=3,
+        use_relative_pos_bias=False)
+    assert attn.use_relative_pos_bias is False
+    assert attn.relative_position_bias_table is None
+    assert attn.relative_position_index is None
+    # And the table-derived parameter doesn't appear in state_dict.
+    assert 'relative_position_bias_table' not in attn.state_dict()
+
+
+def test_window_attention_no_bias_forward_runs():
+    """No-bias attention forwards cleanly with the right shape, both the
+    no-mask path and the shifted-window-mask path."""
+    torch.manual_seed(2)
+    dim, heads, win = 12, 3, (4, 3, 3)
+    attn = WindowAttention3D(
+        dim=dim, window_size=win, num_heads=heads,
+        use_relative_pos_bias=False).eval()
+    n = win[0] * win[1] * win[2]
+    x = torch.randn(2, n, dim)
+    with torch.no_grad():
+        y = attn(x)
+    assert y.shape == x.shape
+    assert torch.isfinite(y).all()
+
+    # Shifted-window mask path.
+    nW, b = 2, 2
+    xs = torch.randn(b * nW, n, dim)
+    mask = torch.zeros(nW, n, n)
+    mask[1, :n // 2, n // 2:] = float('-inf')
+    with torch.no_grad():
+        ys = attn(xs, mask=mask)
+    assert ys.shape == xs.shape
+    assert torch.isfinite(ys).all()
+
+
+def test_swin_unetr_no_bias_buildable_and_forward():
+    """Full SwinUNETR3D with the flag off still builds and runs forward
+    end-to-end. Output shape contract preserved."""
+    model = SwinUNETR3D(
+        _name='swin_unetr',
+        _input_channels=3, _number_of_classes=2,
+        _sample_dimension=[12, 64, 64],
+        _feature_size=12, _depths=(2, 2, 2, 2),
+        _num_heads=(2, 4, 8, 16), _window_size_xy=4,
+        _use_relative_pos_bias=False).eval()
+    # Every attention module inside the model must reflect the flag.
+    n_attn = 0
+    for m in model.modules():
+        if isinstance(m, WindowAttention3D):
+            assert m.use_relative_pos_bias is False
+            assert m.relative_position_bias_table is None
+            n_attn += 1
+    assert n_attn > 0, "expected at least one WindowAttention3D in the model"
+
+    x = torch.randn(1, 3, 12, 64, 64)
+    with torch.no_grad():
+        logits, _ = model(x)
+    assert logits.shape == (1, 2, 12, 64, 64)
+    assert torch.isfinite(logits).all()
+
+
+def test_swin_unetr_no_bias_has_fewer_params():
+    """Parameter count strictly smaller without the bias table — sanity
+    that the ablation actually removes parameters, not just hides them."""
+    kw = dict(_name='swin_unetr', _input_channels=3, _number_of_classes=2,
+              _sample_dimension=[12, 64, 64], _feature_size=12,
+              _depths=(2, 2, 2, 2), _num_heads=(2, 4, 8, 16),
+              _window_size_xy=4)
+    with_bias = SwinUNETR3D(_use_relative_pos_bias=True, **kw)
+    without_bias = SwinUNETR3D(_use_relative_pos_bias=False, **kw)
+    p_with = sum(p.numel() for p in with_bias.parameters())
+    p_without = sum(p.numel() for p in without_bias.parameters())
+    assert p_without < p_with, (
+        f"no-bias variant should have fewer params; got {p_without} >= {p_with}")
+
+
+def test_swin_unetr_default_keeps_bias():
+    """Default behaviour unchanged: SwinUNETR3D without the flag keeps the
+    learned position bias (regression guard against accidental flip)."""
+    model = SwinUNETR3D(
+        _name='swin_unetr', _input_channels=3, _number_of_classes=2,
+        _sample_dimension=[12, 64, 64], _feature_size=12,
+        _depths=(2, 2, 2, 2), _num_heads=(2, 4, 8, 16),
+        _window_size_xy=4)
+    for m in model.modules():
+        if isinstance(m, WindowAttention3D):
+            assert m.use_relative_pos_bias is True
+            assert isinstance(m.relative_position_bias_table, torch.nn.Parameter)
+            assert m.relative_position_index is not None
