@@ -18,11 +18,13 @@
 #
 # Run before offline_aug.sbatch and any train launcher.
 #
-# Args: $1 = experiment name
+# Args: $1 = experiment name; $2.. = forwarded verbatim to `gbm.py create`
+# (e.g. `--reuse-dataset other_exp` to skip the TIFF resize, or `-bs N`).
 EXP_NAME="$1"
+shift
 
 mkdir -p /home/afatehi/logs/gbm/
 
 source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
 
-python gbm.py create "$EXP_NAME"
+python gbm.py create "$EXP_NAME" "$@"
