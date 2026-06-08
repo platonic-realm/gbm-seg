@@ -363,15 +363,36 @@ class PatchEmbed3D(nn.Module):
 
     Input ``(B, C_in, Z, H, W)`` → output ``(B, embed_dim, Z, H/2, W/2)``.
     Followed by layer norm in the feature dim.
+
+    ``z_kernel`` (default 1) controls the Z-direction kernel size of the
+    embedding conv: with the default the embedding is XY-only (matches
+    Swin's classic patch_embed), so each output voxel depends on exactly
+    one input Z slice. Setting ``z_kernel=3`` (the v6 variant) makes
+    every output voxel a 3-Z-neighbour Z-conv on input — partially
+    smoothing the period-N stacked-label pattern produced by the
+    ``np.repeat`` Z-upsampling at the very first layer, before any
+    attention sees it. Z-output size is preserved via symmetric Z
+    padding of ``(z_kernel - 1) // 2`` (so ``z_kernel`` must be odd).
     """
 
     def __init__(self, in_channels: int, embed_dim: int,
-                 patch_size: Sequence[int] = (1, 2, 2)):
+                 patch_size: Sequence[int] = (1, 2, 2),
+                 z_kernel: int = 1):
         super().__init__()
         self.patch_size = _to_3tuple(patch_size)
-        self.proj = nn.Conv3d(in_channels, embed_dim,
-                              kernel_size=self.patch_size,
-                              stride=self.patch_size)
+        if z_kernel < 1 or z_kernel % 2 == 0:
+            raise ValueError(
+                f"z_kernel must be a positive odd int, got {z_kernel}")
+        # Z-conv: kernel (z_kernel, h, w) with stride (patch_size_z, h, w)
+        # so XY stays at patch-stride downsampling but Z gets a learned
+        # neighbourhood smoothing. Z padding keeps output_z == input_z when
+        # patch_size_z == 1 (the only path we use today).
+        z_padding = (z_kernel - 1) // 2
+        self.proj = nn.Conv3d(
+            in_channels, embed_dim,
+            kernel_size=(z_kernel, self.patch_size[1], self.patch_size[2]),
+            stride=self.patch_size,
+            padding=(z_padding, 0, 0))
         self.norm = nn.LayerNorm(embed_dim)
 
     def forward(self, x: Tensor) -> Tensor:

@@ -93,6 +93,39 @@ def test_patch_embed_shape():
     assert y.shape == (2, 12, 32, 32, 16)
 
 
+def test_patch_embed_z_kernel_default_is_one():
+    """Default keeps backwards-compat behaviour (XY-only conv, no Z mix)."""
+    embed = PatchEmbed3D(in_channels=3, embed_dim=8, patch_size=(1, 2, 2))
+    # Conv3d kernel and padding reflect z_kernel=1.
+    assert embed.proj.kernel_size == (1, 2, 2)
+    assert embed.proj.padding == (0, 0, 0)
+
+
+def test_patch_embed_z_kernel_3_preserves_z_and_mixes_neighbours():
+    """v6 variant: 3-Z-neighbour conv with symmetric Z padding (Z size preserved)."""
+    embed = PatchEmbed3D(in_channels=3, embed_dim=8, patch_size=(1, 2, 2),
+                         z_kernel=3)
+    assert embed.proj.kernel_size == (3, 2, 2)
+    assert embed.proj.padding == (1, 0, 0)
+    x = torch.randn(2, 3, 12, 64, 64)
+    y = embed(x)
+    assert y.shape == (2, 12, 32, 32, 8)
+    # The Z conv must actually mix Z slices: zeroing the centre slice in
+    # input should change the centre slice in output even though XY
+    # downsampling is local.
+    x_z6_zero = x.clone()
+    x_z6_zero[:, :, 6, :, :] = 0.0
+    y2 = embed(x_z6_zero)
+    assert not torch.equal(y[:, 6, :, :, :], y2[:, 6, :, :, :])
+
+
+def test_patch_embed_z_kernel_rejects_invalid():
+    with pytest.raises(ValueError, match="positive odd"):
+        PatchEmbed3D(in_channels=1, embed_dim=4, z_kernel=2)
+    with pytest.raises(ValueError, match="positive odd"):
+        PatchEmbed3D(in_channels=1, embed_dim=4, z_kernel=0)
+
+
 def test_patch_merging_deducts_z_and_halves_xy():
     merge = PatchMerging3D(dim=16, z_deduction=2)
     x = torch.randn(2, 12, 64, 64, 16)

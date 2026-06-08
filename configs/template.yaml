@@ -80,6 +80,13 @@ trainer:
       drop_rate: 0.0
       attn_drop_rate: 0.0
       z_deduction_per_stage: auto  # 'auto' derives it from the Z patch depth; or an explicit int
+      # `patch_embed_z_kernel` (default 1 = XY-only patch embed, matches
+      # Swin's classic anisotropic stem) controls the Z-direction kernel
+      # of the very first conv. Set to 3 (the v6 variant) for a 3-slice
+      # Z-conv at the input, which partially smooths the period-N stacked-
+      # label pattern produced by `np.repeat` Z-upsampling before any
+      # attention sees it. Must be positive and odd.
+      patch_embed_z_kernel: 1
 
   optimization:
     epochs: 10

@@ -91,6 +91,7 @@ class SwinUNETR3D(nn.Module):
             _attn_drop_rate: float = 0.0,
             _z_deduction_per_stage='auto',
             _use_relative_pos_bias: bool = True,
+            _patch_embed_z_kernel: int = 1,
             _gradient_checkpointing='auto',
             _deep_supervision: bool = False,
             _ds_levels: int = 2):
@@ -136,8 +137,12 @@ class SwinUNETR3D(nn.Module):
             _gradient_checkpointing)
 
         # --- Patch embedding: halve XY, keep Z, project to feature_size ---
+        # `z_kernel > 1` enables a Z-direction conv at the very first layer
+        # (v6 variant) to blur the period-N stacked-label pattern produced
+        # by the `np.repeat` Z-upsampling before any attention sees it.
         self.patch_embed = PatchEmbed3D(_input_channels, _feature_size,
-                                        patch_size=(1, 2, 2))
+                                        patch_size=(1, 2, 2),
+                                        z_kernel=_patch_embed_z_kernel)
 
         # --- Encoder stages ---
         sample_z = self.sample_dimension[0]

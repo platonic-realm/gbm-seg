@@ -36,6 +36,8 @@ def build(configs, input_channels, num_classes):
         _z_deduction_per_stage=swin_cfg.get('z_deduction_per_stage', 'auto'),
         _use_relative_pos_bias=bool(
             swin_cfg.get('use_relative_pos_bias', True)),
+        _patch_embed_z_kernel=int(
+            swin_cfg.get('patch_embed_z_kernel', 1)),
         _gradient_checkpointing=configs['trainer']['runtime'].get(
             'gradient_checkpointing', 'auto'),
         _deep_supervision=ds_cfg.get('enabled', False),
