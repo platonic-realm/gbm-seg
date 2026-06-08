@@ -276,6 +276,11 @@ trainer:
       project: gbm-ablation
       entity: gbm-project  # personal entity is admin-disabled; use team handle
       run_name: null       # null → wandb auto-generates a name
+      # Mirror every snapshot .pt to the W&B run via wandb.save(policy='live').
+      # Default OFF: per-project W&B storage is capped and a single training
+      # run produces 70+ snapshots × ~30MB, which fills the quota fast.
+      # Local snapshots in `results-train/snapshots/` are always written.
+      upload_snapshots: False
 
     # Interval between metric reports (train log + W&B log + snapshot save).
     # Interpreted at a REFERENCE effective batch of 8 — internally the

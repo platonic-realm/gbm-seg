@@ -306,7 +306,13 @@ class Factory:
                                      self.result_path,
                                      self.configs['trainer']['logging']['snapshot_path'])
 
-        snapper = Snapper(snapshot_path)
+        # W&B per-project storage is capped; a single run produces 70+
+        # snapshots × ~30MB, which fills the quota. Opt-in via
+        # `trainer.logging.wandb.upload_snapshots` (default off).
+        wandb_cfg = (self.configs.get('trainer', {})
+                     .get('logging', {}).get('wandb', {}))
+        upload = bool(wandb_cfg.get('upload_snapshots', False))
+        snapper = Snapper(snapshot_path, _upload_to_wandb=upload)
         return snapper
 
     @staticmethod

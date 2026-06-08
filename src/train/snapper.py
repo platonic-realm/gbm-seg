@@ -85,8 +85,14 @@ class Snapper:
     DDP / DP wrappers are handled symmetrically on both ends.
     """
 
-    def __init__(self, _snapshot_path: str):
+    def __init__(self, _snapshot_path: str,
+                 _upload_to_wandb: bool = False):
         self.snapshot_path = _snapshot_path
+        # Whether to call `wandb.save(...)` on every snapshot. Default off:
+        # W&B per-project storage is capped, and a single training run
+        # produces 70+ snapshots × ~30MB which fills the quota fast. Flip on
+        # only for runs you actively want mirrored to W&B.
+        self.upload_to_wandb = bool(_upload_to_wandb)
         if self.snapshot_path is not None:
             # The per-fold path used by train.main_train looks like
             # `.../results-train/snapshots/fold_3` (no trailing slash and
@@ -167,17 +173,20 @@ class Snapper:
         def write():
             torch.save(snapshot, save_path)
 
-            # E2: upload the snapshot as an artifact when a W&B run is active.
-            try:
-                import wandb
-                if wandb.run is not None:
-                    wandb.save(save_path,
-                               base_path=os.path.dirname(save_path),
-                               policy='live')
-            except ImportError:
-                pass
-            except Exception as exc:  # pragma: no cover — networked side-effect
-                logging.warning("W&B snapshot upload failed: %s", exc)
+            # E2: upload the snapshot to W&B only when both a run is active
+            # AND the config explicitly opts in. Default is off — see
+            # `__init__` for why.
+            if self.upload_to_wandb:
+                try:
+                    import wandb
+                    if wandb.run is not None:
+                        wandb.save(save_path,
+                                   base_path=os.path.dirname(save_path),
+                                   policy='live')
+                except ImportError:
+                    pass
+                except Exception as exc:  # pragma: no cover — networked side-effect
+                    logging.warning("W&B snapshot upload failed: %s", exc)
 
             logging.info("Snapshot saved on epoch: %d, step: %d",
                          _epoch, _step)

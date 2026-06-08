@@ -120,11 +120,11 @@ class _TinyModel(nn.Module):
         self.fc = nn.Linear(4, 2)
 
 
-def test_snapper_save_uploads_artifact_when_wandb_run_active(fake_wandb, tmp_snapshot_dir):
+def test_snapper_save_uploads_artifact_when_opted_in(fake_wandb, tmp_snapshot_dir):
     fake_wandb.run = MagicMock()  # active run
 
     from src.train.snapper import Snapper
-    snapper = Snapper(tmp_snapshot_dir)
+    snapper = Snapper(tmp_snapshot_dir, _upload_to_wandb=True)
     snapper.save(_TinyModel(), _epoch=0, _step=1, _async=False)
 
     assert fake_wandb.save.called
@@ -132,11 +132,23 @@ def test_snapper_save_uploads_artifact_when_wandb_run_active(fake_wandb, tmp_sna
     assert save_path.endswith('000-0001.pt')
 
 
+def test_snapper_save_skips_upload_by_default(fake_wandb, tmp_snapshot_dir):
+    # Default _upload_to_wandb=False: even with an active W&B run the snapshot
+    # must NOT be uploaded — W&B storage quota would otherwise fill up.
+    fake_wandb.run = MagicMock()  # active run
+
+    from src.train.snapper import Snapper
+    snapper = Snapper(tmp_snapshot_dir)  # default = no upload
+    snapper.save(_TinyModel(), _epoch=0, _step=1, _async=False)
+
+    assert not fake_wandb.save.called
+
+
 def test_snapper_save_skips_upload_when_no_active_run(fake_wandb, tmp_snapshot_dir):
     fake_wandb.run = None  # no active run
 
     from src.train.snapper import Snapper
-    snapper = Snapper(tmp_snapshot_dir)
+    snapper = Snapper(tmp_snapshot_dir, _upload_to_wandb=True)
     snapper.save(_TinyModel(), _epoch=0, _step=1, _async=False)
 
     assert not fake_wandb.save.called
