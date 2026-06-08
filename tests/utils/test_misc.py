@@ -447,3 +447,79 @@ def test_copy_directory_skips_pycache(tmp_path):
 
     assert (dest / "pkg" / "mod.py").exists()
     assert not (dest / "pkg" / "__pycache__").exists()
+
+
+def test_hardlink_directory_same_inode_and_count(tmp_path):
+    """Files in the destination point at the source's inode (zero-copy)."""
+    import os
+
+    from src.utils.misc import hardlink_directory
+
+    src = tmp_path / "src"
+    (src / "sub").mkdir(parents=True)
+    (src / "a.tif").write_bytes(b"alpha")
+    (src / "sub" / "b.tif").write_bytes(b"beta")
+    dst = tmp_path / "dst"
+
+    count = hardlink_directory(str(src), str(dst))
+    assert count == 2
+    # Same content, same inode (true hardlink), different path.
+    assert (dst / "a.tif").read_bytes() == b"alpha"
+    assert (dst / "sub" / "b.tif").read_bytes() == b"beta"
+    assert os.stat(src / "a.tif").st_ino == os.stat(dst / "a.tif").st_ino
+    assert os.stat(src / "sub" / "b.tif").st_ino == \
+           os.stat(dst / "sub" / "b.tif").st_ino
+
+
+def test_hardlink_directory_preserves_subdirectories(tmp_path):
+    """Empty intermediate directories are recreated even with no files."""
+    from src.utils.misc import hardlink_directory
+
+    src = tmp_path / "src"
+    (src / "ds_train" / "expert_chris").mkdir(parents=True)
+    (src / "ds_train" / "expert_chris" / "v1.tif").write_bytes(b"x")
+    (src / "ds_test_labeled" / "expert_david").mkdir(parents=True)
+    (src / "ds_test_labeled" / "expert_david" / "v2.tif").write_bytes(b"y")
+    dst = tmp_path / "dst"
+
+    count = hardlink_directory(str(src), str(dst))
+    assert count == 2
+    assert (dst / "ds_train" / "expert_chris" / "v1.tif").exists()
+    assert (dst / "ds_test_labeled" / "expert_david" / "v2.tif").exists()
+
+
+def test_hardlink_directory_skips_symlinks(tmp_path, caplog):
+    """Symlinks in source are skipped (would hardlink the link itself)."""
+    import os
+
+    from src.utils.misc import hardlink_directory
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "real.tif").write_bytes(b"r")
+    os.symlink(src / "real.tif", src / "link.tif")
+    dst = tmp_path / "dst"
+
+    with caplog.at_level("WARNING"):
+        count = hardlink_directory(str(src), str(dst))
+    assert count == 1
+    assert (dst / "real.tif").exists()
+    assert not (dst / "link.tif").exists()
+    assert any("symlink" in r.message.lower() for r in caplog.records)
+
+
+def test_hardlink_directory_missing_source_raises(tmp_path):
+    from src.utils.misc import hardlink_directory
+
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        hardlink_directory(str(tmp_path / "nope"), str(tmp_path / "dst"))
+
+
+def test_hardlink_directory_empty_source_raises(tmp_path):
+    """Empty source likely means a typo / misconfiguration — fail loud."""
+    from src.utils.misc import hardlink_directory
+
+    src = tmp_path / "src"
+    src.mkdir()
+    with pytest.raises(FileNotFoundError, match="no files"):
+        hardlink_directory(str(src), str(tmp_path / "dst"))

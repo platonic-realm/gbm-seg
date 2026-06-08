@@ -66,6 +66,22 @@ def parse_exper() -> None:
                                     'configs.experiments.default_z_scale '
                                     '(template: 6).')
 
+    create_parser.add_argument('--reuse-dataset',
+                               action='store',
+                               default=None,
+                               metavar='SRC_EXP',
+                               help='Hardlink datasets/ from an existing '
+                                    'experiment instead of resizing the '
+                                    'TIFFs from scratch. Saves ~30 min of '
+                                    'TIFF resize and, if the source has '
+                                    'already been offline-augmented, '
+                                    'inherits its aug cache too. Both '
+                                    'experiments must live on the same '
+                                    'filesystem. The hardlinks share inodes '
+                                    'with the source — safe because the '
+                                    'dataset TIFFs are read-only in '
+                                    'training.')
+
     # Define a subparser for the 'delete' action
     delete_parser = \
         subparsers.add_parser('delete',

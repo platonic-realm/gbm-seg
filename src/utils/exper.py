@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 # Library Imports
 import numpy as np
@@ -20,6 +21,7 @@ from src.train.factory import Factory
 from src.utils.misc import (
     copy_directory,
     create_dirs_recursively,
+    hardlink_directory,
     morph_analysis,
     read_configs,
     resize_and_copy,
@@ -602,6 +604,7 @@ def create_new_experiment(_name: str,
                           _voxel_size: list,
                           _z_scale_factor: int = 1,
                           _semi_supervised: bool = False,
+                          _reuse_dataset_from: Optional[str] = None,
                           _ds_train_subdir: str = 'ds_train',
                           _ds_test_labeled_subdir: str = 'ds_test_labeled',
                           _ds_test_unlabeled_subdir: str = 'ds_test_unlabeled'):
@@ -625,50 +628,68 @@ def create_new_experiment(_name: str,
                    code_path,
                    ['.git', 'tags', 'wandb'])
 
-    logging.info("Copying experiment's datasets")
     new_dataset_path = os.path.join(destination_path, 'datasets')
     os.makedirs(new_dataset_path, exist_ok=True)
 
-    new_ds_train_path = os.path.join(new_dataset_path, 'ds_train')
-    create_dirs_recursively(os.path.join(new_ds_train_path, 'dummy'))
-    resize_and_copy(os.path.join(_dataset_path, _ds_train_subdir),
-                    new_ds_train_path,
-                    _voxel_size,
-                    _z_scale_factor=_z_scale_factor)
+    if _reuse_dataset_from:
+        # Skip the ~30-min TIFF resize and hardlink another experiment's
+        # already-prepared datasets/ subtree. Same filesystem only. If the
+        # source had run `gbm.py offline-aug`, the augmented variants come
+        # along for free.
+        src_dataset_path = os.path.join(_root_path, _reuse_dataset_from,
+                                        'datasets')
+        if not os.path.isdir(src_dataset_path):
+            raise FileNotFoundError(
+                f"--reuse-dataset source has no datasets/ directory: "
+                f"{src_dataset_path}")
+        logging.info("Hardlinking dataset from '%s' (skipping TIFF resize)",
+                     src_dataset_path)
+        count = hardlink_directory(src_dataset_path, new_dataset_path)
+        logging.info("Hardlinked %d files from '%s'", count, _reuse_dataset_from)
+        new_ds_train_path = os.path.join(new_dataset_path, 'ds_train')
+    else:
+        logging.info("Copying experiment's datasets")
 
-    # Both test sets stay at native Z resolution; `gbm.py infer` performs the
-    # Z upsampling on-the-fly via InferenceDataset when --interpolation true.
-    # Pre-upsampling here would double the inflation factor (and also fight
-    # with inference.inference_ds.scale_factor=6).
+        new_ds_train_path = os.path.join(new_dataset_path, 'ds_train')
+        create_dirs_recursively(os.path.join(new_ds_train_path, 'dummy'))
+        resize_and_copy(os.path.join(_dataset_path, _ds_train_subdir),
+                        new_ds_train_path,
+                        _voxel_size,
+                        _z_scale_factor=_z_scale_factor)
 
-    # ds_test_unlabeled: flat directory of whole-glomerulus 3-channel volumes.
-    new_ds_test_unlabeled_path = os.path.join(new_dataset_path,
-                                              'ds_test_unlabeled')
-    create_dirs_recursively(os.path.join(new_ds_test_unlabeled_path, 'dummy'))
-    resize_and_copy(os.path.join(_dataset_path, _ds_test_unlabeled_subdir),
-                    new_ds_test_unlabeled_path,
-                    _voxel_size)
+        # Both test sets stay at native Z resolution; `gbm.py infer` performs the
+        # Z upsampling on-the-fly via InferenceDataset when --interpolation true.
+        # Pre-upsampling here would double the inflation factor (and also fight
+        # with inference.inference_ds.scale_factor=6).
 
-    # ds_test_labeled: one sub-directory per annotator (e.g. Chris/David/Robin),
-    # each holding the same crops as 4-channel TIFFs (channel 3 = that expert's
-    # label). Copy each expert into a matching sub-directory so the 3-expert
-    # structure is preserved for Stage-C scoring.
-    new_ds_test_labeled_path = os.path.join(new_dataset_path, 'ds_test_labeled')
-    create_dirs_recursively(os.path.join(new_ds_test_labeled_path, 'dummy'))
-    src_labeled = Path(_dataset_path) / _ds_test_labeled_subdir
-    expert_dirs = (sorted(p for p in src_labeled.iterdir() if p.is_dir())
-                   if src_labeled.is_dir() else [])
-    if not expert_dirs:
-        logging.warning(
-            "ds_test_labeled source '%s' has no annotator sub-directories; "
-            "Stage-C evaluation will be unavailable for this experiment.",
-            src_labeled)
-    for expert_dir in expert_dirs:
-        dest_expert = os.path.join(new_ds_test_labeled_path, expert_dir.name)
-        create_dirs_recursively(os.path.join(dest_expert, 'dummy'))
-        resize_and_copy(str(expert_dir), dest_expert, _voxel_size)
-        logging.info("Copied labeled test crops for annotator '%s'",
-                     expert_dir.name)
+        # ds_test_unlabeled: flat directory of whole-glomerulus 3-channel volumes.
+        new_ds_test_unlabeled_path = os.path.join(new_dataset_path,
+                                                  'ds_test_unlabeled')
+        create_dirs_recursively(os.path.join(new_ds_test_unlabeled_path, 'dummy'))
+        resize_and_copy(os.path.join(_dataset_path, _ds_test_unlabeled_subdir),
+                        new_ds_test_unlabeled_path,
+                        _voxel_size)
+
+        # ds_test_labeled: one sub-directory per annotator (e.g. Chris/David/Robin),
+        # each holding the same crops as 4-channel TIFFs (channel 3 = that expert's
+        # label). Copy each expert into a matching sub-directory so the 3-expert
+        # structure is preserved for Stage-C scoring.
+        new_ds_test_labeled_path = os.path.join(new_dataset_path, 'ds_test_labeled')
+        create_dirs_recursively(os.path.join(new_ds_test_labeled_path, 'dummy'))
+        src_labeled = Path(_dataset_path) / _ds_test_labeled_subdir
+        expert_dirs = (sorted(p for p in src_labeled.iterdir() if p.is_dir())
+                       if src_labeled.is_dir() else [])
+        if not expert_dirs:
+            logging.warning(
+                "ds_test_labeled source '%s' has no annotator sub-directories; "
+                "Stage-C evaluation will be unavailable for this experiment.",
+                src_labeled)
+        for expert_dir in expert_dirs:
+            dest_expert = os.path.join(new_ds_test_labeled_path, expert_dir.name)
+            create_dirs_recursively(os.path.join(dest_expert, 'dummy'))
+            resize_and_copy(str(expert_dir), dest_expert, _voxel_size)
+            logging.info("Copied labeled test crops for annotator '%s'",
+                         expert_dir.name)
 
     logging.info("Saving the requirements file to '%s'",
                  destination_path)

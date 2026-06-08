@@ -30,6 +30,7 @@ def _do_create(args, configs):
         _batch_size=int(args.batch_size),
         _voxel_size=exp_cfg['default_voxel_size'],
         _z_scale_factor=z_scale,
+        _reuse_dataset_from=args.reuse_dataset,
         _ds_train_subdir=exp_cfg.get('ds_train_subdir', 'ds_train'),
         _ds_test_labeled_subdir=exp_cfg.get('ds_test_labeled_subdir',
                                             'ds_test_labeled'),

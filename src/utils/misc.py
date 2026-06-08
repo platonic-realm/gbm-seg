@@ -320,6 +320,55 @@ def resize_and_copy(_source_dir, _dest_dir, _target_size,
             pass
 
 
+def hardlink_directory(_source_dir, _dest_dir) -> int:
+    """Recursively hardlink every regular file under ``_source_dir`` into
+    ``_dest_dir``, preserving the relative path layout. Directories are
+    re-created (not hardlinked). Symlinks are skipped with a warning.
+
+    Returns the number of files hardlinked. Useful for ``gbm.py create
+    --reuse-dataset <other_exp>`` so a new experiment can share the
+    resized + Z-upsampled (and possibly offline-augmented) TIFFs of an
+    existing one at zero disk cost — both names point at the same inode.
+
+    Both paths must live on the same filesystem (hardlinks can't cross
+    filesystem boundaries). Raises ``FileNotFoundError`` if the source
+    is missing or empty; ``OSError`` from ``os.link`` propagates
+    unchanged for everything else (e.g. cross-device, permission).
+
+    Note on safety: hardlinked files share their inode, so any in-place
+    modification visible to one experiment is visible to the other.
+    The dataset TIFFs are read-only in our training pipeline (the
+    DataLoader opens them with read mode), so this is safe here. Don't
+    use this helper for anything that may be mutated.
+    """
+    src_path = Path(_source_dir)
+    dst_path = Path(_dest_dir)
+    if not src_path.is_dir():
+        raise FileNotFoundError(
+            f"Source directory does not exist: {_source_dir}")
+    count = 0
+    for src_file in src_path.rglob('*'):
+        rel = src_file.relative_to(src_path)
+        target = dst_path / rel
+        if src_file.is_symlink():
+            # Hardlinking a symlink would hardlink the symlink itself
+            # (not its target), which is rarely what callers want; skip.
+            logging.warning("Skipping symlink %s (hardlink_directory does "
+                            "not follow symlinks)", src_file)
+            continue
+        if src_file.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if src_file.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.link(src_file, target)
+            count += 1
+    if count == 0:
+        raise FileNotFoundError(
+            f"Source directory has no files to hardlink: {_source_dir}")
+    return count
+
+
 def copy_directory(_source_dir, _dest_dir, _exclude_list: list):
     # Skip Python bytecode / test caches at every nesting level — they only
     # bloat the experiment's code/ snapshot. `ignore_dangling_symlinks`
