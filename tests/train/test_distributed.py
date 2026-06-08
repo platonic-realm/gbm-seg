@@ -196,3 +196,51 @@ def test_main_train_refuses_ddp_without_torchrun_env(monkeypatch):
     }
     with pytest.raises(RuntimeError, match=r"torchrun"):
         main_train(cfg, _fold=0)
+
+
+def test_init_ddp_uses_30min_timeout_by_default(monkeypatch):
+    """The default NCCL collective timeout is 30 min (not PyTorch's 10 min)."""
+    import datetime
+    from unittest.mock import patch
+
+    monkeypatch.delenv('TORCH_NCCL_TIMEOUT_MIN', raising=False)
+    monkeypatch.setenv('LOCAL_RANK', '0')
+    monkeypatch.setenv('RANK', '0')
+    monkeypatch.setenv('WORLD_SIZE', '4')
+
+    from src.train import distributed
+    cfg = {'trainer': {'runtime': {'ddp': True}}}
+
+    with patch('torch.cuda.set_device'), \
+         patch.object(distributed.dist, 'init_process_group') as init_pg, \
+         patch.object(distributed.dist, 'get_world_size', return_value=4), \
+         patch.object(distributed.dist, 'get_rank', return_value=0), \
+         patch.object(distributed.dist, 'is_initialized', return_value=False):
+        distributed.init_ddp(cfg)
+        init_pg.assert_called_once()
+        kwargs = init_pg.call_args.kwargs
+        assert kwargs['backend'] == 'nccl'
+        assert kwargs['timeout'] == datetime.timedelta(minutes=30)
+
+
+def test_init_ddp_timeout_overridable_via_env(monkeypatch):
+    """`TORCH_NCCL_TIMEOUT_MIN` env var overrides the 30-min default."""
+    import datetime
+    from unittest.mock import patch
+
+    monkeypatch.setenv('TORCH_NCCL_TIMEOUT_MIN', '60')
+    monkeypatch.setenv('LOCAL_RANK', '0')
+    monkeypatch.setenv('RANK', '0')
+    monkeypatch.setenv('WORLD_SIZE', '4')
+
+    from src.train import distributed
+    cfg = {'trainer': {'runtime': {'ddp': True}}}
+
+    with patch('torch.cuda.set_device'), \
+         patch.object(distributed.dist, 'init_process_group') as init_pg, \
+         patch.object(distributed.dist, 'get_world_size', return_value=4), \
+         patch.object(distributed.dist, 'get_rank', return_value=0), \
+         patch.object(distributed.dist, 'is_initialized', return_value=False):
+        distributed.init_ddp(cfg)
+        assert init_pg.call_args.kwargs['timeout'] == \
+            datetime.timedelta(minutes=60)

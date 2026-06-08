@@ -18,6 +18,7 @@ helpers, so the rank-0-only paths and the all-reduce patterns stay
 isolated and easy to test.
 """
 
+import datetime
 import logging
 import os
 
@@ -54,13 +55,25 @@ def init_ddp(_configs: dict):
 
     local_rank = int(os.environ['LOCAL_RANK'])
     torch.cuda.set_device(local_rank)
-    dist.init_process_group(backend='nccl')
+    # NCCL Work timeout governs how long a collective (broadcast/all-reduce/
+    # etc.) can wait for the slowest peer before the watchdog declares the
+    # group dead and aborts the rank. The PyTorch default is 10 min, which is
+    # too short for our first-batch latency: at large per-rank batches with
+    # 60+ Z-upsampled TIFFs to enumerate and a cold per-worker NFS cache,
+    # the very first DataLoader iter() can take 12-15 min before the first
+    # forward-pass collective even starts. The 30-min default below buys
+    # that headroom; override with `TORCH_NCCL_TIMEOUT_MIN=<minutes>` to
+    # tune up (debug) or down (fail-fast in CI).
+    timeout_min = int(os.environ.get('TORCH_NCCL_TIMEOUT_MIN', '30'))
+    dist.init_process_group(
+        backend='nccl',
+        timeout=datetime.timedelta(minutes=timeout_min))
     world_size = dist.get_world_size()
     rank = dist.get_rank()
     logging.info(
         "DDP initialised: global_rank=%d local_rank=%d world_size=%d "
-        "device=cuda:%d",
-        rank, local_rank, world_size, local_rank)
+        "device=cuda:%d nccl_timeout_min=%d",
+        rank, local_rank, world_size, local_rank, timeout_min)
     return local_rank, world_size
 
 
