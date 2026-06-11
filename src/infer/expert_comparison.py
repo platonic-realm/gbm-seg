@@ -360,6 +360,7 @@ def _plot_box(per_crop: dict, out_path: Path) -> None:
     fig.suptitle('Expert comparison — pairwise agreement across crops',
                  fontsize=12)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    # dpi 120 -> 480: 4x the linear pixel resolution (publication-quality raster).
+    fig.savefig(out_path, dpi=480, bbox_inches='tight')
     plt.close(fig)
     logging.info('Wrote %s', out_path)
