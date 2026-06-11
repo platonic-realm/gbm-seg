@@ -122,6 +122,14 @@ trainer:
     scheduler:
       name: poly_decay
       power: 0.9
+      # warmup_epochs (default 0): linear LR warmup over the first N epochs,
+      # ramping from warmup_start_factor×peak (default 0.1) up to the peak LR
+      # before poly-decay. Stepped per epoch like the rest of the schedule, so
+      # the whole first N epoch(s) run at the reduced LR — stabilises the early
+      # phase so a higher peak LR is safe (needed for the LR-sensitive
+      # SwinUNETR transformer). 0 disables warmup (plain poly-decay).
+      warmup_epochs: 0
+      warmup_start_factor: 0.1
       # total_iters defaults to trainer.optimization.epochs if omitted, but for
       # any non-trivial run you'll want to set it to
       # (epochs × validation-cycles-per-epoch).

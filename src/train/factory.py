@@ -286,8 +286,29 @@ class Factory:
                 'total_iters',
                 self.configs['trainer']['optimization']['epochs'])
             power = sched_cfg.get('power', 0.9)
-            return torch.optim.lr_scheduler.PolynomialLR(
-                _optimizer, total_iters=total_iters, power=power)
+            # Optional linear warmup over the first `warmup_epochs` epochs,
+            # ramping the LR from `warmup_start_factor`×peak up to the peak
+            # before poly-decay takes over. The scheduler is stepped per
+            # epoch, so warmup is in epoch units (the whole first epoch[s]
+            # run at the reduced LR) — this stabilises the early, high-
+            # variance phase, which is what lets us run a higher peak LR
+            # (important for the LR-sensitive SwinUNETR transformer).
+            warmup_epochs = int(sched_cfg.get('warmup_epochs', 0) or 0)
+            poly = torch.optim.lr_scheduler.PolynomialLR(
+                _optimizer, total_iters=max(1, total_iters - warmup_epochs),
+                power=power)
+            if warmup_epochs <= 0:
+                return poly
+            start_factor = float(sched_cfg.get('warmup_start_factor', 0.1))
+            warmup = torch.optim.lr_scheduler.LinearLR(
+                _optimizer, start_factor=start_factor, end_factor=1.0,
+                total_iters=warmup_epochs)
+            logging.info(
+                "LR schedule: %d-epoch linear warmup (start_factor=%.2f) → "
+                "poly_decay(power=%.2f) over %d epochs",
+                warmup_epochs, start_factor, power, max(1, total_iters - warmup_epochs))
+            return torch.optim.lr_scheduler.SequentialLR(
+                _optimizer, schedulers=[warmup, poly], milestones=[warmup_epochs])
         raise NotImplementedError(
             f"Unknown scheduler: {name!r}. Supported: 'poly_decay', 'none'.")
 
