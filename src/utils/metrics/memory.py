@@ -24,12 +24,22 @@ class GPURunningMetrics:
 
     def add(self, _values) -> None:
         for i, metric in enumerate(self.metrics):
-            if len(_values[metric].shape) > 0:
-                _value = _values[metric].squeeze()
+            value = _values[metric]
+            # A metric may return a 0-/1-dim tensor or a plain Python scalar
+            # (e.g. PhiCoefficient, which casts to float to avoid int64
+            # overflow). Coerce to a 0-dim float tensor on this device.
+            if isinstance(value, torch.Tensor):
+                _value = value.squeeze() if value.dim() > 0 else value
             else:
-                _value = _values[metric]
+                _value = torch.as_tensor(float(value), device=self.device,
+                                         dtype=torch.float32)
 
-            if not torch.isnan(_value):
+            # Skip non-finite batches (nan AND inf). Some metrics are
+            # legitimately inf in degenerate batches — e.g. the likelihood
+            # ratios when FPR=0 early in training — and accumulating inf
+            # would poison the whole running average. The mean is then over
+            # the finite batches only (or nan if every batch was non-finite).
+            if torch.isfinite(_value):
                 self.values[i] += _value
                 self.counter[i] += 1
 
