@@ -396,6 +396,52 @@ def parse_exper() -> None:
                               action='store_true',
                               help='removes unreal values from the statistics')
 
+    infer_parser.add_argument('-sn',
+                              '--sample-name',
+                              action='store',
+                              default=None,
+                              help='process ONLY this sample (per-sample '
+                                   'array-task mode); the reduce step '
+                                   '(stats-reduce) then aggregates. Omit for '
+                                   'the single-process full run.')
+
+    # `stats-reduce` — aggregate the per-sample sidecars written by the
+    # parallel `stats -sn <sample>` array tasks into the cohort outputs.
+    stats_reduce_parser = subparsers.add_parser(
+        'stats-reduce',
+        help='aggregate per-sample stats sidecars into the cohort-level '
+             'outputs + publication figures (parallel stats reduce step)')
+    stats_reduce_parser.add_argument('name', help='name of the experiment.')
+    stats_reduce_parser.add_argument('-it', '--inference-tag', required=True,
+                                     help='inference tag to reduce')
+    stats_reduce_parser.add_argument('--clipping', action='store_true',
+                                     help='accepted for CLI symmetry; the '
+                                          'per-sample stage already clipped')
+
+    # `labels-as-pred` — copy training labels into the inference output
+    # layout so psp/morph/stats can be run against ground truth. See
+    # src/infer/labels_as_pred.py.
+    lap_parser = subparsers.add_parser(
+        'labels-as-pred',
+        help='materialise training labels (from <exp>/datasets/ds_train/) '
+             'as if they were model predictions, so the downstream pipeline '
+             'can compute morph/stats on the ground truth itself')
+    lap_parser.add_argument('name', help='name of the experiment.')
+    lap_parser.add_argument(
+        '--output-tag',
+        default=None,
+        help="output inference tag (default 'labels_train'). The downstream "
+             "pipeline (psp/morph/stats) is then run with -it <this-tag> "
+             "exactly as for a model inference.")
+    lap_parser.add_argument(
+        '--z-repeat',
+        type=int,
+        default=1,
+        help='Extra Z-upsampling factor applied via np.repeat(..., axis=0). '
+             'Defaults to 1 (no-op) because ds_train/ TIFFs are already at '
+             'the upsampled Z grid produced by `gbm.py create`. Pass 6 only '
+             'when feeding native-Z labels (rare).')
+
     # Parse the arguments
     args = parser.parse_args()
 

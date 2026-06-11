@@ -364,8 +364,16 @@ inference:
 
   morph:
     kernel_ave_size: 5
-    # Thickness values above this (nm) are considered unrealistic and clipped to 0 by `gbm.py stats --clipping`.
-    thickness_clip_max: 1400
+
+  stats:
+    # The single thickness knob for the stats stage. It bounds every figure:
+    # the group-comparison plots' thickness axis (violin / ridgeline / ECDF /
+    # per-mouse) AND the per-sample heatmap colour-scale + polar radial axis.
+    # It is ALSO the `gbm.py stats --clipping` drop threshold — so the value
+    # you display to and the value you clip at are the same (no second knob).
+    # The hard HARD_THICKNESS_LIMIT_NM cap in src/infer/stats.py (1200 nm)
+    # still governs what's masked regardless. Keep it ≤ that hard cap.
+    max_thickness: 1200
 
   result_path: ''
 

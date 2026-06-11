@@ -139,7 +139,29 @@ def _do_stats(args, configs):
     exper.stats(args.name,
                 configs['experiments']['root'],
                 args.inference_tag,
-                args.clipping)
+                args.clipping,
+                _sample_name=getattr(args, 'sample_name', None))
+
+
+def _do_stats_reduce(args, configs):
+    configure_logger(configs, _log_to_file=False)
+    exper.stats_reduce(args.name,
+                       configs['experiments']['root'],
+                       args.inference_tag,
+                       args.clipping)
+
+
+def _do_labels_as_pred(args, configs):
+    """Materialise training labels as prediction.{npz,tif} files so the
+    downstream psp/morph/stats pipeline can be run against ground truth.
+    See src/infer/labels_as_pred.py for the rationale and output layout.
+    """
+    configure_logger(configs, _log_to_file=False)
+    from src.infer.labels_as_pred import labels_as_pred
+    labels_as_pred(configs['experiments']['root'],
+                   args.name,
+                   args.output_tag,
+                   args.z_repeat)
 
 
 def _do_ablate(args, configs):
@@ -176,19 +198,21 @@ def _do_infer_ablate(args, configs):
 
 # Aligned by hand for readability; suppress pycodestyle's "multiple spaces after ':'".
 HANDLERS = {
-    'create':       _do_create,
-    'list':         _do_list,
-    'train':        _do_train,
-    'aggregate-cv': _do_aggregate_cv,
-    'offline-aug':  _do_offline_aug,
-    'delete':       _do_delete,
-    'infer':        _do_infer,
-    'psp':          _do_psp,
-    'morph':        _do_morph,
-    'blender':      _do_blender,
-    'render':       _do_render,
-    'export':       _do_export,
-    'stats':        _do_stats,
+    'create':          _do_create,
+    'list':            _do_list,
+    'train':           _do_train,
+    'aggregate-cv':    _do_aggregate_cv,
+    'offline-aug':     _do_offline_aug,
+    'delete':          _do_delete,
+    'infer':           _do_infer,
+    'psp':             _do_psp,
+    'morph':           _do_morph,
+    'blender':         _do_blender,
+    'render':          _do_render,
+    'export':          _do_export,
+    'stats':           _do_stats,
+    'stats-reduce':    _do_stats_reduce,
+    'labels-as-pred':  _do_labels_as_pred,
     'ablate':       _do_ablate,
     'infer-ablate': _do_infer_ablate,
 }

@@ -14,7 +14,11 @@ import yaml
 from infer import main_infer
 from src.data.folds import assign_folds, write_assignments
 from src.infer.blender_io import blender_prepare, blender_render, export_results
-from src.infer.stats import calculate_stats
+from src.infer.stats import (
+    calculate_stats,
+    calculate_stats_one_sample,
+    calculate_stats_reduce,
+)
 
 # Local Imports
 from src.train.factory import Factory
@@ -196,57 +200,99 @@ def clipping(_name: str,
         clipping_high_values(sample_path)
 
 
-def stats(_name: str,
-          _root_path: str,
-          _inference_tag: str,
-          _clipping: bool):
+def _resolve_stats_paths(_name, _root_path, _inference_tag):
+    """Shared path resolution for the stats entry points. Returns
+    (inference_result_path, stats_dir, max_thickness).
 
+    `max_thickness` is the single stats knob: it bounds every figure axis /
+    colour-scale AND is the --clipping drop threshold (one value, not two).
+    Read from inference.stats.max_thickness, falling back to the legacy
+    inference.morph.thickness_clip_max, then 1200."""
     if not experiment_exists(_root_path, _name):
-        message = f"Experiment '{_name}' doesn't exist"
-        raise FileNotFoundError(message)
+        raise FileNotFoundError(f"Experiment '{_name}' doesn't exist")
 
     configs_path = os.path.join(_root_path, _name, 'configs.yaml')
     configs = read_configs(configs_path)
-    thickness_clip_max = configs['inference']['morph'].get('thickness_clip_max', 1400)
+    max_thickness = (configs['inference'].get('stats') or {}).get('max_thickness')
+    if max_thickness is None:
+        max_thickness = configs['inference'].get('morph', {}).get(
+            'thickness_clip_max', 1200)
 
-    inference_root_path = os.path.join(_root_path, _name, 'results-infer')
-    inference_result_path = os.path.join(inference_root_path, _inference_tag)
-    if not os.path.exists(inference_result_path):
-        raise FileNotFoundError("Incorrect path: {inference_result_path}")
-
-    inference_root_path = Path(inference_root_path)
-    inference_result_path = Path(inference_result_path)
+    inference_root_path = Path(os.path.join(_root_path, _name, 'results-infer'))
+    inference_result_path = inference_root_path / _inference_tag
+    if not inference_result_path.exists():
+        raise FileNotFoundError(f"Incorrect path: {inference_result_path}")
 
     stats_dir = inference_root_path / f"{_inference_tag}_stats"
+    return inference_result_path, stats_dir, max_thickness
+
+
+def _maybe_expert_comparison(_name, _root_path, _inference_tag, _stats_dir):
+    """Run the optional expert comparison (model-vs-annotators) if the
+    labeled-inference output + annotator dirs exist. Shared by stats() and
+    stats_reduce()."""
+    labeled_inference_path = os.path.join(
+        _root_path, _name, 'results-infer-labeled', _inference_tag)
+    ds_test_labeled_path = os.path.join(
+        _root_path, _name, 'datasets', 'ds_test_labeled')
+    if os.path.isdir(labeled_inference_path) and os.path.isdir(ds_test_labeled_path):
+        from src.infer.expert_comparison import calculate_expert_comparison
+        calculate_expert_comparison(Path(labeled_inference_path),
+                                    Path(ds_test_labeled_path),
+                                    _stats_dir)
+    else:
+        logging.info(
+            "Skipping expert comparison: no labeled-inference output at "
+            "%s, or no ds_test_labeled at %s.",
+            labeled_inference_path, ds_test_labeled_path)
+
+
+def stats(_name: str,
+          _root_path: str,
+          _inference_tag: str,
+          _clipping: bool,
+          _sample_name: str = None):
+    """Statistical analysis.
+
+    With ``_sample_name`` set, runs ONLY that sample's per-sample stage
+    (the SLURM-array task entry point) — no aggregation, no expert
+    comparison; the reduce step does those. Without it, runs the full
+    single-process pipeline (per-sample + reduce + expert comparison).
+    """
+    inference_result_path, stats_dir, max_thickness = \
+        _resolve_stats_paths(_name, _root_path, _inference_tag)
+
+    if _sample_name is not None:
+        calculate_stats_one_sample(inference_result_path, stats_dir,
+                                   _sample_name, _clipping, max_thickness)
+        return
 
     calculate_stats(inference_result_path,
                     stats_dir,
                     _clipping,
-                    thickness_clip_max)
+                    max_thickness)
 
     # Opportunistically run the expert comparison: if a labeled-inference
     # output exists at the same tag (results-infer-labeled/<tag>/) and
     # the experiment has annotator subdirs under datasets/ds_test_labeled/,
     # compare model predictions to each annotator + measure inter-rater
     # agreement. Outputs go into the same stats_dir but in their own
-    # files (expert_comparison.yaml + expert_comparison_summary.yaml +
-    # expert_comparison.png) so the morph stats and the comparison
-    # report stay independent.
-    labeled_inference_root = os.path.join(_root_path, _name,
-                                          'results-infer-labeled')
-    labeled_inference_path = os.path.join(labeled_inference_root, _inference_tag)
-    ds_test_labeled_path = os.path.join(_root_path, _name,
-                                        'datasets', 'ds_test_labeled')
-    if os.path.isdir(labeled_inference_path) and os.path.isdir(ds_test_labeled_path):
-        from src.infer.expert_comparison import calculate_expert_comparison
-        calculate_expert_comparison(Path(labeled_inference_path),
-                                    Path(ds_test_labeled_path),
-                                    stats_dir)
-    else:
-        logging.info(
-            "Skipping expert comparison: no labeled-inference output at "
-            "%s, or no ds_test_labeled at %s.",
-            labeled_inference_path, ds_test_labeled_path)
+    # files so the morph stats and the comparison report stay independent.
+    _maybe_expert_comparison(_name, _root_path, _inference_tag, stats_dir)
+
+
+def stats_reduce(_name: str,
+                 _root_path: str,
+                 _inference_tag: str,
+                 _clipping: bool):
+    """Reduce step of the parallel stats path: aggregate the per-sample
+    sidecars written by the array tasks, then run the expert comparison.
+    ``_clipping`` is accepted for CLI symmetry (the per-sample stage
+    already applied it)."""
+    inference_result_path, stats_dir, max_thickness = \
+        _resolve_stats_paths(_name, _root_path, _inference_tag)
+    calculate_stats_reduce(inference_result_path, stats_dir, max_thickness)
+    _maybe_expert_comparison(_name, _root_path, _inference_tag, stats_dir)
 
 
 def export(_name: str,
