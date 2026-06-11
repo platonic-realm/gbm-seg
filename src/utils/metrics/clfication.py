@@ -168,29 +168,30 @@ class Metrics:
             (_betha**2 * Precision + Recall)
 
     # MMC(Matthews correlation coefficient)
+    # MCC = (TP·TN − FP·FN) / sqrt((TP+FP)(TP+FN)(TN+FP)(TN+FN)), in [-1, 1].
+    # Cast to float BEFORE multiplying: the confusion-matrix entries are int64
+    # and the denominator product (~N^4 over millions of voxels) overflows
+    # int64. The previous code also had the wrong formula (sum instead of
+    # product under the root, and TP·TN + FP·FN instead of minus).
     def PhiCoefficient(self, _class_id) -> float:
-        TP = self.TruePositive(_class_id)
-        TN = self.TrueNegative(_class_id)
-        FP = self.FalsePositive(_class_id)
-        FN = self.FalseNegative(_class_id)
+        TP = float(self.TruePositive(_class_id))
+        TN = float(self.TrueNegative(_class_id))
+        FP = float(self.FalsePositive(_class_id))
+        FN = float(self.FalseNegative(_class_id))
 
-        TPxTN = TP * TN
-        FPxFN = FP * FN
+        numerator = TP * TN - FP * FN
+        denominator = ((TP + FP) * (TP + FN) * (TN + FP) * (TN + FN)) ** 0.5
+        if denominator == 0:
+            return 0.0
+        return numerator / denominator
 
-        TPpFP = TP + FP
-        TPpFN = TP + FN
-        TNpFP = TN + FP
-        TNpFN = TN + FN
-
-        return (TPxTN + FPxFN) / \
-            (TPpFP + TPpFN + TNpFP + TNpFN)**(1/2)
-
-    # FM = (PPV + TPR)^1/2
+    # FM = sqrt(PPV · TPR) — geometric mean of precision and recall, in [0, 1].
+    # (Was sqrt(PPV + TPR), which can exceed 1.)
     def FowlkesMallowsIndex(self, _class_id) -> float:
         PPV = self.PositivePredictiveValue(_class_id)
         TPR = self.TruePositiveRate(_class_id)
 
-        return (PPV + TPR)**(1/2)
+        return (PPV * TPR) ** (1 / 2)
 
     # DOR = LR+ / LR-
     def DiagnosticOddsRation(self, _class_id) -> float:
