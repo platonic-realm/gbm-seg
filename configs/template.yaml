@@ -14,7 +14,7 @@ experiments:
   # default_data_path: '/projects/ag-bozek/afatehi/gbm/data/ds_human/'
   # default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
   default_data_path: '/projects/ag-bozek/afatehi/gbm/dataset/ds_mouse/'
-  default_batch_size: 3
+  default_batch_size: 4
 
   # Sub-directory names inside `default_data_path`, consumed by `gbm.py create`.
   #   ds_train_subdir          — training TIFFs (4-channel: image + label).
@@ -86,10 +86,10 @@ trainer:
       # Z-conv at the input, which partially smooths the period-N stacked-
       # label pattern produced by `np.repeat` Z-upsampling before any
       # attention sees it. Must be positive and odd.
-      patch_embed_z_kernel: 1
+      patch_embed_z_kernel: 5
 
   optimization:
-    epochs: 10
+    epochs: 2
 
     # Optimiser. Supported names:
     #   adam — Adam. Fields: lr (required). β1=0.9, β2=0.999 are PyTorch defaults
@@ -176,12 +176,12 @@ trainer:
     train_ds:
       path: ./data/gbm_train_ds/
       batch_size: 2  # overridden at gbm.py create from experiments.default_batch_size
-      sample_dimension: [24, 256, 256] # Z, X, Y
+      sample_dimension: [12, 256, 256] # Z, X, Y
       # Pixel strides chosen for regularization: with the Z×6 stacking each
       # original-label voxel already appears in many patches at stride [1,64,64].
       # Bigger strides → less redundant exposure per training step → slower
       # overfit on the dataset's high intrinsic redundancy.
-      pixel_stride: [12, 128, 128] # Z, X, Y
+      pixel_stride: [2, 128, 128] # Z, X, Y
       pin_memory: True
       shuffle: True
       ignore_stride_mismatch: True
@@ -200,12 +200,13 @@ trainer:
         #   _twist_reverse <strength> — counter-clockwise twist.
         #   _rotate_random <prob>    — random in-plane rotation; param ignored
         #                              (chance handled in the online block).
+        # FINAL loss-ablation recipe (fixed across all loss arms): the two
+        # zooms + one twist validated in the v8 augmentation runs. Online aug
+        # is OFF — the user's settled choice for the final base config.
         methods_offline: [
-                          ['_zoom', 1.3],
                           ['_zoom', 0.7],
-                          ['_twist_clock', '0.5',],
-                          ['_twist_reverse', '0.5'],
-                          ['_rotate_random', '0.2'],
+                          ['_zoom', 1.3],
+                          ['_twist_clock', '0.5'],
                          ]
         enabled_online: True
         # Online aug — applied per-batch on the fly. `rotate`, `blur`, `crop`,
@@ -231,12 +232,12 @@ trainer:
     valid_ds:
       path: ./data/gbm_valid_ds/
       batch_size: 8
-      sample_dimension: [24, 256, 256] # Z, X, Y
+      sample_dimension: [12, 256, 256] # Z, X, Y
       # Stride equals sample_dimension on every axis, so validation patches
       # tile the volume exactly once with no overlap — fastest validation
       # pass. Metrics are masked to original Z positions regardless (see
       # Unet3DTrainer._select_real_z).
-      pixel_stride: [24, 256, 256] # Z, X, Y
+      pixel_stride: [12, 256, 256] # Z, X, Y
       pin_memory: True
       shuffle: False
       ignore_stride_mismatch: True
