@@ -23,7 +23,7 @@ EPOCHS_ARG=""
 torchrun \
     --nnodes="$MULTI_NODES" \
     --node-rank="$SLURM_NODEID" \
-    --nproc-per-node="$GPUS_PER_NODE" \
+    --nproc-per-node="$SLURM_GPUS_ON_NODE" \
     --rdzv-id="$SLURM_JOB_ID" \
     --rdzv-backend=c10d \
     --rdzv-endpoint="$MASTER_ADDR:$MASTER_PORT" \

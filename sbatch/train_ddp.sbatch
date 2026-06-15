@@ -32,7 +32,10 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # rdzv settings work for single-node multi-GPU; for multi-node, add
 # --rdzv-endpoint=<host>:<port> with a coordinator.
+# nproc-per-node tracks the actual GPU allocation (SLURM_GPUS_ON_NODE), so
+# the GPU count is controlled purely by the sbatch `--gres=gpu:N` flag —
+# e.g. submit with `--gres=gpu:2` for a 2-GPU run. Falls back to 4.
 torchrun \
     --standalone \
-    --nproc-per-node=4 \
+    --nproc-per-node="${SLURM_GPUS_ON_NODE:-4}" \
     gbm.py train "$EXP_NAME" --fold "$FOLD"
