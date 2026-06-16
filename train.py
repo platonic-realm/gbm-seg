@@ -116,11 +116,15 @@ def maybe_init_wandb(_configs, _fold: int = 0,
         wandb_cfg['group'] = exp_name
 
     # Cluster name (lyn / ramses / …) so runs from different clusters are
-    # distinguishable on the shared W&B project. SLURM exports
-    # SLURM_CLUSTER_NAME inside every job; fall back to the node prefix.
-    cluster = (os.environ.get('SLURM_CLUSTER_NAME')
-               or os.environ.get('SLURMD_NODENAME', '').split('-')[0]
-               or 'local')
+    # distinguishable on the shared W&B project. SLURM_CLUSTER_NAME is the
+    # natural source, but some clusters export it literally as "(null)", so
+    # fall back to the alphabetic prefix of the node name (lyn-gpu-06 → lyn,
+    # ramses16301 → ramses) — works regardless of the node naming scheme.
+    cluster = os.environ.get('SLURM_CLUSTER_NAME', '') or ''
+    if cluster in ('', '(null)', 'N/A'):
+        node = os.environ.get('SLURMD_NODENAME') or os.uname().nodename
+        m = re.match(r'[A-Za-z]+', node)
+        cluster = m.group(0).lower() if m else 'local'
 
     run_config = {**_configs,
                   'fold': ('all_data' if _all_data else int(_fold)),

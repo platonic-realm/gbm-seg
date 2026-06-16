@@ -220,3 +220,20 @@ def test_maybe_init_wandb_name_uses_real_fold_not_cell_suffix(fake_wandb,
     assert init_kwargs['name'] == 'lyn-lossabl_swin__cont-fold-3-eager'
     assert 'fold-3' in init_kwargs['tags']
     assert init_kwargs['config']['fold'] == 3
+
+
+def test_maybe_init_wandb_cluster_falls_back_when_slurm_var_is_null(
+        fake_wandb, monkeypatch):
+    """Some clusters export SLURM_CLUSTER_NAME literally as "(null)"; the
+    cluster must then be derived from the node name's alphabetic prefix."""
+    from train import maybe_init_wandb
+
+    monkeypatch.setenv('SLURM_CLUSTER_NAME', '(null)')
+    monkeypatch.setenv('SLURMD_NODENAME', 'lyn-gpu-06')
+    configs = {'trainer': {'logging': {'wandb': {
+        'enabled': True, 'run_name': 'exp'}}}}
+    assert maybe_init_wandb(configs, _fold=0) is True
+    init_kwargs = fake_wandb.init.call_args.kwargs
+    assert init_kwargs['config']['cluster'] == 'lyn'
+    assert init_kwargs['name'] == 'lyn-exp-fold-0-eager'
+    assert 'lyn' in init_kwargs['tags']
