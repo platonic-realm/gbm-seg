@@ -163,9 +163,10 @@ def test_maybe_init_wandb_disabled_returns_false():
     assert maybe_init_wandb(configs) is False
 
 
-def test_maybe_init_wandb_enabled_calls_wandb_init(fake_wandb):
+def test_maybe_init_wandb_enabled_calls_wandb_init(fake_wandb, monkeypatch):
     from train import maybe_init_wandb
 
+    monkeypatch.setenv('SLURM_CLUSTER_NAME', 'testcluster')
     configs = {
         'trainer': {
             'logging': {
@@ -183,9 +184,39 @@ def test_maybe_init_wandb_enabled_calls_wandb_init(fake_wandb):
     init_kwargs = fake_wandb.init.call_args.kwargs
     assert init_kwargs['project'] == 'gbm-seg'
     assert init_kwargs['entity'] == 'someone'
-    assert init_kwargs['name'] == 'test-run'
-    # The full configs dict (plus fold) is logged as wandb.config so every
-    # ablation axis is filterable on the W&B UI.
+    # Run name carries the cluster prefix AND the actual fold.
+    assert init_kwargs['name'] == 'testcluster-test-run-fold-2-eager'
+    assert 'fold-2' in init_kwargs['tags']
+    assert 'testcluster' in init_kwargs['tags']
+    # The full configs dict (plus fold + cluster) is logged as wandb.config
+    # so every ablation axis is filterable on the W&B UI.
     assert init_kwargs['config']['fold'] == 2
+    assert init_kwargs['config']['cluster'] == 'testcluster'
     assert (init_kwargs['config']['trainer']['logging']['wandb']['enabled']
             is True)
+
+
+def test_maybe_init_wandb_name_uses_real_fold_not_cell_suffix(fake_wandb,
+                                                              monkeypatch):
+    """The ablation runner pins run_name to the cell dir name, which ends in a
+    static ``__fold0``. The W&B run name + tag must reflect the ACTUAL --fold,
+    not the baked-in 0 (regression for the per-fold mislabel bug)."""
+    from train import maybe_init_wandb
+
+    monkeypatch.setenv('SLURM_CLUSTER_NAME', 'lyn')
+    configs = {
+        'trainer': {
+            'logging': {
+                'wandb': {
+                    'enabled': True,
+                    'run_name': 'lossabl_swin__cont__fold0',
+                },
+            },
+        },
+    }
+    assert maybe_init_wandb(configs, _fold=3) is True
+    init_kwargs = fake_wandb.init.call_args.kwargs
+    # static __fold0 stripped, real fold-3 appended, cluster prefixed
+    assert init_kwargs['name'] == 'lyn-lossabl_swin__cont-fold-3-eager'
+    assert 'fold-3' in init_kwargs['tags']
+    assert init_kwargs['config']['fold'] == 3

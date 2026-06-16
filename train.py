@@ -5,6 +5,7 @@ import copy
 import logging
 import os
 import random
+import re
 import warnings
 from pathlib import Path
 
@@ -107,11 +108,23 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     # orchestrator uses. Without this, each per-fold sbatch run gets a
     # whimsical wandb-auto name like "avid-energy-3" with no shared group.
     exp_name = Path(_configs.get('root_path', '.') or '.').name or 'experiment'
+    # Strip the static `__foldN` suffix the ablation runner bakes into cell
+    # dir names, so the W&B group is the cell itself (all 5 folds land in one
+    # group) rather than carrying a misleading fold-0 label.
+    exp_name = re.sub(r'[-_]+fold\d+$', '', exp_name)
     if not wandb_cfg.get('group'):
         wandb_cfg['group'] = exp_name
 
+    # Cluster name (lyn / ramses / …) so runs from different clusters are
+    # distinguishable on the shared W&B project. SLURM exports
+    # SLURM_CLUSTER_NAME inside every job; fall back to the node prefix.
+    cluster = (os.environ.get('SLURM_CLUSTER_NAME')
+               or os.environ.get('SLURMD_NODENAME', '').split('-')[0]
+               or 'local')
+
     run_config = {**_configs,
-                  'fold': ('all_data' if _all_data else int(_fold))}
+                  'fold': ('all_data' if _all_data else int(_fold)),
+                  'cluster': cluster}
     explicit_name = wandb_cfg.get('run_name')
 
     # Surface compile state in the run name and as a tag so torch.compile vs
@@ -122,12 +135,17 @@ def maybe_init_wandb(_configs, _fold: int = 0,
         _configs['trainer'].get('runtime', {}).get('compile', False))
     compile_suffix = '-compile' if compile_on else '-eager'
     split_tag = 'all_data' if _all_data else f"fold-{int(_fold)}"
-    tags = ['compile' if compile_on else 'eager', split_tag]
+    tags = ['compile' if compile_on else 'eager', split_tag, cluster]
 
-    # Auto-suffix per-fold (or `-all_data`) so runs don't collide visually.
-    auto_name = explicit_name
-    if explicit_name is None:
-        auto_name = f"{wandb_cfg['group']}-{split_tag}{compile_suffix}"
+    # Run name = <cluster>-<base>-<fold-N><compile>. `base` is the explicit
+    # run_name (with any static cell fold suffix stripped) or the group — so
+    # the name ALWAYS carries the cluster and the ACTUAL fold, even when the
+    # ablation runner pins run_name to the cell dir name (which ends in
+    # `_fold0`). Previously an explicit run_name bypassed the fold suffix
+    # entirely, mislabelling every fold as fold0.
+    base = explicit_name if explicit_name else wandb_cfg['group']
+    base = re.sub(r'[-_]+fold\d+$', '', base)
+    auto_name = f"{cluster}-{base}-{split_tag}{compile_suffix}"
     init_kwargs = dict(
         project=wandb_cfg.get('project', 'gbm-seg'),
         entity=wandb_cfg.get('entity'),
