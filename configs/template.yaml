@@ -14,7 +14,7 @@ experiments:
   # default_data_path: '/projects/ag-bozek/afatehi/gbm/data/ds_human/'
   # default_data_path: '/home/afatehi/gbm/data/ds_mouse/'
   default_data_path: '/projects/ag-bozek/afatehi/gbm/dataset/ds_mouse/'
-  default_batch_size: 4
+  default_batch_size: 8
 
   # Sub-directory names inside `default_data_path`, consumed by `gbm.py create`.
   #   ds_train_subdir          — training TIFFs (4-channel: image + label).
@@ -181,11 +181,11 @@ trainer:
       # original-label voxel already appears in many patches at stride [1,64,64].
       # Bigger strides → less redundant exposure per training step → slower
       # overfit on the dataset's high intrinsic redundancy.
-      pixel_stride: [2, 128, 128] # Z, X, Y
+      pixel_stride: [8, 192, 192] # Z, X, Y
       pin_memory: True
       shuffle: True
       ignore_stride_mismatch: True
-      workers: 4
+      workers: 3
       augmentation:
         # Offline aug precomputes _zoom/_twist/_rotate variants to disk; with
         # the gbm.py create Z×6 stacking each "unique" anatomy is already
@@ -241,7 +241,7 @@ trainer:
       pin_memory: True
       shuffle: False
       ignore_stride_mismatch: True
-      workers: 8
+      workers: 1
 
     # z_scale is NOT set in this template — it is injected into the
     # per-experiment configs.yaml by `gbm.py create` (the value comes from
