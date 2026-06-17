@@ -182,7 +182,8 @@ def test_maybe_init_wandb_enabled_calls_wandb_init(fake_wandb, monkeypatch):
     assert maybe_init_wandb(configs, _fold=2) is True
     fake_wandb.init.assert_called_once()
     init_kwargs = fake_wandb.init.call_args.kwargs
-    assert init_kwargs['project'] == 'gbm-seg'
+    # Project is suffixed with the cluster so runs are segregated per cluster.
+    assert init_kwargs['project'] == 'gbm-seg-testcluster'
     assert init_kwargs['entity'] == 'someone'
     # Run name carries the cluster prefix AND the actual fold.
     assert init_kwargs['name'] == 'testcluster-test-run-fold-2-eager'

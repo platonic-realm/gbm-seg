@@ -124,13 +124,12 @@ class GBMDataset(BaseDataset):
         wga = image[:, 2, :, :]
 
         if self.dataset_type == DatasetType.Supervised:
-            # Label correction (binarise to {0, 1}). Was applied once at
-            # __init__ to the cached image; now done per-call on a fresh
-            # copy so the underlying file (and any future LRU cache) stays
-            # uncontaminated. astype creates a copy; the threshold mutates
-            # only that copy.
-            labels = image[:, 3, :, :].astype(int)
-            labels[labels > 0] = 1
+            # Keep a VIEW of the label channel; binarise + int64 cast is
+            # deferred until AFTER cropping (below). Doing it here on the full
+            # channel allocated a ~2.7 GB int64 copy PER __getitem__ call,
+            # which (retained by glibc) was a major driver of per-worker
+            # host-RAM growth. Cropping first makes the copy patch-sized (~MB).
+            labels = image[:, 3, :, :]
 
         image_shape = nephrin.shape
         # Sample dimention is like (Z, X, Y)
@@ -187,9 +186,11 @@ class GBMDataset(BaseDataset):
                               x_start: x_end,
                               y_start: y_end]
 
-        labels = labels[z_start: z_end,
-                        x_start: x_end,
-                        y_start: y_end]
+        # Crop to the patch, THEN binarise + cast (on the small patch, not the
+        # full volume). int64 keeps it CrossEntropy/loss-compatible.
+        labels = (labels[z_start: z_end,
+                         x_start: x_end,
+                         y_start: y_end] > 0).astype(np.int64)
 
         # Online Augmentations
         if self.augmentation_online and not self.is_valid:

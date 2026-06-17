@@ -30,6 +30,14 @@ source ~/.penvs/venv-gbm/bin/activate && cd ~/.vix/projects/gbm-seg
 # can tip a tight model into a spurious OOM.
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+# Cap glibc malloc arenas. On a many-core node glibc opens up to 8*ncpu
+# arenas and retains freed memory in each, which inflated every DataLoader
+# worker's RSS to several volumes' worth (5.4 GB/volume) and drove the host
+# OOM. 2 arenas keeps freed buffers returnable to the OS; MALLOC_TRIM_
+# THRESHOLD_ forces release of large frees rather than hoarding them.
+export MALLOC_ARENA_MAX=2
+export MALLOC_TRIM_THRESHOLD_=67108864
+
 # rdzv settings work for single-node multi-GPU; for multi-node, add
 # --rdzv-endpoint=<host>:<port> with a coordinator.
 # nproc-per-node tracks the actual GPU allocation (SLURM_GPUS_ON_NODE), so

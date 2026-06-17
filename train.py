@@ -150,8 +150,13 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     base = explicit_name if explicit_name else wandb_cfg['group']
     base = re.sub(r'[-_]+fold\d+$', '', base)
     auto_name = f"{cluster}-{base}-{split_tag}{compile_suffix}"
+    # Per-cluster project so runs from different clusters live in separate
+    # W&B projects (e.g. gbm-ablation-lyn vs gbm-ablation-ramses) — keeps the
+    # lyn dev/probe runs out of the main ablation project. `cluster` is also
+    # carried as a tag (below) for in-project filtering.
+    project = f"{wandb_cfg.get('project', 'gbm-seg')}-{cluster}"
     init_kwargs = dict(
-        project=wandb_cfg.get('project', 'gbm-seg'),
+        project=project,
         entity=wandb_cfg.get('entity'),
         name=auto_name,
         group=wandb_cfg.get('group'),
