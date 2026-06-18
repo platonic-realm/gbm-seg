@@ -15,6 +15,6 @@ base_experiment: ablbase_swin
 folds: [0]
 cells:
   - {name: cont,         overrides: {trainer.optimization.loss.name: Cont}}
-  - {name: dice,         overrides: {trainer.optimization.loss.name: Dice}}
+  # - (excluded: CE-vs-Cont ablation only) - {name: dice,         overrides: {trainer.optimization.loss.name: Dice}}
   - {name: crossentropy, overrides: {trainer.optimization.loss.name: CrossEntropy}}
-  - {name: iou,          overrides: {trainer.optimization.loss.name: IoU}}
+  # - (excluded: CE-vs-Cont ablation only) - {name: iou,          overrides: {trainer.optimization.loss.name: IoU}}
