@@ -89,7 +89,7 @@ trainer:
       patch_embed_z_kernel: 5
 
   optimization:
-    epochs: 2
+    epochs: 5
 
     # Optimiser. Supported names:
     #   adam — Adam. Fields: lr (required). β1=0.9, β2=0.999 are PyTorch defaults
