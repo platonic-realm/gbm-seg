@@ -264,11 +264,16 @@ trainer:
     #   cpu  — useful only for tests or smoke checks; very slow for training.
     device: cuda
     mixed_precision: True
-    # SwinUNETR-only: gradient (activation) checkpointing — trades ~25-35%
-    # extra compute for a large drop in activation memory. 'auto' enables it
-    # when the GPU is too small for the un-checkpointed model (40 GB A100 /
-    # 32 GB V100) and leaves it off on the 80 GB A100; 'on'/'off' force it.
-    gradient_checkpointing: 'on'
+    # Gradient (activation) checkpointing — trades ~25-35% extra compute for a
+    # large drop in activation memory. Applies to BOTH models (Unet3D and
+    # SwinUNETR each wrap their encoder/decoder layers in torch.utils.
+    # checkpoint). 'auto' (the sensible default) enables it only when the
+    # device has <60 GiB (40 GB A100 / 32 GB V100) and leaves it OFF on 80 GB
+    # cards; 'on'/'off' force it. NOTE: SwinUNETR at a large batch on an 80 GB
+    # card may still need an explicit 'on' (its window-attention scores tensor
+    # is the memory wall) — set that per-experiment, don't force 'on' globally
+    # or the conv U-Net checkpoints needlessly and trains ~30% slower.
+    gradient_checkpointing: 'auto'
     # cudnn.benchmark trades determinism for ~5-15% throughput; only honoured
     # under DDP (single-process mode keeps the seed_everything determinism
     # guarantee).
