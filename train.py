@@ -63,6 +63,23 @@ def seed_everything(_seed: int):
     )
 
 
+def _detect_cluster() -> str:
+    """Cluster name (lyn / ramses / …) for W&B project + tagging.
+
+    SLURM_CLUSTER_NAME is the natural source, but some clusters export it
+    literally as the string "(null)"; fall back to the alphabetic prefix of
+    the node name (lyn-gpu-06 → lyn, ramses16301 → ramses) — works regardless
+    of the node naming scheme. Used for BOTH the per-fold training runs and the
+    aggregate cv_summary run so they land in the same per-cluster project.
+    """
+    cluster = os.environ.get('SLURM_CLUSTER_NAME', '') or ''
+    if cluster in ('', '(null)', 'N/A'):
+        node = os.environ.get('SLURMD_NODENAME') or os.uname().nodename
+        m = re.match(r'[A-Za-z]+', node)
+        cluster = m.group(0).lower() if m else 'local'
+    return cluster
+
+
 def maybe_init_wandb(_configs, _fold: int = 0,
                      _resume_run_id: str | None = None,
                      _all_data: bool = False) -> bool:
@@ -115,16 +132,7 @@ def maybe_init_wandb(_configs, _fold: int = 0,
     if not wandb_cfg.get('group'):
         wandb_cfg['group'] = exp_name
 
-    # Cluster name (lyn / ramses / …) so runs from different clusters are
-    # distinguishable on the shared W&B project. SLURM_CLUSTER_NAME is the
-    # natural source, but some clusters export it literally as "(null)", so
-    # fall back to the alphabetic prefix of the node name (lyn-gpu-06 → lyn,
-    # ramses16301 → ramses) — works regardless of the node naming scheme.
-    cluster = os.environ.get('SLURM_CLUSTER_NAME', '') or ''
-    if cluster in ('', '(null)', 'N/A'):
-        node = os.environ.get('SLURMD_NODENAME') or os.uname().nodename
-        m = re.match(r'[A-Za-z]+', node)
-        cluster = m.group(0).lower() if m else 'local'
+    cluster = _detect_cluster()
 
     run_config = {**_configs,
                   'fold': ('all_data' if _all_data else int(_fold)),
@@ -585,13 +593,19 @@ def consolidate_cv_results(_per_fold: list,
     if wandb_cfg.get('enabled', False):
         try:
             import wandb
+            # Same per-cluster project + cluster-prefixed name as the per-fold
+            # training runs, so the cv_summary lands alongside its folds rather
+            # than in the bare (cluster-less) project.
+            cluster = _detect_cluster()
             wandb.init(
-                project=wandb_cfg.get('project', 'gbm-seg'),
+                project=f"{wandb_cfg.get('project', 'gbm-seg')}-{cluster}",
                 entity=wandb_cfg.get('entity'),
-                name=f"{_exp_name}-cv-summary",
+                name=f"{cluster}-{_exp_name}-cv-summary",
                 group=wandb_cfg.get('group', _exp_name),
                 job_type='cv_summary',
-                config={'k': out['k'], 'experiment': _exp_name},
+                tags=[cluster],
+                config={'k': out['k'], 'experiment': _exp_name,
+                        'cluster': cluster},
             )
             for metric, stats in aggregate.items():
                 for stat_name, val in stats.items():
