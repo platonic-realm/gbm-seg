@@ -24,6 +24,7 @@ from src.ablation.spec import Cell, Spec
 
 def _base_configs():
     return {
+        'root_path': '/some/experiments/baseline/',
         'trainer': {
             'optimization': {
                 'loss': {'name': 'Cont', 'cont_alpha': 0.7},
@@ -87,6 +88,30 @@ def test_materialise_creates_one_dir_per_cell_fold(tmp_path):
     assert {p.name for p in paths} == expected_names
     for p in paths:
         assert p.is_dir()
+
+
+def test_materialise_reroots_cell_at_its_own_dir(tmp_path):
+    """Each cell's configs.yaml must carry root_path pointing at the CELL dir,
+    not the base experiment — otherwise every cell writes results/snapshots
+    into the base and sibling cells collide there (regression)."""
+    _make_base_experiment(tmp_path)
+    spec = _make_spec(
+        cells=[
+            Cell(name='cont', overrides={'trainer.optimization.loss.name': 'Cont'}),
+            Cell(name='crossentropy',
+                 overrides={'trainer.optimization.loss.name': 'CrossEntropy'}),
+        ],
+        folds=[0],
+    )
+    paths = materialise(spec, tmp_path)
+    for p in paths:
+        cfg = yaml.safe_load((p / 'configs.yaml').read_text())
+        assert cfg['root_path'].rstrip('/') == str(p), (
+            f"cell {p.name} root_path={cfg['root_path']} should point at itself")
+    # sibling cells must NOT share a root_path
+    roots = {yaml.safe_load((p / 'configs.yaml').read_text())['root_path']
+             for p in paths}
+    assert len(roots) == len(paths)
 
 
 def test_materialise_symlinks_datasets_and_code(tmp_path):

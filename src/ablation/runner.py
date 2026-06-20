@@ -79,6 +79,14 @@ def _materialise_one(base_path: Path, base_configs: dict,
 
     # Build the cell's configs.yaml.
     cell_configs = apply_overrides(base_configs, run.cell.overrides)
+    # Re-root the cell at its OWN directory. base_configs carries the base
+    # experiment's root_path, so without this every cell writes its
+    # results-train/snapshots into the BASE dir — and sibling cells (e.g.
+    # swin__cont vs swin__crossentropy) collide there, overwriting each
+    # other's fold_N/best_metrics.yaml. All other path keys are relative to
+    # root_path, so this is the only one to rewrite. Trailing os.sep matches
+    # create_new_experiment's format.
+    cell_configs['root_path'] = str(cell_path) + os.sep
     # Inject the W&B run name so each cell shows up separately on the UI.
     # The logging/wandb blocks may not exist on older base experiments;
     # build defensively.
