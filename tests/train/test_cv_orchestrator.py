@@ -52,6 +52,24 @@ def test_aggregate_cv_empty_returns_empty():
     assert _aggregate_cv([]) == {}
 
 
+def test_aggregate_cv_survives_missing_first_fold():
+    """If fold 0 died (placeholder with no metric keys), the aggregate must
+    still be computed from the surviving folds. Regression: metric names were
+    discovered from per_fold[0] only, yielding an empty aggregate when fold 0
+    was the casualty."""
+    from train import _aggregate_cv
+
+    per_fold = [
+        {'fold': 0},                       # died — no metrics
+        {'fold': 1, 'Dice': 0.70, 'JaccardIndex': 0.55},
+        {'fold': 2, 'Dice': 0.72, 'JaccardIndex': 0.57},
+    ]
+    agg = _aggregate_cv(per_fold)
+    assert agg['Dice']['n'] == 2
+    assert agg['Dice']['mean'] == pytest.approx(0.71)
+    assert agg['JaccardIndex']['n'] == 2
+
+
 # ---------------------------------------------------------------------------
 # Unet3DTrainer best-metric tracking
 # ---------------------------------------------------------------------------

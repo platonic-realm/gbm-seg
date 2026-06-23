@@ -505,9 +505,16 @@ def _aggregate_cv(per_fold: list) -> dict:
     if not per_fold:
         return {}
     skip = {'fold', 'best_epoch', 'best_step'}
-    metric_names = [k for k in per_fold[0]
-                    if k not in skip
-                    and isinstance(per_fold[0][k], (int, float))]
+    # Discover metric names from the UNION of all folds, not just per_fold[0].
+    # If fold 0 died (a placeholder {'fold': 0} with no metric keys), keying
+    # off per_fold[0] alone would yield an empty aggregate even when folds
+    # 1..k-1 succeeded. Iterate in first-seen order for stable output.
+    metric_names = []
+    for fold in per_fold:
+        for k, v in fold.items():
+            if k not in skip and k not in metric_names \
+                    and isinstance(v, (int, float)):
+                metric_names.append(k)
     out = {}
     for name in metric_names:
         vals = np.array([d[name] for d in per_fold if d.get(name) is not None],
