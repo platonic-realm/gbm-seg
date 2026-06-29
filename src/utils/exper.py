@@ -14,6 +14,7 @@ import yaml
 from infer import main_infer
 from src.data.folds import assign_folds, write_assignments
 from src.infer.blender_io import blender_prepare, blender_render, export_results
+from src.infer.continuity import calculate_continuity, compare_continuity
 from src.infer.stats import (
     calculate_stats,
     calculate_stats_one_sample,
@@ -293,6 +294,42 @@ def stats_reduce(_name: str,
         _resolve_stats_paths(_name, _root_path, _inference_tag)
     calculate_stats_reduce(inference_result_path, stats_dir, max_thickness)
     _maybe_expert_comparison(_name, _root_path, _inference_tag, stats_dir)
+
+
+def continuity(_name: str,
+               _root_path: str,
+               _inference_tag: str):
+    """Z-continuity analysis — quantifies the along-Z jaggedness of the
+    predictions that the validation Dice can't see (the axis ContLoss
+    targets). Dataset-agnostic: point it at any inference tag (validation or
+    test predictions). Writes <tag>_continuity/continuity_result.yaml."""
+    if not experiment_exists(_root_path, _name):
+        raise FileNotFoundError(f"Experiment '{_name}' doesn't exist")
+
+    inference_root = Path(os.path.join(_root_path, _name, 'results-infer'))
+    inference_result_path = inference_root / _inference_tag
+    if not inference_result_path.exists():
+        raise FileNotFoundError(f"Incorrect path: {inference_result_path}")
+
+    output_dir = inference_root / f"{_inference_tag}_continuity"
+    calculate_continuity(inference_result_path, output_dir)
+
+
+def continuity_compare(_root_path: str,
+                       _specs: list):
+    """Tabulate the continuity aggregate of several runs side by side
+    (e.g. a Cont vs CrossEntropy comparison). Each spec is an
+    ``EXPERIMENT:INFERENCE_TAG`` string; the experiment name is the column
+    label. Runs may live in different experiments (the ablation cells do)."""
+    runs = {}
+    for spec in _specs:
+        if ':' not in spec:
+            raise ValueError(
+                f"continuity-compare spec must be EXPERIMENT:TAG, got '{spec}'")
+        exp, tag = spec.split(':', 1)
+        runs[exp] = (Path(_root_path) / exp / 'results-infer'
+                     / f"{tag}_continuity" / "continuity_result.yaml")
+    compare_continuity(runs)
 
 
 def export(_name: str,

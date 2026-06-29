@@ -418,6 +418,28 @@ def parse_exper() -> None:
                                      help='accepted for CLI symmetry; the '
                                           'per-sample stage already clipped')
 
+    # `continuity` — Z-jaggedness analysis of the predictions (the axis the
+    # ContLoss continuity term targets but the validation Dice can't see).
+    continuity_parser = subparsers.add_parser(
+        'continuity',
+        help='Z-continuity analysis of inference predictions (raw + PSP); '
+             'quantifies along-Z smoothness Dice cannot measure')
+    continuity_parser.add_argument('name', help='name of the experiment.')
+    continuity_parser.add_argument('-it', '--inference-tag', required=True,
+                                   help='inference tag to analyse (validation '
+                                        'or test predictions)')
+
+    # `continuity-compare` — tabulate several runs' continuity side by side
+    # (e.g. a Cont vs CrossEntropy comparison across ablation cells).
+    continuity_cmp_parser = subparsers.add_parser(
+        'continuity-compare',
+        help='tabulate continuity aggregates of several runs side by side')
+    continuity_cmp_parser.add_argument(
+        'runs', nargs='+',
+        help='one or more EXPERIMENT:INFERENCE_TAG specs to compare, e.g. '
+             'lossabl_swin__cont__fold0:snap_... '
+             'lossabl_swin__crossentropy__fold0:snap_...')
+
     # `labels-as-pred` — copy training labels into the inference output
     # layout so psp/morph/stats can be run against ground truth. See
     # src/infer/labels_as_pred.py.

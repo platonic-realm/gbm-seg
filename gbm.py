@@ -151,6 +151,19 @@ def _do_stats_reduce(args, configs):
                        args.clipping)
 
 
+def _do_continuity(args, configs):
+    configure_logger(configs, _log_to_file=False)
+    exper.continuity(args.name,
+                     configs['experiments']['root'],
+                     args.inference_tag)
+
+
+def _do_continuity_compare(args, configs):
+    configure_logger(configs, _log_to_file=False)
+    exper.continuity_compare(configs['experiments']['root'],
+                             args.runs)
+
+
 def _do_labels_as_pred(args, configs):
     """Materialise training labels as prediction.{npz,tif} files so the
     downstream psp/morph/stats pipeline can be run against ground truth.
@@ -212,6 +225,8 @@ HANDLERS = {
     'export':          _do_export,
     'stats':           _do_stats,
     'stats-reduce':    _do_stats_reduce,
+    'continuity':         _do_continuity,
+    'continuity-compare': _do_continuity_compare,
     'labels-as-pred':  _do_labels_as_pred,
     'ablate':       _do_ablate,
     'infer-ablate': _do_infer_ablate,
