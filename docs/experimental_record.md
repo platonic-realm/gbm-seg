@@ -2,10 +2,10 @@
 
 **Purpose.** A self-contained record of the experiments, findings, methodology,
 and code changes behind the GBM-segmentation paper. Written so that a future
-author — with only this repo (no chat session, no assistant memory, possibly a
-different machine) — can reconstruct what was done, why, and where the
-artifacts live. This is NOT the paper; it is the notes the paper is written
-from. Keep it updated as experiments land.
+author — working from this repo alone, possibly on a different machine — can
+reconstruct what was done, why, and where the artifacts live. This is NOT the
+paper; it is the notes the paper is written from. Keep it updated as
+experiments land.
 
 Last updated: 2026-07-01. Repo: `platonic-realm/gbm-segmentation`.
 Numbers below were measured on the `main` branch at the commits listed in
@@ -103,7 +103,7 @@ under-trains; all-data finals used **8 epochs (~16 k steps)** as a measured
 extension that stays below the roughening regime.
 
 ### F4 — Offline augmentation: Dice-neutral but morphometry-moving
-Earlier SwinUNETR ablation (offline aug on vs off; see memory / prior runs).
+Earlier SwinUNETR ablation (offline aug on vs off; see archived prior runs).
 Held-out expert comparison: Dice tied (aug 0.696 / noaug 0.704, both ≈ the
 ~0.71 inter-annotator ceiling). Recall/precision trade: aug → higher recall
 (TPR ≈ 0.80), noaug → higher precision (PPV ≈ 0.67). **Downstream GBM thickness
@@ -233,7 +233,7 @@ degenerate handling, end-to-end, compare table).
 
 ---
 
-## 6. Code changes this session (reproducibility + correctness)
+## 6. Code changes in this campaign (reproducibility + correctness)
 
 Several were **correctness fixes that could have corrupted results** if left —
 call these out in the paper's reproducibility statement. Commit SHAs in §7.

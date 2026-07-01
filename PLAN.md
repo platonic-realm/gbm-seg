@@ -11,7 +11,7 @@ The master plan / discussion ledger (with full per-item rationale and pending wo
 The work splits cleanly into two passes:
 
 1. **Pass 1 — Code-quality overhaul (Phases 1–5)**: correctness bug fixes, dead-code purge, architectural cleanup, test suite, lint baseline. Single commit `9b543ff`. Did not change methodology or behaviour by design — only fixed bugs and reorganised.
-2. **Pass 2 — Methodology review (Phases 6+)**: acted on a thorough scientific review by a DL-research-scientist agent. Items selected on the basis of impact, evidence in the literature, and compatibility with the project's specific contribution (label-efficient 3D segmentation at the upsampled isotropic grid).
+2. **Pass 2 — Methodology review (Phases 6+)**: acted on a thorough scientific review of the methodology. Items selected on the basis of impact, evidence in the literature, and compatibility with the project's specific contribution (label-efficient 3D segmentation at the upsampled isotropic grid).
 
 ---
 
@@ -27,7 +27,7 @@ This rules out: anisotropic kernels in shallow layers (B1), nnU-Net's auto-detec
 
 ### Continuity loss is intentional
 
-ContLoss was added because **Podocin-mutation labels have inter-slice gaps**; the regulariser forces continuous predictions despite discontinuous ground truth. clDice / boundary loss are the *wrong* remedies here — both preserve label topology, which would re-introduce the gaps. The agent's clDice recommendation is a category error in this context. Whether ContLoss is still earning its place after the patch-level rotation + label-stacking augmentation is unknown; that's what the A2 ablation will measure.
+ContLoss was added because **Podocin-mutation labels have inter-slice gaps**; the regulariser forces continuous predictions despite discontinuous ground truth. clDice / boundary loss are the *wrong* remedies here — both preserve label topology, which would re-introduce the gaps. The clDice recommendation from the review is a category error in this context. Whether ContLoss is still earning its place after the patch-level rotation + label-stacking augmentation is unknown; that's what the A2 ablation will measure.
 
 ### Eventual removal targets (informing design)
 
@@ -96,9 +96,9 @@ Set up pytest, added 31 regression tests pinning every Phase 1 fix. Coverage on 
 
 ---
 
-## Pass 2: Methodology review — DL-research-scientist agent
+## Pass 2: Methodology review
 
-A second agent reviewed the methodology (architecture choices, training protocol, inference strategy, loss design, PSF physics, reproducibility). 25 items catalogued (A1–G1); each was discussed conversationally with the user before deciding. Below is the decision matrix.
+A second review covered the methodology (architecture choices, training protocol, inference strategy, loss design, PSF physics, reproducibility). 25 items catalogued (A1–G1); each was discussed before deciding. Below is the decision matrix.
 
 ### Decisions
 
